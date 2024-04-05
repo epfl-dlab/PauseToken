@@ -21,5 +21,5 @@ To generate a pause token augmented dataset, you can tweet the following paramet
 Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
-python gs8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1}' --augm_dataset_save_location ../data/gs8k_pause_injected --pause_augm_col_name "pause_augmented_answer"
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "pause_augmented_answer"
 ```
