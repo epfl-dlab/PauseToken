@@ -9,7 +9,7 @@ pip install -r pip_requirements.txt
 
 ## Data Generation
 
-To generate a pause token augmented dataset, you can tweet the following parameters:
+To generate a pause token augmented dataset, you can tweek the following parameters:
 
 - `dataset_location`: The location of the dataset to be augmented.
 - `pause_token`: The pause token string to be used for augmentation.
@@ -21,5 +21,5 @@ To generate a pause token augmented dataset, you can tweet the following paramet
 Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
-python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "pause_augmented_answer"
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer"
 ```
