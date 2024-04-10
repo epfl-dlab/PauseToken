@@ -3,6 +3,7 @@ import os
 import re
 import argparse
 import json
+import random
 DATA_DIR = "../data/" 
 
 def dict_type(string):
@@ -54,7 +55,7 @@ def add_pause(string, idx ,n_pauses, pause_token):
     return string[:idx] + pause_toks + string[idx:]
 
 
-def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token):
+def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses):
     """ Inject pauses in a string based on the patterns provided
     
     :param input_string: The string in which the pauses are to be injected
@@ -63,6 +64,8 @@ def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token):
     :type n_pauses_per_patterns: dict
     :param pause_token: The pause token to be injected
     :type pause_token: str
+    :param n_random_pauses: The number of random pauses to be injected (using uniform distribution)
+    :type n_random_pauses: int
     :return: The string with the pauses injected
     :rtype: str
     """
@@ -84,14 +87,21 @@ def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token):
         )
     
     # Add pauses at the beginning of the string if one of the patterns is \n
-    if "\n" in patterns:
-        
+    if "\n" in patterns and n_pauses_per_patterns["\n"] > 0:
         augmented_string =  add_pause(
                 string = augmented_string,
                 idx = 0,
                 n_pauses = n_pauses_per_patterns["\n"],
                 pause_token = pause_token
             )
+        
+    if n_random_pauses > 0:
+        splited_augm_str = augmented_string.split(" ")
+        random_indices = [random.randint(0, len(splited_augm_str)) for _ in range(n_random_pauses)]
+        random_indices.sort(reverse=True)
+        for idx in random_indices:
+            splited_augm_str.insert(idx, pause_token)
+        augmented_string = " ".join(splited_augm_str)
     return augmented_string
 
 
@@ -101,6 +111,7 @@ def inject_pauses(
             r"=": 1,
             r"\n": 1
             },
+        n_random_pauses=0,
         pause_token = "<|PAUSE|>",
         pause_augm_col_name = "pause_augmented_answer",
     ):
@@ -115,7 +126,7 @@ def inject_pauses(
     """
     
     input_string = sample["answer"]
-    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token)
+    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses)
     return sample
 
 
@@ -149,6 +160,13 @@ def parse_args():
     )
     
     parser.add_argument(
+        "--n_random_pauses",
+        default=0,
+        type=int,
+        help="The number of pauses to be injected at random locations (using uniform distribution)"
+    )
+    
+    parser.add_argument(
         "--augm_dataset_save_location",
         type=str,
         default=os.path.join(DATA_DIR, "gs8k_pause_injected"),
@@ -168,6 +186,13 @@ def parse_args():
         help="Enable verbose mode",
     )
     
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=123,
+        help="Seed for random number generation"
+    )
+    
     args = parser.parse_args()
     
     if args.verbose:
@@ -182,6 +207,9 @@ if __name__ == "__main__":
     
     args = parse_args()
     
+    if args.seed is not None:
+        random.seed(args.seed)
+    
     if args.verbose:
         print("Loading Dataset...")
     
@@ -192,7 +220,7 @@ if __name__ == "__main__":
     if args.verbose:
         print("Injecting Pauses...")
     dataset = dataset.map(
-        lambda sample: inject_pauses(sample,args.n_pauses_per_patterns, args.pause_token, args.pause_augm_col_name)
+        lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name)
     )
     
     if args.verbose:
