@@ -17,9 +17,11 @@ To generate a pause token augmented dataset, you can tweek the following paramet
 - `augm_dataset_save_location`: The location where the augmented dataset will be saved.
 - `pause_augm_col_name`: The name of the column where the augmented data will be saved in the dataset
 - `verbose`: If set, the script will print the progress of the augmentation process.
+- `n_random_pauses`: The number of pauses to be injected at random locations (using uniform distribution)
+- `seed`: The seed to be used for random number generation
 
 Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
-python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer"
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0
 ```
