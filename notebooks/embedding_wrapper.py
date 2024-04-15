@@ -82,33 +82,20 @@ class EmbeddingWrapper2(nn.Module):
 class EmbeddingWrapper3(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
         super().__init__()
-        self.embedding = nn.Embedding(num_embeddings, old_embedding.embedding_dim)
-        self.embedding.to(old_embedding.weight.device).to(old_embedding.weight.dtype)
-        self.embedding.weight.data[:old_embedding.num_embeddings] = old_embedding.weight.data
+        self.old_embedding = nn.Embedding(old_embedding.num_embeddings, old_embedding.embedding_dim)
+        self.old_embedding.weight.data = old_embedding.weight.data.clone()
+        self.new_embedding = nn.Embedding(num_embeddings - old_embedding.num_embeddings, old_embedding.embedding_dim)
 
-        # ToDo: I don't think this has any effect
         if freeze_old:
-            for param in old_embedding.parameters():
+            for param in self.old_embedding.parameters():
                 param.requires_grad = False
 
-        # register hook to update gradients
         self.num_old_embeddings = old_embedding.num_embeddings
-        self.embedding.register_full_backward_hook(self._hook)
-
-    def _hook(self, module, grad_input, grad_output):
-        # grad_input is a tuple (grad_wrt_output, grad_wrt_weight, grad_wrt_bias)
-        # We only want to modify grad_wrt_weight
-        grad_wrt_weight = grad_input[1]
-
-        # Zero out gradients for original embeddings
-        if grad_wrt_weight is not None:
-            grad_wrt_weight[:self.num_old_embeddings].zero_()
-
-        # Return modified grad_input and unchanged grad_output
-        return (grad_input[0], grad_wrt_weight, grad_input[2]), grad_output
 
     def forward(self, x):
-        return self.embedding(x)
+        old_x = x[x < self.num_old_embeddings]
+        new_x = x[x >= self.num_old_embeddings] - self.num_old_embeddings
+        return torch.cat([self.old_embedding(old_x), self.new_embedding(new_x)], dim=0)
 
 class Llama2EmbeddingSurgeon():
     def __init__(self, llama, extended_tokenizer):
@@ -241,7 +228,8 @@ if __name__=="__main__":
 
     dataset = dataset.map(formatting_prompts_func, batched=True)
 
-    w_before = model.base_model.wte.embedding.weight.detach().cpu().clone()
+    w_old_before = model.base_model.wte.old_embedding.weight.detach().cpu().clone()
+    w_new_before = model.base_model.wte.new_embedding.weight.detach().cpu().clone()
 
     from trl import SFTTrainer
     from transformers import TrainingArguments
@@ -278,7 +266,8 @@ if __name__=="__main__":
     trainer_stats = trainer.train()
 
     # compare w_before and w_after
-    w_after = model.base_model.wte.embedding.weight.detach().cpu().clone()
-    print(w_before.shape, w_after.shape)
-    print(w_before, w_after)
-    assert torch.allclose(w_before, w_after[:w_before.shape[0]])
+    w_old_after = model.base_model.wte.old_embedding.weight.detach().cpu().clone()
+    w_new_after = model.base_model.wte.new_embedding.weight.detach().cpu().clone()
+
+    print(torch.allclose(w_old_before, w_old_after))
+    print(torch.allclose(w_new_before, w_new_after))
