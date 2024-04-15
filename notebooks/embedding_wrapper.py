@@ -83,8 +83,9 @@ class EmbeddingWrapper3(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
         super().__init__()
         self.old_embedding = nn.Embedding(old_embedding.num_embeddings, old_embedding.embedding_dim)
+        self.embedding_dim = old_embedding.embedding_dim
         self.old_embedding.weight.data = old_embedding.weight.data.clone()
-        self.new_embedding = nn.Embedding(num_embeddings - old_embedding.num_embeddings, old_embedding.embedding_dim)
+        self.new_embedding = nn.Embedding(num_embeddings - old_embedding.num_embeddings, self.embedding_dim)
 
         if freeze_old:
             for param in self.old_embedding.parameters():
@@ -97,177 +98,46 @@ class EmbeddingWrapper3(nn.Module):
         new_x = x[x >= self.num_old_embeddings] - self.num_old_embeddings
         return torch.cat([self.old_embedding(old_x), self.new_embedding(new_x)], dim=0)
 
-class Llama2EmbeddingSurgeon():
-    def __init__(self, llama, extended_tokenizer):
-        self.llama = llama
-        self.extended_tokenizer = extended_tokenizer
-        self.extended_embedding = EmbeddingWrapper2(llama.model.embed_tokens, len(extended_tokenizer))
-        self.extended_unembedding = LinearWrapper(llama.lm_head, len(extended_tokenizer))
-
-    def get_surgeried_model(self):
-        self.backup_embed_tokens = self.llama.model.embed_tokens
-        self.backup_lm_head = self.llama.lm_head
-        self.llama.model.embed_tokens = self.extended_embedding
-        self.llama.lm_head = self.extended_unembedding
-        self.llama.config.vocab_size = len(self.extended_tokenizer)
-        return self.llama
-
-    def save(self, llama, path):
-        # check if llama is surgeried
-        assert llama.model.embed_tokens == self.extended_embedding
-        assert llama.lm_head == self.extended_unembedding
-        backup_embed_tokens = self.llama.model.embed_tokens
-        backup_lm_head = self.llama.lm_head
-        self.llama.model.embed_tokens = self.backup_embed_tokens
-        self.llama.lm_head = self.backup_lm_head
-        self.llama.save_pretrained(path)
-        self.llama.model.embed_tokens = backup_embed_tokens
-        self.llama.lm_head = backup_lm_head
-        self.extended_tokenizer.save_pretrained(path)
-        torch.save(self.extended_embedding.state_dict(), f"{path}/extended_embedding.pt")
-        torch.save(self.extended_unembedding.state_dict(), f"{path}/extended_unembedding.pt")
-
-    @classmethod
-    def load(cls, path):
-        extended_embedding_dict = torch.load(f"{path}/extended_embedding.pt")
-        extended_unembedding_dict = torch.load(f"{path}/extended_unembedding.pt")
-        llama = AutoModelForCausalLM.from_pretrained(path)
-        tokenizer = AutoTokenizer.from_pretrained(path)
-        surgeon = cls(llama, tokenizer)
-        surgeon.extended_embedding.load_state_dict(extended_embedding_dict)
-        surgeon.extended_unembedding.load_state_dict(extended_unembedding_dict)
-        return surgeon
-
-
-class PeftModelEmbeddingSurgeon():
-    def __init__(self, peft_model, extended_tokenizer):
-        try:
-            self.llama = peft_model.base_model.model
-        except AttributeError:
-            self.llama = peft_model
-        self.peft_model = peft_model
-        self.extended_tokenizer = extended_tokenizer
-        self.extended_embedding = EmbeddingWrapper2(self.llama.model.embed_tokens, len(extended_tokenizer))
-        self.extended_unembedding = LinearWrapper(self.llama.lm_head, len(extended_tokenizer))
-
-    def get_surgeried_model(self):
-        self.backup_embed_tokens = self.llama.model.embed_tokens
-        self.backup_lm_head = self.llama.lm_head
-        self.llama.model.embed_tokens = self.extended_embedding
-        self.llama.lm_head = self.extended_unembedding
-        self.llama.config.vocab_size = len(self.extended_tokenizer)
-        return self.peft_model
-
-    def save(self, peft_model, path):
-        self.llama.model.embed_tokens = self.backup_embed_tokens
-        self.llama.lm_head = self.backup_lm_head
-        self.peft_model.save_pretrained(path)
-        self.extended_tokenizer.save_pretrained(path)
-        torch.save(self.extended_embedding.state_dict(), f"{path}/extended_embedding.pt")
-        torch.save(self.extended_unembedding.state_dict(), f"{path}/extended_unembedding.pt")
-
-    @classmethod
-    def load(cls, path, **kwargs):
-        extended_embedding_dict = torch.load(f"{path}/extended_embedding.pt")
-        extended_unembedding_dict = torch.load(f"{path}/extended_unembedding.pt")
-        peft_model = AutoModelForCausalLM.from_pretrained(path, **kwargs)
-        tokenizer = AutoTokenizer.from_pretrained(path)
-        surgeon = cls(peft_model, tokenizer)
-        surgeon.extended_embedding.load_state_dict(extended_embedding_dict)
-        surgeon.extended_unembedding.load_state_dict(extended_unembedding_dict)
-        return surgeon
-
 
 if __name__=="__main__":
-    # set up a simple model and run a few training steps, ensure that the old embeddings are not changed
-    # and the new embeddings are changed
+    import torch
+    from torch import nn
+    from torch.optim import SGD
 
-    # set up a simple model
-    model = AutoModelForCausalLM.from_pretrained("gpt2")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    extended_tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    extended_tokenizer.add_special_tokens({"additional_special_tokens": ["<|NEW_TOKEN|>"]})
+    # Step 1: Create an instance of nn.Embedding as the old embedding and initialize its weights randomly.
+    old_embedding = nn.Embedding(10, 32)
+    old_embedding.weight.data.normal_()
 
-    # set up the surgeon
-    extended_embedding = EmbeddingWrapper3(model.base_model.wte, len(extended_tokenizer))
-    extended_unembedding = LinearWrapper(model.lm_head, len(extended_tokenizer))
+    # Step 2: Create an instance of EmbeddingWrapper3, passing the old embedding and the desired number of embeddings to its constructor.
+    num_embeddings = 15
+    embedding_wrapper = EmbeddingWrapper3(old_embedding, num_embeddings)
 
-    model.base_model.wte = extended_embedding
-    model.lm_head = extended_unembedding
-    model.config.vocab_size = len(extended_tokenizer)
+    # Step 3: Create a linear layer on top of the EmbeddingWrapper3.
+    linear_layer = nn.Linear(embedding_wrapper.embedding_dim, 1)
 
-    from datasets import load_dataset
+    # Step 4: Create some synthetic training data.
+    x = torch.randint(num_embeddings, (100,))  # 100 random integers between 0 and num_embeddings
+    y = torch.randint(2, (100,)).float()  # 100 random 0s and 1s
 
-    dataset = load_dataset("gsm8k", "main", split="train")
-    alpaca_prompt = """Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+    # Step 5: Train the model using a simple training loop.
+    optimizer = SGD(list(embedding_wrapper.parameters()) + list(linear_layer.parameters()), lr=0.01)
+    criterion = nn.BCEWithLogitsLoss()
 
-    ### Instruction:
-    {}
+    # store the old embedding weights
+    old_embedding_weights = old_embedding.weight.data.clone()
+    new_embedding_weights = embedding_wrapper.new_embedding.weight.data.clone()
 
-    ### Input:
-    {}
+    for epoch in range(10):
+        optimizer.zero_grad()
+        embeddings = embedding_wrapper(x)
+        logits = linear_layer(embeddings).squeeze()
+        loss = criterion(logits, y)
+        loss.backward()
+        optimizer.step()
+        print(f"Epoch {epoch + 1}, Loss: {loss.item()}")
 
-    ### Response:
-    {}"""
+    # check that the old embedding weights are the same
+    print("test passed: ", torch.allclose(old_embedding_weights, old_embedding.weight.data))
 
-    EOS_TOKEN = tokenizer.eos_token  # Must add EOS_TOKEN
-
-
-    def formatting_prompts_func(examples):
-        instructions = len(examples["question"]) * [
-            "Solve the math problem using a eval tool. The command eval[[expr]] allows you to evaluate an expression."]
-        inputs = examples["question"]
-        outputs = examples["answer"]
-        texts = []
-        for instruction, input, output in zip(instructions, inputs, outputs):
-            # Must add EOS_TOKEN, otherwise your generation will go on forever!
-            text = alpaca_prompt.format(instruction, input, output) + EOS_TOKEN
-            texts.append(text)
-        # print(texts)
-        return {"text": texts, }
-
-    dataset = dataset.map(formatting_prompts_func, batched=True)
-
-    w_old_before = model.base_model.wte.old_embedding.weight.detach().cpu().clone()
-    w_new_before = model.base_model.wte.new_embedding.weight.detach().cpu().clone()
-
-    from trl import SFTTrainer
-    from transformers import TrainingArguments
-    import os
-
-    tokenizer.pad_token = tokenizer.eos_token
-
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
-        eval_dataset=None,
-        dataset_text_field="text",
-        max_seq_length=1024,
-        dataset_num_proc=2,
-        packing=False,  # Can make training 5x faster for short sequences.
-        args=TrainingArguments(
-            gradient_checkpointing=False,
-            per_device_train_batch_size=1,
-            gradient_accumulation_steps=1,
-            warmup_steps=0,
-            max_steps=2,
-            # num_train_epochs = 1,
-            learning_rate=2e-3,
-            logging_steps=1,
-            optim="adamw_torch",
-            weight_decay=0.01,
-            # lr_scheduler_type = "linear",
-            seed=3407,
-            output_dir="outputs",
-        ),
-    )
-
-    trainer_stats = trainer.train()
-
-    # compare w_before and w_after
-    w_old_after = model.base_model.wte.old_embedding.weight.detach().cpu().clone()
-    w_new_after = model.base_model.wte.new_embedding.weight.detach().cpu().clone()
-
-    print(torch.allclose(w_old_before, w_old_after))
-    print(torch.allclose(w_new_before, w_new_after))
+    # check that the new embedding weights are different
+    print("test passed: ", not torch.allclose(new_embedding_weights, embedding_wrapper.new_embedding.weight.data))
