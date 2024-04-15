@@ -35,20 +35,22 @@ class EmbeddingWrapperMask(nn.Module):
 class EmbeddingWrapperHook(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
         super().__init__()
-        self.old_embedding = nn.Embedding(old_embedding.num_embeddings, old_embedding.embedding_dim)
-        self.embedding_dim = old_embedding.embedding_dim
-        self.old_embedding.weight.data = old_embedding.weight.data.clone()
-        self.new_embedding = nn.Embedding(num_embeddings - old_embedding.num_embeddings, self.embedding_dim)
 
         self.num_old_embeddings = old_embedding.num_embeddings
+        self.embedding_dim = old_embedding.embedding_dim
+        self.new_embedding = nn.Embedding(num_embeddings, self.embedding_dim)
+
+        self.new_embedding.weight.data[:self.num_old_embeddings] = old_embedding.weight.data.clone()
 
         if freeze_old:
-            self.old_embedding.weight.register_hook(lambda grad: grad * 0)
+            self.new_embedding.weight.register_hook(self._hook)
+
+    def _hook(self, grad):
+        grad[:self.num_old_embeddings] = 0
+        return grad
 
     def forward(self, x):
-        old_x = x[x < self.num_old_embeddings]
-        new_x = x[x >= self.num_old_embeddings] - self.num_old_embeddings
-        return torch.cat([self.old_embedding(old_x), self.new_embedding(new_x)], dim=0)
+        return self.new_embedding(x)
 
 
 class PartiallyFrozenEmbedding(torch.autograd.Function):
@@ -110,7 +112,7 @@ if __name__=="__main__":
 
     # Step 2: Create an instance of EmbeddingWrapper3, passing the old embedding and the desired number of embeddings to its constructor.
     num_embeddings = 15
-    embedding_wrapper = EmbeddingWrapperHook(old_embedding, num_embeddings)
+    embedding_wrapper = EmbeddingWrapperFunction(old_embedding, num_embeddings)
 
     # Step 3: Create a linear layer on top of the EmbeddingWrapper3.
     linear_layer = nn.Linear(embedding_wrapper.embedding_dim, 1)
@@ -138,6 +140,9 @@ if __name__=="__main__":
 
     # check that the old embedding weights are the same
     print("test passed: ", torch.allclose(old_embedding_weights, embedding_wrapper.old_embedding.weight.data))
+
+    # for hook embedding wrapper
+    #print("test passed: ", torch.allclose(old_embedding_weights, embedding_wrapper.new_embedding.weight.data[:embedding_wrapper.num_old_embeddings]))
 
     # check that the new embedding weights are different
     print("test passed: ", not torch.allclose(new_embedding_weights, embedding_wrapper.new_embedding.weight.data))
