@@ -93,11 +93,19 @@ class EmbeddingWrapper3(nn.Module):
 
         # register hook to update gradients
         self.num_old_embeddings = old_embedding.num_embeddings
-        self.embedding.register_backward_hook(self._hook)
+        self.embedding.register_full_backward_hook(self._hook)
 
-    def _hook(self, grad):
-        # zero out the gradient for the embedding weights coming from the old embedding
-        grad[:self.num_old_embeddings].zero_()
+    def _hook(self, module, grad_input, grad_output):
+        # grad_input is a tuple (grad_wrt_output, grad_wrt_weight, grad_wrt_bias)
+        # We only want to modify grad_wrt_weight
+        grad_wrt_weight = grad_input[1]
+
+        # Zero out gradients for original embeddings
+        if grad_wrt_weight is not None:
+            grad_wrt_weight[:self.num_old_embeddings].zero_()
+
+        # Return modified grad_input and unchanged grad_output
+        return (grad_input[0], grad_wrt_weight, grad_input[2]), grad_output
 
     def forward(self, x):
         return self.embedding(x)
