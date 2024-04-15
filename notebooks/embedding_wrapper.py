@@ -5,80 +5,6 @@ from tokenizers import AddedToken
 import torch
 from torch import nn
 
-
-# write torch.nn.Modules that can be used as a wrapper around huggingface models and change the embedding layer
-# and the unembedding layer
-class LinearWrapper(nn.Module):
-    def __init__(self, layer: nn.Linear, num_embeddings: int, freeze_old=True):
-        super().__init__()
-        self.layer = layer
-        self.num_embeddings = num_embeddings
-        self.n_new_tokens = num_embeddings - layer.out_features
-        self.new_embeddings = nn.Linear(layer.in_features, self.n_new_tokens, bias=False)
-        self.new_embeddings.to(layer.weight.device).to(layer.weight.dtype)
-        if freeze_old:
-            for param in self.layer.parameters():
-                param.requires_grad = False
-
-    def forward(self, x):
-        z1 = self.layer(x)
-        z2 = self.new_embeddings(x)
-        return torch.cat([z1, z2], dim=-1)
-
-
-class EmbeddingWrapper(nn.Module):
-    def __init__(self, embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
-        super().__init__()
-        self.embedding_dim = embedding.embedding_dim
-        self.num_embeddings = num_embeddings
-        self.n_new_tokens = num_embeddings - embedding.num_embeddings
-
-        # inspired from here
-        # https://github.com/huggingface/transformers/blob/185463784e0a0b4cd7974ce5bded7a52ae170f6d/src/transformers/modeling_utils.py#L2026
-        self.old_embeddings = nn.Embedding(self.num_embeddings, self.embedding_dim)
-        self.old_embeddings.weight.data = torch.ones_like(self.old_embeddings.weight.data) * 0  # 1e-7
-        self.old_embeddings.weight.data[:embedding.num_embeddings] = embedding.weight.data
-        self.old_embeddings.to(embedding.weight.device).to(embedding.weight.dtype)
-        self.new_embeddings = nn.Embedding(self.num_embeddings, self.embedding_dim)
-        self.new_embeddings.weight.data[:embedding.num_embeddings] = torch.ones_like(embedding.weight.data) * 0  # 1e-7
-        self.new_embeddings.to(embedding.weight.device).to(embedding.weight.dtype)
-        if freeze_old:
-            for param in self.old_embeddings.parameters():
-                param.requires_grad = False
-
-    def forward(self, x):
-        self.old_embeddings(x) + self.new_embeddings(x)
-
-
-class EmbeddingWrapper2(nn.Module):
-    def __init__(self, embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
-        super().__init__()
-        self.old_embeddings = embedding
-        self.num_embeddings = num_embeddings
-        self.embedding_dim = embedding.embedding_dim
-        self.n_new_tokens = num_embeddings - embedding.num_embeddings
-        self.new_embeddings = nn.Embedding(self.n_new_tokens, self.embedding_dim)
-        self.new_embeddings.to(embedding.weight.device).to(embedding.weight.dtype)
-        if freeze_old:
-            for param in self.old_embeddings.parameters():
-                param.requires_grad = False
-
-    def forward(self, x):
-        with torch.amp.autocast("cuda"):
-            mask_small = x < self.old_embeddings.num_embeddings
-            mask_large = x >= self.old_embeddings.num_embeddings
-            small_ids = x[mask_small]
-            large_ids = x[mask_large]
-            small_embs = self.old_embeddings(small_ids)
-            large_embs = self.new_embeddings(large_ids % self.old_embeddings.num_embeddings)
-            # assuming batch x seq x emb
-            y = torch.empty((x.shape[0], x.shape[1], small_embs.shape[-1]), dtype=large_embs.dtype,
-                            device=large_embs.device)
-            y[mask_small] = small_embs
-            y[mask_large] = large_embs
-            return y
-
-
 class EmbeddingWrapperMask(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
         super().__init__()
@@ -94,9 +20,17 @@ class EmbeddingWrapperMask(nn.Module):
         self.num_old_embeddings = old_embedding.num_embeddings
 
     def forward(self, x):
-        old_x = x[x < self.num_old_embeddings]
-        new_x = x[x >= self.num_old_embeddings] - self.num_old_embeddings
-        return torch.cat([self.old_embedding(old_x), self.new_embedding(new_x)], dim=0)
+        old_x_mask = x < self.num_old_embeddings
+        new_x_mask = x >= self.num_old_embeddings
+
+        old_x = x[old_x_mask]
+        new_x = x[new_x_mask] - self.num_old_embeddings
+
+        output = torch.zeros((len(x), self.old_embedding.embedding_dim), dtype=self.old_embedding.weight.dtype, device=self.old_embedding.weight.device)
+        output[old_x_mask] = self.old_embedding(old_x)
+        output[new_x_mask] = self.new_embedding(new_x)
+
+        return output
 
 class EmbeddingWrapperHook(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int, freeze_old=True):
@@ -150,8 +84,6 @@ class PartiallyFrozenEmbedding(torch.autograd.Function):
 
         return None, grad_new_embedding, None, None, None, None
 
-
-
 class EmbeddingWrapperFunction(nn.Module):
     def __init__(self, old_embedding: nn.Embedding, num_embeddings: int):
         super().__init__()
@@ -166,6 +98,7 @@ class EmbeddingWrapperFunction(nn.Module):
 
     def forward(self, x):
         return PartiallyFrozenEmbedding.apply(self.old_embedding.weight, self.new_embedding.weight, self.num_old_embeddings, self.embedding_dim,  x)
+
 if __name__=="__main__":
     import torch
     from torch import nn
@@ -177,7 +110,7 @@ if __name__=="__main__":
 
     # Step 2: Create an instance of EmbeddingWrapper3, passing the old embedding and the desired number of embeddings to its constructor.
     num_embeddings = 15
-    embedding_wrapper = EmbeddingWrapperFunction(old_embedding, num_embeddings)
+    embedding_wrapper = EmbeddingWrapperHook(old_embedding, num_embeddings)
 
     # Step 3: Create a linear layer on top of the EmbeddingWrapper3.
     linear_layer = nn.Linear(embedding_wrapper.embedding_dim, 1)
