@@ -47,12 +47,20 @@ def parse_args():
     parser.add_argument('--peft-config-r', default=16, type=int)
     parser.add_argument('--peft-config-lora-alpha', default=32, type=int)
     parser.add_argument('--peft-config-lora-dropout', default=0.05, type=float)
+    parser.add_argument('--wandb-user', default=None, type=str)
+    parser.add_argument('--wandb-project', default=None, type=str)
     return parser.parse_args()
 #python src/DPO/sft.py --model-name=google/gemma-2b --batch-size=16 --use-peft=false
 
 def main():
     args = parse_args()
-    
+    if args.wandb_project is not None:
+        import wandb
+        if args.wandb_user is None:
+            wandb.init(project=args.wandb_project)
+        else:
+            wandb.init(project=args.wandb_project, entity=args.wandb_user)
+        wandb.config.update(args)
     model_name = args.model_name
     task = args.task 
     if args.data_dir[-1] != '/':
@@ -81,7 +89,12 @@ def main():
     #### IS THIS THE ONLY ADDITION TO THE TOKENIZER we had in the end??
     tokenizer.pad_token=tokenizer.unk_token
     tokenizer.padding_side = 'right'  
-    peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=16, lora_alpha=32, lora_dropout=0.05)
+    peft_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM, 
+        inference_mode=False, 
+        r=args.peft_config_r, 
+        lora_alpha=args.peft_config_lora_alpha, 
+        lora_dropout=args.peft_config_lora_dropout)
     training_args = get_training_args(args)
 
     model = get_peft_model(model, peft_config)
@@ -98,6 +111,6 @@ def main():
     trainer.train()
     print("SAVING MODEL at ", args.output_dir)
     trainer.save_model(args.output_dir)
-    
+    wandb.finish()
 if __name__ == '__main__':
     main()
