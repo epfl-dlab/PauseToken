@@ -1,11 +1,25 @@
 # PauseToken
 
 ## Installation
-```
-conda create -n pausetok python=3.11
-conda activate pausetok
-pip install -r pip_requirements.txt
-```
+
+1. Create a new conda envrionment:
+    ```
+    conda create -n pausetok python=3.11
+    conda activate pausetok
+    ````
+2. Installing pytorch. I haven't found a version that works for both on runai and on iccluster 🥲 (something with the `trl` library causes problems)so here's my solution:
+    - **If you're on Runai**, install the following requirements for torch:
+        ```
+        pip install -r runai_torch_requirements.txt
+        ```
+    - **If you're on the iccluster**, install the following requirements for torch:
+        ```
+        pip install -r torch_requirements.txt
+        ```
+3. Install the rest of the requirements:
+    ```
+    pip install -r pip_requirements.txt
+    ```
 
 ## Data Generation
 
@@ -18,6 +32,7 @@ To generate a pause token augmented dataset, you can tweek the following paramet
 - `pause_augm_col_name`: The name of the column where the augmented data will be saved in the dataset
 - `verbose`: If set, the script will print the progress of the augmentation process.
 - `n_random_pauses`: The number of pauses to be injected at random locations (using uniform distribution)
+- `tokenizer_hf_name`: The name of the Hugging Face tokenizer to be used to insert random pauses. If None, spaces ' ' will be used to insert random pauses
 - `seed`: The seed to be used for random number generation
 
 Here is an example of how to use the script with the default parameters:
