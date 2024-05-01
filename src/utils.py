@@ -3,13 +3,115 @@ import os
 import json 
 import pandas as pd
 from datasets import Dataset
-from transformers import TrainingArguments
-import nltk
+from transformers import TrainingArguments, GenerationConfig
+from transformers.pipelines.pt_utils import KeyDataset
+
 import re
 import pathlib
-import openai 
 import time
 from tqdm import tqdm
+import argparse
+
+def count_num_token_occurences(token_id, tokenizer, text):    
+    tokenized_text = tokenizer(text)["input_ids"]
+    if isinstance(text, str):
+        return len(list(filter(lambda x: x == token_id, tokenized_text)))
+    elif isinstance(text, list):
+        return list(
+            map(
+                lambda x: len(list(filter(lambda y: y == token_id, x))),
+                tokenized_text
+            )
+        )   
+    else:
+        raise ValueError("Text must be either a string or a list of strings.")
+        
+def strip_special_tokens(text,tokenizer):
+    tokenized_text = tokenizer(text)["input_ids"]
+    return tokenizer.decode(tokenized_text, skip_special_tokens=True)
+
+def rollout(
+    model,
+    tokenizer,
+    dataset: Dataset,
+    prompt_field ,
+    generation_args= {
+        "temperature": 0.9,
+        "top_p": 0.9,
+        "repetition_penalty": 1.0,
+        "do_sample": True,
+        "max_new_tokens": 400,
+    },
+    batch_size=8
+    ):
+    
+    def decode_and_strip_pad_tokens(output,pad_token_id):
+        decoded_seq = tokenizer.batch_decode(output)
+        return tokenizer.batch_decode(
+            [list(filter(lambda x: x != pad_token_id,seq)) for seq in tokenizer(decoded_seq)["input_ids"]]
+        )
+    
+    was_in_training = model.training
+    model.eval()
+    res = []
+    #iterate dataset in batchs
+    for i in tqdm(range(0, len(dataset), batch_size),desc = "Rollout Step"): 
+        if i+batch_size > len(dataset):
+            batch = dataset[prompt_field][i:]
+        else:
+            batch = dataset[prompt_field][i:i + batch_size]
+            
+        tokenized_prompt = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            output = model.generate(
+                input_ids=tokenized_prompt.input_ids,
+                attention_mask=tokenized_prompt.attention_mask,
+                pad_token_id=tokenizer.pad_token_id,
+                **generation_args
+            )
+            
+        res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id))
+        
+    # pipe = pipeline(
+    #     task = "text-generation",
+    #     tokenizer = tokenizer,
+    #     model = model,
+    #     torch_dtype = "auto",
+    #     device_map="auto",
+    #     **generation_args
+    # )
+    
+    # res = pipe(KeyDataset(dataset, prompt_field))
+    
+    # breakpoint()
+    # res = list(
+    #     map(
+    #         lambda x: {
+    #             "generated_text": x[0]["generated_text"],
+    #         },
+    #         res
+    #     )
+    # )
+    res = [{"generated_text": text} for text in res]
+    if was_in_training:
+        model.train()
+        
+    return res
+        
+    
+def dict_type(string):
+    """ Convert a string to a dictionary
+    
+    :param string: A string that represents a dictionary
+    :type string: str
+    :return: A dictionary
+    :rtype: dict
+    """
+    try:
+        return json.loads(string)
+    except json.JSONDecodeError:
+        raise argparse.ArgumentTypeError("Invalid dictionary format. Must be a valid JSON string.")
+    
 
 def save_to(data, name, output_dir):
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -31,6 +133,7 @@ def low_resource_data(data):
     return new_data
 
 def chat_completion(messages, model="gpt-3.5-turbo", return_text=True, model_args=None):
+    import openai
     if model_args is None:
         model_args = {}
     while True:
@@ -75,6 +178,7 @@ def process_gpt_output(output_text):
             return None
         
 def remove_incomplete_last_sentence(text):
+    import nltk
     sentences = nltk.sent_tokenize(text)
 
     last_sentence = sentences[-1]

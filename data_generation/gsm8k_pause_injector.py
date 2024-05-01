@@ -4,20 +4,13 @@ import re
 import argparse
 import json
 import random
+from transformers import AutoTokenizer
+import sys
+sys.path.append("..")
+from src.utils import dict_type
 DATA_DIR = "../data/" 
 
-def dict_type(string):
-    """ Convert a string to a dictionary
-    
-    :param string: A string that represents a dictionary
-    :type string: str
-    :return: A dictionary
-    :rtype: dict
-    """
-    try:
-        return json.loads(string)
-    except json.JSONDecodeError:
-        raise argparse.ArgumentTypeError("Invalid dictionary format. Must be a valid JSON string.")
+
 
 def find_pattern(input_string,pattern):
     """ Find all occurences of a pattern in a string
@@ -55,7 +48,7 @@ def add_pause(string, idx ,n_pauses, pause_token):
     return string[:idx] + pause_toks + string[idx:]
 
 
-def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses):
+def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer):
     """ Inject pauses in a string based on the patterns provided
     
     :param input_string: The string in which the pauses are to be injected
@@ -96,12 +89,21 @@ def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_rando
             )
         
     if n_random_pauses > 0:
-        splited_augm_str = augmented_string.split(" ")
+        if tokenizer is None:
+            splited_augm_str = augmented_string.split(" ")
+        else:
+            tokenizer.add_tokens([pause_token], special_tokens=True)
+            splited_augm_str = tokenizer(augmented_string)["input_ids"]
+            pause_token = tokenizer(pause_token)["input_ids"][1]
         random_indices = [random.randint(0, len(splited_augm_str)) for _ in range(n_random_pauses)]
         random_indices.sort(reverse=True)
         for idx in random_indices:
             splited_augm_str.insert(idx, pause_token)
-        augmented_string = " ".join(splited_augm_str)
+        if tokenizer is None:
+            augmented_string = " ".join(splited_augm_str)
+        else:
+            augmented_string = tokenizer.decode(splited_augm_str)
+            
     return augmented_string
 
 
@@ -114,6 +116,7 @@ def inject_pauses(
         n_random_pauses=0,
         pause_token = "<|PAUSE|>",
         pause_augm_col_name = "pause_augmented_answer",
+        tokenizer = None,
     ):
     """ function used in map to inject pauses in a sample
     
@@ -126,7 +129,7 @@ def inject_pauses(
     """
     
     input_string = sample["answer"]
-    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses)
+    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer)
     return sample
 
 
@@ -164,6 +167,14 @@ def parse_args():
         default=0,
         type=int,
         help="The number of pauses to be injected at random locations (using uniform distribution)"
+    )
+    
+    parser.add_argument(
+        "--tokenizer_hf_name",
+        type=str,
+        default="None",
+        help="The name of the Hugging Face tokenizer to be used to insert random pauses. \
+        If None, spaces ' ' will be used to insert random pauses."
     )
     
     parser.add_argument(
@@ -217,10 +228,20 @@ if __name__ == "__main__":
                   "test": os.path.join(args.dataset_location, "test.json")}
     dataset = load_dataset("json", data_files=data_files)
     
+    
+    if args.tokenizer_hf_name:
+        if args.verbose:
+            print("Loading Tokenizer ...")
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_hf_name)
+    else:
+        if args.verbose:
+            print("No Tokenizer provided. Using spaces to insert random pauses.")
+        tokenizer = None
+    
     if args.verbose:
         print("Injecting Pauses...")
     dataset = dataset.map(
-        lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name)
+        lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer)
     )
     
     if args.verbose:
