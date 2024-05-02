@@ -38,7 +38,21 @@ To generate a pause token augmented dataset, you can tweek the following paramet
 Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
-python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1"
 ```
 
-## Train LLaMa
+<!-- ## Train LLaMa -->
+
+
+<!-- ## Reward Conditioned:
+- <ins> train </ins>:
+    - **With Mistral**:
+        ```
+        cd src
+        python reward_conditioned.py --data-dir "/dlabdata1/baldwin/PauseToken/data/" --model-name "/dlabdata1/llm_hub/Mistral-7B-v0.1" --n-epochs 1 --task "gsm8k_10_random_pause_injected_mistral" --batch-size 8 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --modules-to-save embed_tokens lm_head
+        ```
+- <ins> inference </ins>:
+    ```
+    cd src
+    python run_inference_rc.py --model-path <PATH-TO-YOUR-MODEL> --test-data-path /dlabdata1/baldwin/PauseToken/data/gsm8k/test.json --output-filename <NAME-OF-YOUR-OUTPUT-FILE-NAME>
+    ``` -->
