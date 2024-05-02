@@ -200,11 +200,10 @@ def main():
         trainer.train()
         print("SAVING MODEL at ", args.output_dir)
         trainer.save_model(args.output_dir)
-        
-        if i_outer_loop > 0:
-            rollout_dataset = reward_conditioned_rollout(model, tokenizer, train_data,reward, pause_token_id)
-            rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
-            rollout_dataset = concatenate_datasets([rollout_dataset, train_data])
+     
+        rollout_dataset = reward_conditioned_rollout(model, tokenizer, train_data,reward, pause_token_id)
+        rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
+        rollout_dataset = concatenate_datasets([rollout_dataset, train_data])
         
 
     
