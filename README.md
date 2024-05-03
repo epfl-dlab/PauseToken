@@ -40,6 +40,22 @@ Here is an example of how to use the script with the default parameters:
 cd data_generation
 python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1"
 ```
+## Train Models 
+
+To fine-tune a model on the training data: 
+```
+python src/sft.py --model-name=mistralai/Mistral-7B-v0.1 --n-epochs=2 --batch-size=8 --logging-steps=50 --use-peft=true --data-dir=data/gsm8k_jsonl/gsm8k --task=gsm8k --max-length=512 --save-steps=500 --eval-steps=300
+```
+
+To fine-tune a model with pause token: 
+```
+python3 src/sft_pause.py --model-name=mistralai/Mistral-7B-v0.1 --n-epochs=2 --batch-size=8 --logging-steps=50 --use-peft=true --data-dir=data/gsm8k_jsonl/gsm8k_10_random_pause_injected_mistral --task=gsm8k --max-length=512 --save-steps=500 --eval-steps=300
+```
+
+Evaluate models performance: 
+```
+python3 src/eval_script.py --model-path XXXX --test-data-path XXXX --output-file-name XXX
+```
 
 <!-- ## Train LLaMa -->
 

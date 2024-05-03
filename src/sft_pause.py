@@ -12,6 +12,7 @@ from peft import LoraConfig, TaskType, get_peft_model
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
+from tokenizers import AddedToken
 
 def formatting_prompts_func(example):
     data = []
@@ -24,7 +25,7 @@ def formatting_prompts_func(example):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data-dir', default='data/sft/')
+    parser.add_argument('--data-dir', default='data/gsm8k/')
     parser.add_argument('--model-name', default='google/gemma-2b')
     parser.add_argument('--n-epochs', default=10, type=int)
     parser.add_argument('--batch-size', default=8, type=int)
@@ -41,16 +42,18 @@ def parse_args():
     parser.add_argument('--task', required=True) ## arguments or claims
     parser.add_argument('--max-length', default=512, type=int)
     parser.add_argument('--use-peft', default='false')
+    parser.add_argument('--modules-to-save', default=[],nargs='*')
     parser.add_argument('--peft-config-r', default=16, type=int)
     parser.add_argument('--peft-config-lora-alpha', default=32, type=int)
     parser.add_argument('--peft-config-lora-dropout', default=0.05, type=float)
     return parser.parse_args()
 
+
 def main():
     args = parse_args()
     
     model_name = args.model_name
-    task = args.task
+    task = args.task 
     if args.data_dir[-1] != '/':
         args.data_dir += '/'
 
@@ -69,17 +72,23 @@ def main():
     elif 'llama' in args.model_name.lower():
         model = transformers.LlamaForCausalLM.from_pretrained(pretrained_model_name_or_path=model_name, device_map='auto')
         tokenizer = transformers.LlamaTokenizer.from_pretrained(model_name)    
-    else: ## if we use Gemma we can just use the AutoModelForCausalLM
+    else: ## if we use Gemma or Mistral we can just use the AutoModelForCausalLM
         model = AutoModelForCausalLM.from_pretrained(model_name, device_map='auto', torch_dtype=torch.bfloat16)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-   
-        
+    
     #### IS THIS THE ONLY ADDITION TO THE TOKENIZER we had in the end??
+    pause_token = AddedToken("<|pause|>", 
+                         single_word=False, 
+                         lstrip=False, 
+                         rstrip=False)
+    
+    tokenizer.add_tokens([pause_token], special_tokens=True)
+    pause_token_id = tokenizer.convert_tokens_to_ids("<|pause|>")
     tokenizer.pad_token=tokenizer.unk_token
     
+    model.resize_token_embeddings(len(tokenizer))
     peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM, inference_mode=False, r=16, lora_alpha=32, lora_dropout=0.05, modules_to_save=['lm_head', 'embed_tokens'])
     training_args = get_training_args(args)
-
     model = get_peft_model(model, peft_config)
     
     trainer = SFTTrainer(
