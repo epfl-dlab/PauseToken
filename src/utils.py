@@ -5,7 +5,7 @@ import pandas as pd
 from datasets import Dataset
 from transformers import TrainingArguments, GenerationConfig
 from transformers.pipelines.pt_utils import KeyDataset
-
+from constraints import PauseGroundTruthConstraint
 import re
 import pathlib
 import time
@@ -30,6 +30,85 @@ def strip_special_tokens(text,tokenizer):
     tokenized_text = tokenizer(text)["input_ids"]
     return tokenizer.decode(tokenized_text, skip_special_tokens=True)
 
+def strip_pause_tokens(text,tokenizer,pause_token_id):
+    pause_token = tokenizer.decode(pause_token_id)
+    return text.replace(pause_token,"")
+
+def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
+        return tokenizer.batch_decode([list(filter(lambda x: x != pad_token_id,seq))for seq in output])
+        
+def pause_ground_truth_constrained_rollout(
+    model,
+    tokenizer,
+    dataset: Dataset,
+    prompt_field,
+    ground_truth_field,
+    pause_token_id,
+    generation_args= {
+        "temperature": 0.9,
+        "top_p": 0.9,
+        "repetition_penalty": 1.0,
+        "do_sample": True,
+        "max_length": 400,
+    },
+    batch_size = 8,
+    n_samps_per_prompt = 1,
+    include_gt = False,
+):
+    constraint_module = PauseGroundTruthConstraint(tokens_to_filter=[pause_token_id,tokenizer.pad_token_id], max_tokens=generation_args.get("max_length"))
+    was_in_training = model.training
+    og_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+    model.eval()
+    res = []
+    
+
+    #iterate dataset in batchs
+    for i in tqdm(range(0, len(dataset), batch_size),desc = "Rollout Step"): 
+        
+        if i+batch_size > len(dataset):
+            batch = dataset[prompt_field][i:]
+            ground_truths = list(map(lambda x: strip_pause_tokens(x, tokenizer, pause_token_id), dataset[ground_truth_field][i:]))
+            
+        else:
+            batch = dataset[prompt_field][i:i + batch_size]
+            ground_truths = list(map(lambda x: strip_pause_tokens(x, tokenizer, pause_token_id), dataset[ground_truth_field][i:i + batch_size]))
+            
+        bs = len(batch)
+        tokenized_prompt = tokenizer(batch, padding=True, return_tensors="pt").to(model.device)
+        tokenized_ground_truth = tokenizer(ground_truths, padding=False)["input_ids"]
+        prefix_allowed_tokens_fn = constraint_module.get_prefix_allowed_tokens_fn(
+            batch_info={"tokenized_ground_truths": tokenized_ground_truth, "pause_token_id": pause_token_id, "pad_token_id": tokenizer.pad_token_id}
+        )
+        tmp_res_per_batch_id = {j: [] for j in range(bs)}
+        for _ in range(n_samps_per_prompt):
+            
+            with torch.no_grad():
+                output = model.generate(
+                    input_ids=tokenized_prompt.input_ids,
+                    attention_mask=tokenized_prompt.attention_mask,
+                    pad_token_id=tokenizer.pad_token_id,
+                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    **generation_args
+                )
+            
+            for j,text in enumerate(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id,tokenizer)):
+                tmp_res_per_batch_id[j].append({"generated_text": text, prompt_field: batch[j]}) 
+
+        if include_gt:
+            for i,gt in enumerate(tokenizer.batch_decode(tokenized_ground_truth)):
+                tmp_res_per_batch_id[i].append({"generated_text": gt, prompt_field: batch[j]})
+            
+
+        for batch_id, texts in tmp_res_per_batch_id.items():
+            res.extend(texts)      
+            
+    if was_in_training:
+        model.train()
+    tokenizer.padding_side = og_padding_side
+    return res
+
+
 def rollout(
     model,
     tokenizer,
@@ -44,13 +123,8 @@ def rollout(
     },
     batch_size=8
     ):
-    
-    def decode_and_strip_pad_tokens(output,pad_token_id):
-        decoded_seq = tokenizer.batch_decode(output)
-        return tokenizer.batch_decode(
-            [list(filter(lambda x: x != pad_token_id,seq)) for seq in tokenizer(decoded_seq)["input_ids"]]
-        )
-    
+    og_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
     was_in_training = model.training
     model.eval()
     res = []
@@ -70,32 +144,12 @@ def rollout(
                 **generation_args
             )
             
-        res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id))
+        res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id, tokenizer))
         
-    # pipe = pipeline(
-    #     task = "text-generation",
-    #     tokenizer = tokenizer,
-    #     model = model,
-    #     torch_dtype = "auto",
-    #     device_map="auto",
-    #     **generation_args
-    # )
-    
-    # res = pipe(KeyDataset(dataset, prompt_field))
-    
-    # breakpoint()
-    # res = list(
-    #     map(
-    #         lambda x: {
-    #             "generated_text": x[0]["generated_text"],
-    #         },
-    #         res
-    #     )
-    # )
     res = [{"generated_text": text} for text in res]
     if was_in_training:
         model.train()
-        
+    tokenizer.padding_side = og_padding_side
     return res
         
     

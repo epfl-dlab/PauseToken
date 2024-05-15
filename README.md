@@ -39,6 +39,8 @@ Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
 python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1"
+
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location ../data/gsm8k_random_pauses_5_samples_per_dp --pause_augm_col_name "answer" --verbose --n_random_pauses 50 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1" --variable_number_of_pauses --n_generated_samples_per_datapoint 5 --verbose
 ```
 ## Train Models 
 

@@ -8,13 +8,14 @@ from transformers import TrainingArguments
 from tokenizers import AddedToken
 import argparse
 import torch
-from utils import get_training_args, rollout, dict_type,strip_special_tokens,count_num_token_occurences
+from utils import get_training_args, pause_ground_truth_constrained_rollout, dict_type,strip_special_tokens,count_num_token_occurences
 from peft import LoraConfig, TaskType, get_peft_model,AutoPeftModelForCausalLM
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset,concatenate_datasets
 import os
 import hydra
+from rewards import LogLikelihoodReward
 import re
 
 
@@ -26,26 +27,30 @@ REWARD_TEMPLATE = " ### Reward:"
 N_PAUSE_TOKENS_TEMPLATE = " ### Number of Pause Tokens:"
 N_PAUSE_TOKENS_AT_INFERENCE = 10
 
-def reward_conditioned_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id) -> Dataset:
+def reward_conditioned_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch_size, n_samps_per_prompt) -> Dataset:
     def substitute_with_correct_reward_and_n_pause(x):
         success = True
-        try:
-            rollout_result = x[0]
-            ground_truth = x[1]["answer"]
-            generated_text = rollout_result["generated_text"]
-            question, max_reward_answer = generated_text.split(REWARD_TEMPLATE)
-            max_reward, gen_answer = max_reward_answer.split(ANSWER_TEMPLATE)
-            n_pauses = count_num_token_occurences(pause_token_id,tokenizer,gen_answer)
-            question = x[1]["question"]
-            true_reward = reward(
-                model_output = strip_special_tokens(gen_answer,tokenizer=tokenizer),
-                ground_truth = strip_special_tokens(ground_truth,tokenizer)
-            )
-            text = f" [INST]{QUESTION_TEMPLATE}{question} [/INST]\n\n{REWARD_TEMPLATE} {true_reward}\n\n{N_PAUSE_TOKENS_TEMPLATE} {n_pauses}\n\n{ANSWER_TEMPLATE}{gen_answer}"
-            text = re.sub(r'(<s>)+', r'<s>', text)
-        except:
-            text = x[0]["generated_text"]
-            success = False
+        # try:
+        rollout_result = x[0]
+        ground_truth = x[1]["answer"]
+        generated_text = rollout_result["generated_text"]
+        # question, max_reward_answer = generated_text.split(REWARD_TEMPLATE)
+        gen_text_split_answer = generated_text.split(ANSWER_TEMPLATE)
+        if len(gen_text_split_answer) > 1:
+            gen_answer = ANSWER_TEMPLATE.join(gen_text_split_answer[1:])
+        else:
+            gen_answer = gen_text_split_answer[-1]
+        n_pauses = count_num_token_occurences(pause_token_id,tokenizer,gen_answer)
+        question = x[1]["question"]
+        true_reward = reward(
+            model_output = generated_text,
+            ground_truth = ground_truth
+        )
+        text = f" [INST]{QUESTION_TEMPLATE}{question} [/INST]\n\n{REWARD_TEMPLATE} {true_reward}\n\n{N_PAUSE_TOKENS_TEMPLATE} {n_pauses}\n\n{ANSWER_TEMPLATE}{gen_answer}"
+        text = re.sub(r'(<s>)+', r'<s>', text)
+        # except:
+            # text = x[0]["generated_text"]
+            # success = False
         return {"text": text,"success": success ,**rollout_result}
         
     def format_reward_conditioned_prompts_func(example,maximal_reward):
@@ -53,13 +58,31 @@ def reward_conditioned_rollout(model, tokenizer, dataset: Dataset, reward, pause
         for prompt in example['question']:
             data.append(f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{REWARD_TEMPLATE} {maximal_reward}\n\n{N_PAUSE_TOKENS_TEMPLATE} {N_PAUSE_TOKENS_AT_INFERENCE}\n\n{ANSWER_TEMPLATE}")
         return {"input": data}
-
+    
     rollout_dataset = dataset.map(lambda x: format_reward_conditioned_prompts_func(x,reward.get_max_reward()), batched=True)
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = 'left'     
-    rollout_res = rollout(model, tokenizer, rollout_dataset, prompt_field="input")
+    rollout_res = pause_ground_truth_constrained_rollout(
+        model,
+        tokenizer,
+        rollout_dataset,
+        prompt_field="input",
+        ground_truth_field="text",
+        pause_token_id=pause_token_id,
+        batch_size=batch_size,
+        n_samps_per_prompt=n_samps_per_prompt,
+        generation_args = {
+            "temperature": 1.0,
+            "repetition_penalty": 1.0,
+            "do_sample": True,
+            "max_new_tokens": 400,
+        }
+    )
+    
     tokenizer.padding_side = og_padding_side
+    reward.set_model(model)
     rollout_res = list(map(substitute_with_correct_reward_and_n_pause, zip(rollout_res, dataset)))
+    breakpoint()
     rollout_res = list(filter(lambda x: x["success"], rollout_res))
     return Dataset.from_list(rollout_res)
     
@@ -89,6 +112,8 @@ def parse_args():
     parser.add_argument('--model-name', default='google/gemma-2b')
     parser.add_argument('--n-epochs', default=1, type=int)
     parser.add_argument('--batch-size', default=8, type=int)
+    parser.add_argument('--batch-size-rollout', default=8, type=int)
+    parser.add_argument('--n-samps-per-prompt-rollout', default=1, type=int)
     parser.add_argument('--eval-steps', default=80, type=int)
     parser.add_argument('--eval-batch-size', default=32, type=int)
     parser.add_argument('--gradient-accumulation-steps', default=2, type=int)
@@ -152,20 +177,21 @@ def main():
     pause_token_id = tokenizer.convert_tokens_to_ids("<|pause|>")
     
     #load data
+    
     train_data = load_dataset('json', data_files=input_dir + 'train.json', split='train')
+    train_data = train_data.select(range(300))
     #load reward
-    reward = hydra.utils.instantiate(args.reward)
+    reward1 = hydra.utils.instantiate(args.reward)
     
     #format data
     #Add max reward to dataset
-    train_data = train_data.map(lambda x: add_max_reward(x,reward.get_max_reward()),batched=True)
+    train_data = train_data.map(lambda x: add_max_reward(x,reward1.get_max_reward()),batched=True)
     #Add number of pause tokens to dataset
     train_data= train_data.map(lambda x: count_pause_tokens(x, pause_token_id, tokenizer), batched=True)
     #Format dataset
     train_data= train_data.map(formatting_original_dataset_func, batched=True)
     
     rollout_dataset = train_data
-    
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM, 
         inference_mode=False, 
@@ -177,7 +203,11 @@ def main():
     
     training_args = get_training_args(args)
     model = get_peft_model(model, peft_config)
-    
+    reward = LogLikelihoodReward(
+        tokenizer=tokenizer,
+        model=model,
+        tokens_ids_to_ignore=[pause_token_id]
+    )
     answer_template_ids = tokenizer.encode(ANSWER_TEMPLATE, add_special_tokens=False)[1:]
     
     collator = DataCollatorForCompletionOnlyLM(answer_template_ids, tokenizer=tokenizer)
@@ -199,9 +229,19 @@ def main():
 
         trainer.train()
         print("SAVING MODEL at ", args.output_dir)
-        trainer.save_model(args.output_dir)
-     
-        rollout_dataset = reward_conditioned_rollout(model, tokenizer, train_data,reward, pause_token_id)
+        # trainer.save_model(args.output_dir)
+        
+        rollout_dataset = reward_conditioned_rollout(
+            model,
+            tokenizer,
+            train_data.select(range(32)),
+            reward,
+            pause_token_id,
+            batch_size=args.batch_size_rollout,
+            n_samps_per_prompt=args.n_samps_per_prompt_rollout
+        )
+        breakpoint()
+        raise NotImplementedError
         rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
         rollout_dataset = concatenate_datasets([rollout_dataset, train_data])
         
