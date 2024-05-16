@@ -3,16 +3,27 @@ import os
 import json 
 import pandas as pd
 from datasets import Dataset
-from transformers import TrainingArguments, GenerationConfig
+from transformers import TrainingArguments, GenerationConfig,LogitsProcessorList
 from transformers.pipelines.pt_utils import KeyDataset
-from constraints import PauseGroundTruthConstraint
+from constraints import PauseGroundTruthConstraint,PauseLogitsProcessor
 import re
 import pathlib
 import time
 from tqdm import tqdm
 import argparse
 
-def count_num_token_occurences(token_id, tokenizer, text):    
+def count_num_token_occurences(token_id, tokenizer, text):
+    """ Count the number of occurences of a token in a text
+    
+    :param token_id: Token id to count
+    :type token_id: int
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :param text: Text or list of texts to count the token occurences
+    :type text: Union[str, List[str]]
+    :return: Number of occurences of the token in the text
+    :rtype: Union[int, List[int]]
+    """  
     tokenized_text = tokenizer(text)["input_ids"]
     if isinstance(text, str):
         return len(list(filter(lambda x: x == token_id, tokenized_text)))
@@ -27,15 +38,46 @@ def count_num_token_occurences(token_id, tokenizer, text):
         raise ValueError("Text must be either a string or a list of strings.")
         
 def strip_special_tokens(text,tokenizer):
+    """ Strip special tokens from a text
+    
+    :param text: Text to strip special tokens from
+    :type text: str
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :return: Text without special tokens
+    :rtype: str
+    """
     tokenized_text = tokenizer(text)["input_ids"]
     return tokenizer.decode(tokenized_text, skip_special_tokens=True)
 
 def strip_pause_tokens(text,tokenizer,pause_token_id):
+    """ Strip pause tokens from a text
+    
+    :param text: Text to strip pause tokens from
+    :type text: str
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :param pause_token_id: Pause token id
+    :type pause_token_id: int
+    :return: Text without pause tokens
+    :rtype: str
+    """
     pause_token = tokenizer.decode(pause_token_id)
     return text.replace(pause_token,"")
 
 def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
-        return tokenizer.batch_decode([list(filter(lambda x: x != pad_token_id,seq))for seq in output])
+    """ Decode and strip pad tokens from a list of sequences
+    
+    :param output: List of sequences
+    :type output: List[List[int]]
+    :param pad_token_id: Pad token id
+    :type pad_token_id: int
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :return: List of decoded sequences without pad tokens
+    :rtype: List[str]
+    """
+    return tokenizer.batch_decode([list(filter(lambda x: x != pad_token_id,seq))for seq in output])
         
 def pause_ground_truth_constrained_rollout(
     model,
@@ -54,8 +96,37 @@ def pause_ground_truth_constrained_rollout(
     batch_size = 8,
     n_samps_per_prompt = 1,
     include_gt = False,
+    pause_temperature = 1.0
 ):
+    """ Perform a rollout with pause ground truth constraint. Meaning that at generation, the model can either generate as next token the pause token or the next ground truth token.
+    
+    :param model: Model
+    :type model: transformers.PreTrainedModel
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :param dataset: Dataset
+    :type dataset: datasets.Dataset
+    :param prompt_field: Prompt field name. The field in the dataset that contains the prompt to feed to the model
+    :type prompt_field: str
+    :param ground_truth_field: Ground truth field name. The field in the dataset that contains the ground truth completion
+    :type ground_truth_field: str
+    :param pause_token_id: Pause token id
+    :type pause_token_id: int
+    :param generation_args: Generation arguments (Huggingface Transformers generation arguments)
+    :type generation_args: dict
+    :param batch_size: Batch size
+    :type batch_size: int
+    :param n_samps_per_prompt: Number of samples to generate per prompt
+    :type n_samps_per_prompt: int
+    :param include_gt: Include the ground truth (w/out pauses) in the generated samples
+    :type include_gt: bool
+    :param pause_temperature: Pause temperature (see 5.3 of Overleaf Amortized Search For Language Model Decoding)
+    :type pause_temperature: float
+    :return: List of generated samples
+    :rtype: List[dict]
+    """
     constraint_module = PauseGroundTruthConstraint(tokens_to_filter=[pause_token_id,tokenizer.pad_token_id], max_tokens=generation_args.get("max_length"))
+    pause_temperature_logit_processor = PauseLogitsProcessor(pause_token_id=pause_token_id, pause_temperature= pause_temperature, softmax_temperature=generation_args.get("temperature",1.0))
     was_in_training = model.training
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
@@ -89,6 +160,7 @@ def pause_ground_truth_constrained_rollout(
                     attention_mask=tokenized_prompt.attention_mask,
                     pad_token_id=tokenizer.pad_token_id,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                    logits_processor=LogitsProcessorList([pause_temperature_logit_processor]),
                     **generation_args
                 )
             
@@ -102,7 +174,6 @@ def pause_ground_truth_constrained_rollout(
 
         for batch_id, texts in tmp_res_per_batch_id.items():
             res.extend(texts)      
-            
     if was_in_training:
         model.train()
     tokenizer.padding_side = og_padding_side
@@ -123,6 +194,21 @@ def rollout(
     },
     batch_size=8
     ):
+    """ Perform a "normal" rollout
+    
+    :param model: Model
+    :type model: transformers.PreTrainedModel
+    :param tokenizer: Tokenizer
+    :type tokenizer: transformers.PreTrainedTokenizer
+    :param dataset: Dataset
+    :type dataset: datasets.Dataset
+    :param prompt_field: Prompt field name. The field in the dataset that contains the prompt to feed to the model
+    :type prompt_field: str
+    :param generation_args: Generation arguments (Huggingface Transformers generation arguments)
+    :type generation_args: dict
+    :param batch_size: Batch size
+    :type batch_size: int
+    """
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
     was_in_training = model.training
