@@ -34,15 +34,18 @@ To generate a pause token augmented dataset, you can tweek the following paramet
 - `n_random_pauses`: The number of pauses to be injected at random locations (using uniform distribution)
 - `tokenizer_hf_name`: The name of the Hugging Face tokenizer to be used to insert random pauses. If None, spaces ' ' will be used to insert random pauses
 - `seed`: The seed to be used for random number generation
+- `variable_number_of_pauses`: Enable variable number of pauses in sequence (w/ max being n_random_pauses, U[0, n_random_pauses] pauses per sequence)
+- `n_generated_samples_per_datapoint`: The number of samples to be generated per datapoint in the dataset (number of y's to be generated per x)
 
 Here is an example of how to use the script with the default parameters:
 ```bash
 cd data_generation
 python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{"=": 1, "\n": 1," equals ":1, " equal ": 1}' --augm_dataset_save_location ../data/gsm8k_pause_injected --pause_augm_col_name "answer" --verbose --n_random_pauses 0 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1"
 
-python gsm8k_pause_injector.py --dataset_location ../data/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location ../data/gsm8k_random_pauses_5_samples_per_dp --pause_augm_col_name "answer" --verbose --n_random_pauses 50 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1" --variable_number_of_pauses --n_generated_samples_per_datapoint 5 --verbose
+#DS For Pretrain
+python gsm8k_pause_injector.py --dataset_location ../data/gsm8k_jsonl/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location ../data/gsm8k_jsonl/gsm8k_random_pauses_5_samples_per_dp --pause_augm_col_name "answer" --verbose --n_random_pauses 100 --tokenizer_hf_name "/dlabdata1/llm_hub//Mistral-7B-v0.1" --variable_number_of_pauses --n_generated_samples_per_datapoint 5 --verbose
 ```
-## Train Models 
+## Train Models
 
 To fine-tune a model on the training data: 
 ```
@@ -57,6 +60,24 @@ python3 src/sft_pause.py --model-name=mistralai/Mistral-7B-v0.1 --n-epochs=2 --b
 Evaluate models performance: 
 ```
 python3 src/eval_script.py --model-path XXXX --test-data-path XXXX --output-file-name XXX
+```
+
+Pretrain model w/ random pauses (ignore pause tokens in loss)
+```
+cd src
+python pretrain.py --data-dir "../data/gsm8k_jsonl/" --model-name "/dlabdata1/llm_hub//Mistral-7B-v0.1" --n-epochs 3 --task "gsm8k_random_pauses_5_samples_per_dp" --batch-size 8 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --tag pretrain_mistral --modules-to-save embed_tokens lm_head
+```
+
+Training WSFT:
+
+A brief description of some parameters specific to wsft:
+- `n-outer-loops`: Number of outer loops = 1 round of WSFT + 1 rollout (except for the first round, where we do SFT on the original DS)
+- `batch-size-rollout`: Batch size for the rollout
+- `n-samps-per-prompt-rollout`: Number of samples per prompt in the rollout (i.e., the number of y's generated for a single x)
+- `pause-temperature`: Temperature for the pause token (see Overleaf Pause temperature (see 5.3 of Overleaf Amortized Search For Language Model Decoding)). It attenuates (`0  \leq pause-temperature < 1`) of increases (`1 < pause-temperature`) the probability of sampling the pause token.
+- `wsft-beta`: Beta parameter for WSFT
+```
+python wsft.py --data-dir "/dlabdata1/baldwin/PauseToken/data/gsm8k_jsonl" --model-name "/dlabdata1/baldwin/PauseToken/src/models/gsm8k_random_pauses_5_samples_per_dp/pretrain_mistral/pretrain_Mistral-7B-v0.1_trl_2024-05-15_10:16:32.770577" --n-epochs 1 --n-outer-loops 3 --batch-size-rollout 32 --n-samps-per-prompt-rollout <N-SAMPS-PER-ROLLOUT> --task "gsm8k_10_random_pause_injected_mistral" --batch-size 8 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --tag <YOUR-TAG>--modules-to-save embed_tokens lm_head --pause-temperature 0.5 --wsft-beta <BETA-PARAMETER>
 ```
 
 <!-- ## Train LLaMa -->
