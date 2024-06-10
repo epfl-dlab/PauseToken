@@ -18,14 +18,15 @@ import hydra
 from rewards import LogLikelihoodReward
 import re
 from trainers import WeightedSFTTrainer,SFTIgnoreTokensInLossTrainer
-from collators import DataCollatorForCompletionOnlyLMWSFT
+from pause_classifier_wrapper import PauseClassifierWrapper, PauseCLFConfig
+from callbacks import SwitchLossCallback
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ANSWER_TEMPLATE = " ### Answer:"
 QUESTION_TEMPLATE = " ### Given the following math word problem question generate the correct final answer. Question: "
 
-def wsft_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch_size, n_samps_per_prompt, max_length, include_gt, pause_temperature) -> Dataset:
+def bc_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch_size, n_samps_per_prompt, max_length, include_gt, pause_temperature) -> Dataset:
     
     def compute_reward_and_text(rollout_result):
      
@@ -45,16 +46,13 @@ def wsft_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, bat
             data.append(f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{ANSWER_TEMPLATE}")
         return {"input": data}
     
-    def prepare_dataset_for_wsft(rollout_res, n_samps_per_prompt,include_gt):
+    def prepare_dataset_for_bc(rollout_res, n_samps_per_prompt,include_gt):
         data = []
         n_samps_per_prompt = n_samps_per_prompt + 1 if include_gt else n_samps_per_prompt
         for i in range(0,len(rollout_res),n_samps_per_prompt):
-            data.append(
-                {
-                    "text": [rollout_res[j]["text"] for j in range(i,i+n_samps_per_prompt)],
-                    "rewards": [rollout_res[j]["reward"] for j in range(i,i+n_samps_per_prompt)]
-                }
-            )
+            samples = [{"text": rollout_res[j]["text"], "reward": rollout_res[j]["reward"]} for j in range(i,i+n_samps_per_prompt)]
+            best_sample = max(samples, key=lambda x: x["reward"])
+            data.append(best_sample)
         return data
     
     rollout_dataset = dataset.map(lambda x: format_prompts_func(x), batched=True)
@@ -78,12 +76,11 @@ def wsft_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, bat
         include_gt = include_gt,
         pause_temperature = pause_temperature
     )
-    
     tokenizer.padding_side = og_padding_side
     reward.set_model(model)
     rollout_res = list(map(compute_reward_and_text, rollout_res))
     #change rollout_res to a list of lists of size n_samps_per_prompt
-    rollout_res = prepare_dataset_for_wsft(rollout_res, n_samps_per_prompt, include_gt)
+    rollout_res = prepare_dataset_for_bc(rollout_res, n_samps_per_prompt, include_gt)
     return Dataset.from_list(rollout_res)
     
 def formatting_original_dataset_func(example, task='gsm8k'):
@@ -95,6 +92,14 @@ def formatting_original_dataset_func(example, task='gsm8k'):
         text = f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{ANSWER_TEMPLATE}{completion.replace('<s>', '')} </s>"
         data.append(text)     
     return {"text": data}
+
+def duplicate_dataset(example):
+    data = {field: [] for field in example.keys()}
+    for j in range(2):
+        for i in range(len(example['text'])):      
+            for field in example.keys():
+                data[field].append(example[field][i])
+    return {field: data[field] for field in example.keys()}
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -122,9 +127,9 @@ def parse_args():
     parser.add_argument('--peft-config-lora-dropout', default=0.05, type=float)
     parser.add_argument('--n-outer-loops', default = 3, type=int)
     parser.add_argument('--modules-to-save', default=[],nargs='*') 
-    parser.add_argument('--wsft-beta', default=1.0 , type=float) ## Beta for the weighted SFT
     parser.add_argument('--include-gt', action='store_true') ## Whether to include the ground truth w/out pauses in the rollout
     parser.add_argument('--pause-temperature', default=1.0, type = float) ## 5.3 of Overleaf Amortized Search For Language Model Decoding
+    parser.add_argument('--disable-peft', action="store_true") ## Whether to disable PEFT
     return parser.parse_args()
 #python src/DPO/sft.py --model-name=google/gemma-2b --batch-size=16 --use-peft=false
 
@@ -139,9 +144,9 @@ def main():
     input_dir = args.data_dir + task + '/'
     
     if "/" in model_name :
-        output_directory =f'{args.output_dir}/{task}/{args.tag}/rcsft_{model_name.split("/")[-1]}_trl_{datetime.now()}'
+        output_directory =f'{args.output_dir}/{task}/{args.tag}/bc_{model_name.split("/")[-1]}_trl_{datetime.now()}'
     else: 
-        output_directory =f'{args.output_dir}/{task}/{args.tag}/rcsft_{model_name}_trl_{datetime.now()}'
+        output_directory =f'{args.output_dir}/{task}/{args.tag}/bc_{model_name}_trl_{datetime.now()}'
     args.output_dir = output_directory.replace(' ', '_')
     
     if 't5' in args.model_name.lower(): ### we use T5 but you can use some other model
@@ -169,22 +174,31 @@ def main():
     pause_token_id = tokenizer.convert_tokens_to_ids("<|pause|>")
     
     #load data
-    train_data = load_dataset('json', data_files=input_dir + 'train.json', split='train').select(range(100))
+    train_data = load_dataset('json', data_files=input_dir + 'train.json', split='train')
     #format data
     #Add max reward to dataset
     train_data= train_data.map(formatting_original_dataset_func, batched=True)
     
     rollout_dataset = train_data
-    peft_config = LoraConfig(
-        task_type=TaskType.CAUSAL_LM, 
-        inference_mode=False, 
-        r=args.peft_config_r, 
-        lora_alpha=args.peft_config_lora_alpha, 
-        lora_dropout=args.peft_config_lora_dropout,
-        modules_to_save=args.modules_to_save
+
+    if not args.disable_peft:
+        peft_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM, 
+            inference_mode=False, 
+            r=args.peft_config_r, 
+            lora_alpha=args.peft_config_lora_alpha, 
+            lora_dropout=args.peft_config_lora_dropout,
+            modules_to_save=args.modules_to_save
+        )
+        model = get_peft_model(model, peft_config)
+    
+    pause_clf_config = PauseCLFConfig(
+        pause_token_id=pause_token_id,
+        loss_type="pause_loss",
     )
     
-    model = get_peft_model(model, peft_config)
+    model = PauseClassifierWrapper(pause_clf_config,model)
+    model.set_to_lm_loss()
     reward = LogLikelihoodReward(
         tokenizer=tokenizer,
         model=model,
@@ -193,49 +207,34 @@ def main():
     answer_template_ids = tokenizer.encode(ANSWER_TEMPLATE, add_special_tokens=False)[1:]
     
     collator = DataCollatorForCompletionOnlyLM(answer_template_ids, tokenizer=tokenizer)
-    wsft_collator = DataCollatorForCompletionOnlyLMWSFT(answer_template_ids, tokenizer=tokenizer)
     
+    training_args = get_training_args(args)
+    args.output_dir = f"{output_directory.replace(' ', '_')}_sft"
+    
+    callbacks = [SwitchLossCallback()]
+    rollout_dataset = rollout_dataset.map(duplicate_dataset, batched=True, batch_size=training_args.per_device_train_batch_size)
+    trainer = SFTTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        args=training_args,
+        train_dataset=rollout_dataset,
+        dataset_text_field="text",
+        max_seq_length=args.max_length,
+        data_collator=collator,
+        callbacks=callbacks
+    )
+    
+    trainer.train()
+    print("SAVING MODEL at ", args.output_dir)
+    
+    trainer.save_model(args.output_dir)
     ## 1 outer loop = WSFT (or SFT if it is the first iteration) + 1 rollout
     for i_outer_loop in range(args.n_outer_loops):
         print(f"OUTER LOOP: {i_outer_loop}")
         training_args = get_training_args(args)
         args.output_dir = f"{output_directory.replace(' ', '_')}_outer_loop_{i_outer_loop}"
-        breakpoint()
-        #SFT on dataset w/ random pause insertions
-        if i_outer_loop == 0:
-            trainer = SFTTrainer(
-                model=model,
-                tokenizer=tokenizer,
-                args=training_args,
-                train_dataset=rollout_dataset,
-                dataset_text_field="text",
-                max_seq_length=args.max_length,
-                data_collator=collator,
-            )
-        
-        #WSFT on dataset w/ pause insertions (weights based on rewards of Likelihood of sequence excluding pause tokens)
-        else:
-            training_args.per_device_train_batch_size = max(int(training_args.per_device_train_batch_size/args.n_samps_per_prompt_rollout),1)
-            
-            trainer = WeightedSFTTrainer(
-                model=model,
-                tokenizer=tokenizer,
-                args=training_args,
-                train_dataset=rollout_dataset,
-                dataset_text_field="text",
-                max_seq_length=args.max_length,
-                data_collator=wsft_collator,
-                packing=False,
-                n_samples_per_prefix=args.n_samps_per_prompt_rollout if not args.include_gt else args.n_samps_per_prompt_rollout+1,
-                reward_col_name="rewards",
-                beta=args.wsft_beta
-            )
-
-        trainer.train()
-        print("SAVING MODEL at ", args.output_dir)
-        trainer.save_model(args.output_dir)
         ## Perform rollout    
-        rollout_dataset = wsft_rollout(
+        rollout_dataset = bc_rollout(
             model,
             tokenizer,
             train_data,
@@ -247,33 +246,29 @@ def main():
             include_gt=args.include_gt,
             pause_temperature=args.pause_temperature
         )
+        #repeat each sample of rollout_dataset twice (roullout dataset should be 2x the size of the original dataset)
+        rollout_dataset = rollout_dataset.map(duplicate_dataset, batched=True, batch_size=training_args.per_device_train_batch_size)
+        #SFT on dataset w/ random pause insertions
+        trainer = SFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            train_dataset=rollout_dataset,
+            dataset_text_field="text",
+            max_seq_length=args.max_length,
+            data_collator=collator,
+            callbacks=callbacks
+        )
+
+
+        trainer.train()
+        print("SAVING MODEL at ", args.output_dir)
+        trainer.save_model(args.output_dir)
+        
         #filter out rollouts who have all invalid reward
         min_reward = reward.invalid_ans_penalty
-        rollout_dataset = rollout_dataset.filter(lambda x: len(list(filter(lambda y: y > min_reward, x["rewards"]))) > 0)
+        rollout_dataset = rollout_dataset.filter(lambda x:  x["reward"]> min_reward)
         rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
     
-    ### SUPER UGLY but it works: do last wsft on final rollout
-    training_args = get_training_args(args)
-    training_args.per_device_train_batch_size = max(int(training_args.per_device_train_batch_size/args.n_samps_per_prompt_rollout),1)
-    args.output_dir = f"{output_directory.replace(' ', '_')}_final"
-    trainer = WeightedSFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        args=training_args,
-        train_dataset=rollout_dataset,
-        dataset_text_field="text",
-        max_seq_length=args.max_length,
-        data_collator=wsft_collator,
-        packing=False,
-        n_samples_per_prefix=args.n_samps_per_prompt_rollout if not args.include_gt else args.n_samps_per_prompt_rollout+1,
-        reward_col_name="rewards",
-        beta=args.wsft_beta
-    )
-    
-    trainer.train()
-    print("SAVING MODEL at ", args.output_dir)
-    trainer.save_model(args.output_dir)
-
-
 if __name__ == '__main__':
     main()

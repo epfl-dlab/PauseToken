@@ -13,6 +13,7 @@ import argparse
 from peft import AutoPeftModelForCausalLM
 import hydra
 from utils import dict_type, rollout,strip_special_tokens
+from pause_classifier_wrapper import PauseClassifierWrapper
 
 # ANSWER_TEMPLATE = " ### Answer:"
 # QUESTION_TEMPLATE = " ### Given the following math word problem question generate the correct final answer. Question: "
@@ -26,8 +27,8 @@ REWARD_TEMPLATE = " ### Reward:"
 N_PAUSE_TOKENS_TEMPLATE = " ### Number of Pause Tokens:"
 N_PAUSE_TOKENS_AT_INFERENCE = 10
 
-SUPPORTED_INF_METHOD = ["wsft", "rc","rc_w_n_pause" ,"dpo"]
-
+SUPPORTED_INF_METHOD = ["wsft", "rc","rc_w_n_pause" ,"dpo","prepause"]
+PAUSE_SYMBOL = "<|pause|>"
 
 def formatting_original_dataset_func(example, train_method='wsft'):
     def formatting_original_dataset_func_wsft(example):
@@ -36,6 +37,15 @@ def formatting_original_dataset_func(example, train_method='wsft'):
             prompt = example['question'][i]
             data.append(f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{ANSWER_TEMPLATE}")
         return {"text": data}
+    
+    def formatting_original_dataset_func_prepause(example):
+        data = []
+        ten_pauses = "".join([PAUSE_SYMBOL for _ in range(N_PAUSE_TOKENS_AT_INFERENCE)])
+        for i in range(len(example['question'])):
+            prompt = example['question'][i]
+            data.append(f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{ANSWER_TEMPLATE}{ten_pauses}")
+        return {"text": data}
+    
     
     def formatting_original_dataset_func_rc(example, with_pause):
         data = []
@@ -55,6 +65,8 @@ def formatting_original_dataset_func(example, train_method='wsft'):
         return formatting_original_dataset_func_rc(example,with_pause = False)
     elif train_method == 'rc_w_n_pause':
         return formatting_original_dataset_func_rc(example, with_pause = True)
+    elif train_method == 'prepause':
+        return formatting_original_dataset_func_prepause(example)
     else:
         raise ValueError(f"train_method {train_method} not supported. Supported methods are {SUPPORTED_INF_METHOD}")    
 
@@ -81,21 +93,32 @@ def main():
     assert args.train_method in SUPPORTED_INF_METHOD, f"train method {args.train_method} not supported. Supported methods are {SUPPORTED_INF_METHOD}"
     
     data = args.test_data_path
+    
     model_dir = args.model_path
+    
     reward = hydra.utils.instantiate(args.reward)
+    
     maximal_reward = reward.get_max_reward()
     
     if model_dir:
-        try:
-            model = AutoPeftModelForCausalLM.from_pretrained(model_dir, device_map='auto')
-            tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
-        except:
-            model = transformers.AutoModelForCausalLM.from_pretrained(model_dir, device_map='auto', torch_dtype=torch.bfloat16)
-            tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
+    
+        # try:
+        # model = AutoPeftModelForCausalLM.from_pretrained(model_dir, device_map='auto')
+        # tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
+    
+        # except:
+        #     try:
+        # model = transformers.AutoModelForCausalLM.from_pretrained(model_dir, device_map='auto', torch_dtype=torch.bfloat16)
+        # tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
+        #     except:
+                #put all on gpu (without using auto)
+        model = PauseClassifierWrapper.from_pretrained(model_dir,device_map= "cuda:0" ,torch_dtype= torch.bfloat16)
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
         
-
     results = []
+    
     #load data (json with tranformers dataset)    
+    
     dataset = load_dataset('json', data_files= data)["train"]
     
     if args.run_first_n is not None:

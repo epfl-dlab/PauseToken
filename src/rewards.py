@@ -55,7 +55,7 @@ class LogLikelihoodReward(AbstractReward):
         
         tokenized_seqs = self.tokenizer(model_output, return_tensors="pt", padding=padding, truncation=True).to(self.model.device)
         with torch.no_grad():
-            outputs = self.model(**tokenized_seqs)
+            outputs = self.model(**tokenized_seqs, return_dict=True)
         
         logits_log_softmax = torch.nn.functional.log_softmax(outputs.logits[:,:-1,:], dim=-1)
         # #get mask on tokens to ignore
@@ -83,7 +83,7 @@ class LogLikelihoodReward(AbstractReward):
         if was_in_training:
             self.model.train()
         return ll
-    
+ 
     
     def batch_call(self, model_output: List[str], ground_truth: List[str]):
         
@@ -98,6 +98,7 @@ class LogLikelihoodReward(AbstractReward):
         return ll
     
     def get_max_reward(self):
+        #TODO: Probably change this, but not using it for now
         return -10
     
 class GSM8KDeltaAnswerReward(AbstractReward):
