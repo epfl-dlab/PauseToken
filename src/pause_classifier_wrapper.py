@@ -2,7 +2,7 @@ from torch import nn
 from transformers.utils import ModelOutput, PushToHubMixin
 from transformers import PreTrainedModel,PretrainedConfig,AutoModelForCausalLM
 from dataclasses import dataclass, asdict,field
-from typing import Optional, Tuple, Dict, Any, Union
+from typing import Optional, Tuple, Dict, Any, Union, TypeVar
 import torch
 from peft import AutoPeftModelForCausalLM, PeftConfig, get_peft_model
 import warnings
@@ -186,6 +186,7 @@ class SequenceClassifierOutputWithPastAndPauseLogits(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
     attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
     pause_logits: Optional[torch.FloatTensor] = None
+    lm_logits: Optional[torch.FloatTensor] = None
 
 class PauseClassifierWrapper(PreTrainedModel):
     config_class = PauseCLFConfig
@@ -223,7 +224,7 @@ class PauseClassifierWrapper(PreTrainedModel):
         self.pause_loss_coeff = config.pause_loss_coeff
         self.lm_loss_coeff = config.lm_loss_coeff
         self.pause_temperature = config.pause_temperature if hasattr(config, "pause_temperature") else 1.0
-
+        self.set_to_lm_logits()
     def _serialize_peft_config(self, peft_config: PeftConfig):
         set_fields = []
         peft_config_dict = peft_config.to_dict()
@@ -265,6 +266,12 @@ class PauseClassifierWrapper(PreTrainedModel):
         for param in self.pause_classifier.parameters():
             param.requires_grad = True
     
+    def set_to_pause_logits(self):
+        self.return_pause_logits_as_logits = True
+        
+    def set_to_lm_logits(self):
+        self.return_pause_logits_as_logits = False
+        
     def set_to_pause_loss(self):
         self.loss_type = "pause_loss"
     
@@ -273,10 +280,11 @@ class PauseClassifierWrapper(PreTrainedModel):
         
     def set_to_combined_loss(self):
         self.loss_type = "combined"
-    
+        
     def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
-        if "return_dict" not in kwargs:
+        if "return_dict" not in kwargs or kwargs["return_dict"] is None:
             kwargs["return_dict"] = True
+    
         assert kwargs["return_dict"], "return_dict should be set to True"
         #add output_hidden_states to the args
         kwargs["output_hidden_states"] = True  
@@ -315,7 +323,7 @@ class PauseClassifierWrapper(PreTrainedModel):
             pause_loss = None 
         
         ### INSERT PAUSE LOGIT IN LOGITS POSITION OF PAUSE TOKEN
-        if not self.pause_classifier.training and not self.language_model.training:
+        if not self.training:
     
             pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
             
@@ -337,6 +345,7 @@ class PauseClassifierWrapper(PreTrainedModel):
                 outputs.logits
             )      
         
+        lm_logits = outputs.logits
         lm_loss = outputs.loss
         if labels is not None:
             if self.loss_type == "pause_loss":
@@ -346,6 +355,9 @@ class PauseClassifierWrapper(PreTrainedModel):
             #     outputs.loss = outputs.loss 
             elif self.loss_type == "combined":
                 outputs.loss = self.pause_loss_coeff * pause_loss + self.lm_loss_coeff * outputs.loss
+
+        if self.return_pause_logits_as_logits and self.training:
+            outputs.logits = pause_logits
         
         return SequenceClassifierOutputWithPastAndPauseLogits(
             loss = outputs.loss,
@@ -355,8 +367,10 @@ class PauseClassifierWrapper(PreTrainedModel):
             past_key_values = outputs.past_key_values,
             hidden_states = outputs.hidden_states,
             attentions = outputs.attentions,
-            pause_logits = pause_logits
+            pause_logits = pause_logits,
+            lm_logits = lm_logits,
         )
+        
         
     
         

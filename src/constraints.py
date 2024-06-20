@@ -39,7 +39,6 @@ class PauseLogitsProcessor(LogitsProcessor):
         log_probs = self.softmax_temperature * torch.log(probs)
         #check if `inf`, `nan` are in probs
         if torch.isnan(probs).any() or torch.isinf(probs).any():
-            breakpoint()
             raise ValueError("LogitsProcessor: the model generated `inf` or `nan` values")
         return log_probs
                 

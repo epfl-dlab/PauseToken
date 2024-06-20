@@ -1,6 +1,7 @@
 import pandas as pd
 import json
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM
+from trl import SFTTrainer, DataCollatorForCompletionOnlyLM, DPOTrainer
+from trl.trainer.utils import DPODataCollatorWithPadding
 from datasets import load_dataset
 from datasets import Dataset
 import transformers
@@ -17,16 +18,17 @@ import os
 import hydra
 from rewards import LogLikelihoodReward
 import re
-from trainers import WeightedSFTTrainer,SFTIgnoreTokensInLossTrainer,TestTrainerPauseLoss,TestTrainerLMLoss,InvariantModelingTrainer
+from trainers import WeightedSFTTrainer,SFTIgnoreTokensInLossTrainer,SFTTrainerPauseLoss,SFTTrainerLMLoss,InvariantModelingTrainer, PauseHeadDPO
 from pause_classifier_wrapper import PauseClassifierWrapper, PauseCLFConfig
 from callbacks import SwitchLossCallback
 from collators import ConditionalCollator
+import copy
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 ANSWER_TEMPLATE = " ### Answer:"
 QUESTION_TEMPLATE = " ### Given the following math word problem question generate the correct final answer. Question: "
 
-def bc_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch_size, n_samps_per_prompt, max_length, include_gt, pause_temperature) -> Dataset:
+def ilm_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch_size, n_samps_per_prompt, max_length, include_gt, pause_temperature) -> Dataset:
     
     def compute_reward_and_text(rollout_result):
         generated_text = rollout_result["generated_text"]
@@ -44,15 +46,24 @@ def bc_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch
             data.append(f" [INST]{QUESTION_TEMPLATE}{prompt} [/INST]\n\n{ANSWER_TEMPLATE}")
         return {"input": data}
     
-    def prepare_dataset_for_bc(rollout_res, n_samps_per_prompt,include_gt):
+    def prepare_ilm_dataset(rollout_res, rollout_dataset ,n_samps_per_prompt,include_gt):
         data = []
         n_samps_per_prompt = n_samps_per_prompt + 1 if include_gt else n_samps_per_prompt
         for i in range(0,len(rollout_res),n_samps_per_prompt):
-            samples = [{"text": rollout_res[j]["text"], "reward": rollout_res[j]["reward"]} for j in range(i,i+n_samps_per_prompt)]
-            best_sample = max(samples, key=lambda x: x["reward"])
-            data.append(best_sample)
+            prompt = rollout_dataset[i//n_samps_per_prompt]["input"]
+            rollout_data = [{"prompt": prompt, "completion": rollout_res[j]["text"].split(ANSWER_TEMPLATE)[1], "reward": rollout_res[j]["reward"]} for j in range(i,i+n_samps_per_prompt)]
+            rollout_data = sorted(rollout_data, key=lambda x: x["reward"], reverse=True)
+            rollout_data = \
+                {
+                    "prompts": [x["prompt"] for x in rollout_data],
+                    "completions": [x["completion"] for x in rollout_data], 
+                    "rewards": [x["reward"] for x in rollout_data],
+                    "train_method": ["pause_dpo", "lm_head_sft"]
+                }
+            data.append(rollout_data)
         return data
-    
+    was_in_training_mode = model.training
+    model.eval()
     rollout_dataset = dataset.map(lambda x: format_prompts_func(x), batched=True)
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = 'left'     
@@ -72,13 +83,13 @@ def bc_rollout(model, tokenizer, dataset: Dataset, reward, pause_token_id, batch
             "max_length": max_length,
         },
         include_gt = include_gt,
-        pause_temperature = pause_temperature
     )
     tokenizer.padding_side = og_padding_side
     reward.set_model(model)
     rollout_res = list(map(compute_reward_and_text, rollout_res))
-    #change rollout_res to a list of lists of size n_samps_per_prompt
-    rollout_res = prepare_dataset_for_bc(rollout_res, n_samps_per_prompt, include_gt)
+    rollout_res = prepare_ilm_dataset(rollout_res, rollout_dataset, n_samps_per_prompt, include_gt)
+    if was_in_training_mode:
+        model.train()
     return Dataset.from_list(rollout_res)
     
 def formatting_original_dataset_func(example, task='gsm8k'):
@@ -91,20 +102,47 @@ def formatting_original_dataset_func(example, task='gsm8k'):
         data.append(text)     
     return {"text": data}
 
-def duplicate_dataset(example):
-    data = {field: [] for field in example.keys()}
-    data["train_method"] = []
-    for j in range(2):
-        for i in range(len(example['text'])):      
-            for field in example.keys():
-                data[field].append(example[field][i])
-            if j == 0:
-                data["train_method"].append("pause_sft")
-            elif j == 1:
-                data["train_method"].append("lm_head_sft")
-    ds = {field: data[field] for field in example.keys()}
-    ds["train_method"] = data["train_method"]
-    return ds
+def dpo_formating_func(example):
+    data = {"prompt": [], "chosen": [], "rejected": []}
+    for i in range(len(example["prompts"])):
+        prompts = example["prompts"][i]
+        completions = example["completions"][i]
+        
+        for j in range(len(completions)):
+            chosen_completion = completions[j]
+            for k in range(j+1,len(completions)):
+                reject_completion = completions[k]
+                data["prompt"].append(prompts[j])
+                data["chosen"].append(chosen_completion)
+                data["rejected"].append(reject_completion)
+
+    return data
+
+def sft_formating_func(example):
+    data = []
+    for i in range(len(example["prompts"])):
+        text = f"{example['prompts'][i]}{ANSWER_TEMPLATE}{example['completions'][i]}"
+        data.append(text)
+    return {"text": data}
+
+def add_train_methods(example, train_methods):
+    example["train_method"] = train_methods
+    return example
+
+# def duplicate_dataset(example):
+#     data = {field: [] for field in example.keys()}
+#     data["train_method"] = []
+#     for j in range(2):
+#         for i in range(len(example['text'])):      
+#             for field in example.keys():
+#                 data[field].append(example[field][i])
+#             if j == 0:
+#                 data["train_method"].append("pause_sft")
+#             elif j == 1:
+#                 data["train_method"].append("lm_head_sft")
+#     ds = {field: data[field] for field in example.keys()}
+#     ds["train_method"] = data["train_method"]
+#     return ds
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -116,7 +154,7 @@ def parse_args():
     parser.add_argument('--n-samps-per-prompt-rollout', default=1, type=int)
     parser.add_argument('--eval-steps', default=80, type=int)
     parser.add_argument('--eval-batch-size', default=32, type=int)
-    parser.add_argument('--gradient-accumulation-steps', default=2, type=int)
+    parser.add_argument('--gradient-accumulation-steps', default=1, type=int)
     parser.add_argument('--learning-rate', default=2e-5, type=float)
     parser.add_argument('--warmup-steps', default=0, type=int)
     parser.add_argument('--weight-decay', default=0.01, type=float)
@@ -131,7 +169,8 @@ def parse_args():
     parser.add_argument('--peft-config-lora-alpha', default=32, type=int)
     parser.add_argument('--peft-config-lora-dropout', default=0.05, type=float)
     parser.add_argument('--n-outer-loops', default = 3, type=int)
-    parser.add_argument('--modules-to-save', default=[],nargs='*') 
+    parser.add_argument('--modules-to-save', default=[],nargs='*')
+    parser.add_argument('--target-modules', default=[], nargs='*')
     parser.add_argument('--include-gt', action='store_true') ## Whether to include the ground truth w/out pauses in the rollout
     parser.add_argument('--pause-temperature', default=1.0, type = float) ## 5.3 of Overleaf Amortized Search For Language Model Decoding
     parser.add_argument('--disable-peft', action="store_true") ## Whether to disable PEFT
@@ -186,6 +225,12 @@ def main():
     
     rollout_dataset = train_data
 
+    pause_clf_config = PauseCLFConfig(
+        pause_token_id=pause_token_id,
+        loss_type="pause_loss",
+    )
+    model = PauseClassifierWrapper(pause_clf_config,model)
+    model.set_pause_temperature(args.pause_temperature)
     if not args.disable_peft:
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM, 
@@ -193,16 +238,11 @@ def main():
             r=args.peft_config_r, 
             lora_alpha=args.peft_config_lora_alpha, 
             lora_dropout=args.peft_config_lora_dropout,
-            modules_to_save=args.modules_to_save
+            modules_to_save=args.modules_to_save,
+            target_modules= args.target_modules
         )
         model = get_peft_model(model, peft_config)
-    
-    pause_clf_config = PauseCLFConfig(
-        pause_token_id=pause_token_id,
-        loss_type="pause_loss",
-    )
-    
-    model = PauseClassifierWrapper(pause_clf_config,model)
+        
     reward = LogLikelihoodReward(
         tokenizer=tokenizer,
         model=model,
@@ -215,26 +255,24 @@ def main():
     training_args = get_training_args(args)
     args.output_dir = f"{output_directory.replace(' ', '_')}_sft"
     
-    # callbacks = [SwitchLossCallback()]
     rollout_dataset = rollout_dataset.map(
-        duplicate_dataset,
-        batched=True,
-        batch_size=training_args.per_device_train_batch_size
+        lambda x: add_train_methods(x, ["pause_sft", "lm_head_sft"]),
     )
-    # trainer = SFTTrainer(
-    #     model=model,
-    #     tokenizer=tokenizer,
-    #     args=training_args,
-    #     train_dataset=rollout_dataset,
-    #     dataset_text_field="text",
-    #     max_seq_length=args.max_length,
-    #     data_collator=collator,
-    #     callbacks=callbacks
-    # )
-    
-    tst_trainer_pause_loss_config = \
+
+    trainer_pause_loss_config = \
     {
-        "trainer_class": TestTrainerPauseLoss,
+        "trainer_class": SFTTrainerPauseLoss,
+        "model": model,
+        "tokenizer": tokenizer,
+        "args": training_args,
+        "max_seq_length": args.max_length,
+        "dataset_text_field": "text",
+        "data_collator": collator
+    }
+
+    trainer_lm_loss_config = \
+    {
+        "trainer_class":  SFTTrainerLMLoss,
         "model": model,
         "tokenizer": tokenizer,
         "args": training_args,
@@ -243,33 +281,21 @@ def main():
         "data_collator": collator
     }
     
-    # tst_trainer_pause_loss = TestTrainerPauseLoss(
-    #     model = model,
-    #     tokenizer=tokenizer,
-    #     args=training_args,
-    #     max_seq_length=args.max_length,
-    #     dataset_text_field="text",
-    #     data_collator=collator
-    # )
-    
-    tst_trainer_lm_loss_config = \
-    {
-        "trainer_class":  TestTrainerLMLoss,
-        "model": model,
-        "tokenizer": tokenizer,
-        "args": training_args,
-        "max_seq_length": args.max_length,
-        "dataset_text_field": "text",
-        "data_collator": collator
-    }
+    # dpo_trainer = \
+    # {
+    #     "trainer_class": DPOTrainer,
+    #     "model": model,
+    #     "tokenizer": tokenizer,
+    #     "args": training_args,            
+    # }
     
     num_to_trainer_config = {
-        0: tst_trainer_pause_loss_config,
-        1: tst_trainer_lm_loss_config        
+        0: trainer_pause_loss_config,
+        1: trainer_lm_loss_config        
     }
     name_to_formatting_func = {
-        "pause_sft": lambda x: x,
-        "lm_head_sft": lambda x: x
+        "pause_sft": None,
+        "lm_head_sft": None
     }
     num_to_train_method = {
         0: "pause_sft",
@@ -277,7 +303,6 @@ def main():
     }
     
     ilm_collator = ConditionalCollator(name_to_collator= {0: collator, 1: collator}, name_col="train_method")
-    
     trainer = InvariantModelingTrainer(
         model=model,
         tokenizer=tokenizer,
@@ -290,18 +315,25 @@ def main():
         name_to_formatting_func=name_to_formatting_func,
         trainer_name_col="train_method",
     )
-    breakpoint()
     trainer.train()
     print("SAVING MODEL at ", args.output_dir)
-    breakpoint()
-    trainer.save_model(args.output_dir)
+    if not args.disable_peft:
+        #Merge previous LoRA
+        trainer.model = trainer.model.merge_and_unload()
+        trainer.save_model(args.output_dir)
+        #Create New Lora
+        model = trainer.model
+    else:
+        trainer.save_model(args.output_dir)
+    
     ## 1 outer loop = WSFT (or SFT if it is the first iteration) + 1 rollout
     for i_outer_loop in range(args.n_outer_loops):
         print(f"OUTER LOOP: {i_outer_loop}")
         training_args = get_training_args(args)
         args.output_dir = f"{output_directory.replace(' ', '_')}_outer_loop_{i_outer_loop}"
-        ## Perform rollout    
-        rollout_dataset = bc_rollout(
+
+        ## Perform rollout
+        rollout_dataset = ilm_rollout(
             model,
             tokenizer,
             train_data,
@@ -313,29 +345,80 @@ def main():
             include_gt=args.include_gt,
             pause_temperature=args.pause_temperature
         )
+        
+        if not args.disable_peft:
+            model = get_peft_model(model, peft_config)
+        
+        trainer_pause_loss_config = \
+        {
+            "trainer_class": PauseHeadDPO,
+            "pause_token_id": pause_token_id,
+            "model": model,
+            "tokenizer": tokenizer,
+            "args": training_args,
+        }
+            
+        trainer_lm_loss_config = \
+        {
+            "trainer_class":  SFTTrainerLMLoss,
+            "model": model,
+            "tokenizer": tokenizer,
+            "args": training_args,
+            "max_seq_length": args.max_length,
+            "dataset_text_field": "text",
+            "data_collator": collator
+        }
+        
+        num_to_trainer_config = {
+            0: trainer_pause_loss_config,
+            1: trainer_lm_loss_config        
+        }
+        name_to_formatting_func = {
+            "pause_dpo": dpo_formating_func,
+            "lm_head_sft": sft_formating_func
+        }
+        num_to_train_method = {
+            0: "pause_dpo",
+            1: "lm_head_sft"
+        }
+        
+        dpo_collator = DPODataCollatorWithPadding(pad_token_id=tokenizer.pad_token_id, label_pad_token_id=-100, is_encoder_decoder=False)
+        
+        ilm_collator = ConditionalCollator(name_to_collator= {0: dpo_collator, 1: collator}, name_col="train_method")
+
         #repeat each sample of rollout_dataset twice (roullout dataset should be 2x the size of the original dataset)
-        rollout_dataset = rollout_dataset.map(duplicate_dataset, batched=True, batch_size=training_args.per_device_train_batch_size)
+        # rollout_dataset = rollout_dataset.map(duplicate_dataset, batched=True, batch_size=training_args.per_device_train_batch_size)
+        #filter out rollouts who have all invalid reward
+        # min_reward = reward.invalid_ans_penalty
+        # rollout_dataset = rollout_dataset.filter(lambda x:  x["reward"]> min_reward)
+        rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
+    
         #SFT on dataset w/ random pause insertions
-        trainer = SFTTrainer(
+        trainer = InvariantModelingTrainer(
             model=model,
             tokenizer=tokenizer,
             args=training_args,
             train_dataset=rollout_dataset,
-            dataset_text_field="text",
-            max_seq_length=args.max_length,
-            data_collator=collator,
-            callbacks=callbacks
+            data_collator=ilm_collator,
+            num_to_train_method = num_to_train_method,
+            columns_to_keep=["prompts", "completions", "rewards", "train_method"],
+            num_to_trainer_config=num_to_trainer_config,
+            name_to_formatting_func=name_to_formatting_func,
+            trainer_name_col="train_method",
         )
 
 
         trainer.train()
         print("SAVING MODEL at ", args.output_dir)
-        trainer.save_model(args.output_dir)
+        if not args.disable_peft:
+            #Merge previous LoRA
+            trainer.model = trainer.model.merge_and_unload()
+            trainer.save_model(args.output_dir)
+            #Create New Lora
+            model = trainer.model
+        else:
+            trainer.save_model(args.output_dir)
         
-        #filter out rollouts who have all invalid reward
-        min_reward = reward.invalid_ans_penalty
-        rollout_dataset = rollout_dataset.filter(lambda x:  x["reward"]> min_reward)
-        rollout_dataset.to_json(f"../data/rollouts/{task}/{args.tag}/{args.output_dir.split('/')[-1]}.json")
-    
+        
 if __name__ == '__main__':
     main()
