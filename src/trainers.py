@@ -19,8 +19,7 @@ from torch import nn
 import torch
 import copy
 from transformers.utils import is_torch_xla_available
-import xm
-import torch_xla.core.xla_model as xm
+
 def pack_in_data_field(example):
     #check for fields of type torch.Tensor (use filter function)
     string_fields = [key for key in example.keys() if isinstance(example[key], str)]
@@ -314,9 +313,10 @@ class InvariantModelingTrainer(Trainer):
         self.losses = {}
     
     def create_optimizer_and_scheduler(self, num_training_steps: int):
-        num_training_steps = num_training_steps // len(self.trainers)
-        for trainer in self.trainers.values():
-            trainer.create_optimizer_and_scheduler(num_training_steps)
+        super().create_optimizer_and_scheduler(num_training_steps)
+        # num_training_steps = num_training_steps // len(self.trainers)
+        # for trainer in self.trainers.values():
+        #     trainer.create_optimizer_and_scheduler(num_training_steps)
     
     
     
@@ -330,6 +330,7 @@ class InvariantModelingTrainer(Trainer):
         trainers = {}
         last_idx_train = 0
         last_idx_eval = 0
+
         for name in num_to_trainer_config.keys():
             #Fetch Train Data Related to the Trainer and format it
             str_name = self.num_to_train_method[name]
@@ -358,6 +359,7 @@ class InvariantModelingTrainer(Trainer):
             train_data_subset_samplers[name] = range(last_idx_train, last_idx_train + len(trainer.train_dataset))
             last_idx_train += len(trainer.train_dataset)
             trainer.train_dataset = None
+
             if eval_dataset is not None:
                 raise NotImplementedError("Not Tested yet on eval data")
                 eval_data[name] = trainer.eval_dataset
@@ -392,26 +394,26 @@ class InvariantModelingTrainer(Trainer):
             
     def set_trainer(self, name: str):
         self.trainer = self.trainers[name]
-        self.optimizer = self.trainer.optimizer
-        self.lr_scheduler = self.trainer.lr_scheduler
+        # self.optimizer = self.trainer.optimizer
+        # self.lr_scheduler = self.trainer.lr_scheduler
         
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+
         trainer_name = inputs.pop(self.trainer_name_col)
         first_train_method = trainer_name[0].item()
         self.current_train_method = self.num_to_train_method[first_train_method]
         if not (first_train_method == trainer_name).all():
             raise ValueError(f"All samples in the batch should have the same trainer,but got {inputs[self.trainer_name_col]}")
         self.set_trainer(first_train_method)        
-        return self.trainer.training_step(model, inputs)
-    
-    def compute_loss(self, model, inputs, return_outputs=False):
-        loss = self.trainer.compute_loss(model, inputs, return_outputs)
+        loss = self.trainer.training_step(model, inputs)
         loss_name = f'{self.current_train_method}_loss'
         if loss_name in self.losses:
             self.losses[loss_name] += loss
         else:
             self.losses[loss_name] = loss
         return loss
+    
+        
     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             if is_torch_xla_available():
@@ -428,7 +430,8 @@ class InvariantModelingTrainer(Trainer):
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             
             for ls in self.losses:
-                logs[ls] = round(self.losses[ls] / (self.state.global_step - self._globalstep_last_logged), 4)
+                ls_scalar =  self._nested_gather(self.losses[ls]).mean().item()
+                logs[ls] = round(ls_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
                 self.losses[ls] -= self.losses[ls]
             
             if grad_norm is not None:
@@ -438,7 +441,6 @@ class InvariantModelingTrainer(Trainer):
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
             self.store_flos()
-
             self.log(logs)
 
         metrics = None

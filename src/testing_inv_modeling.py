@@ -281,13 +281,13 @@ def main():
         "data_collator": collator
     }
     
-    # dpo_trainer = \
-    # {
-    #     "trainer_class": DPOTrainer,
-    #     "model": model,
-    #     "tokenizer": tokenizer,
-    #     "args": training_args,            
-    # }
+    dpo_trainer = \
+    {
+        "trainer_class": DPOTrainer,
+        "model": model,
+        "tokenizer": tokenizer,
+        "args": training_args,            
+    }
     
     num_to_trainer_config = {
         0: trainer_pause_loss_config,
@@ -301,6 +301,15 @@ def main():
         0: "pause_sft",
         1: "lm_head_sft"
     }
+    # num_to_trainer_config = {
+    #     1: trainer_lm_loss_config        
+    # }
+    # name_to_formatting_func = {
+    #     "lm_head_sft": None
+    # }
+    # num_to_train_method = {
+    #     1: "lm_head_sft"
+    # }
     
     ilm_collator = ConditionalCollator(name_to_collator= {0: collator, 1: collator}, name_col="train_method")
     trainer = InvariantModelingTrainer(
@@ -315,6 +324,22 @@ def main():
         name_to_formatting_func=name_to_formatting_func,
         trainer_name_col="train_method",
     )
+    # trainer = SFTTrainerLMLoss(
+    #     model=model,
+    #     tokenizer=tokenizer,
+    #     args=training_args,
+    #     train_dataset=rollout_dataset,
+    #     data_collator=collator,
+    #     dataset_text_field="text",
+    # )
+    #     "model": model,
+    #     "tokenizer": tokenizer,
+    #     "args": training_args,
+    #     "max_seq_length": args.max_length,
+    #     "dataset_text_field": "text",
+    #     "data_collator": collator
+    # }
+    #print allocated and reserved memory
     trainer.train()
     print("SAVING MODEL at ", args.output_dir)
     if not args.disable_peft:
