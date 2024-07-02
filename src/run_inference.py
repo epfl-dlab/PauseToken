@@ -116,7 +116,7 @@ def main():
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
         
     results = []
-    
+    tokenizer.pad_token=tokenizer.unk_token
     #load data (json with tranformers dataset)    
     
     dataset = load_dataset('json', data_files= data)["train"]
@@ -140,7 +140,8 @@ def main():
             "repetition_penalty": 1.0,
             "do_sample": True,
             "max_new_tokens": 400,
-            "top_p": 0.9
+            "top_p": 0.9,
+            "stop_string": "</s>"
         },
         batch_size=args.batch_size,
     )

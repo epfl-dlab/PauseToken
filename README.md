@@ -85,8 +85,12 @@ Behavior Cloning with invariant LM:
 python behavior_cloning.py --data-dir "/dlabdata1/baldwin/PauseToken/data/gsm8k_jsonl" --model-name "/dlabdata1/baldwin/PauseToken/src/models/gsm8k_random_pauses_5_samples_per_dp/pretrain_mistral/pretrain_Mistral-7B-v0.1_trl_2024-05-15_10:16:32.770577" --n-epochs 1 --n-outer-loops 3 --batch-size-rollout 32 --n-samps-per-prompt-rollout 2 --task "gsm8k_10_random_pause_injected_mistral" --batch-size 8 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --tag <YOUR-TAG> --modules-to-save embed_tokens lm_head --pause-temperature 0.5 --disable-peft
 ```
 
-python testing_inv_modeling.py --data-dir "/dlabdata1/baldwin/PauseToken/data/gsm8k_jsonl" --model-name "/dlabdata1/baldwin/PauseToken/src/models/gsm8k_random_pauses_5_samples_per_dp/pretrain_mistral/pretrain_Mistral-7B-v0.1_trl_2024-05-15_10:16:32.770577" --n-epochs 1 --n-outer-loops 3 --batch-size-rollout 32 --n-samps-per-prompt-rollout 3 --task "gsm8k_10_random_pause_injected_mistral" --batch-size 8 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --tag tst --modules-to-save embed_tokens lm_head pause_classifier --pause-temperature 1.0 --target-module "q_proj" "v_proj"
+```bash
+python testing_inv_modeling.py --data-dir "/dlabscratch1/baldwin/PauseToken/data/gsm8k_jsonl" --model-name "/dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1/" --n-epochs 1 --n-outer-loops 3 --batch-size-rollout 32 --n-samps-per-prompt-rollout 3 --task "gsm8k_10_random_pause_injected_mistral" --batch-size 4 --logging-steps=50 --max-length=300 --save-steps=500 --eval-steps=3000 --tag ilm-filt-rew-rej-no-pause-dpo --modules-to-save embed_tokens lm_head pause_classifier --pause-temperature 1.0 --target-module "q_proj" "v_proj" --filter-if-gt-best-reward --pause-formatting-func "dpo_reject_no_pause" --run-name "ilm-filt-rew-rej-no-pause-dpo" --include-gt
+```
 
+```bash
+```
 
 <!-- ## Train LLaMa -->
 

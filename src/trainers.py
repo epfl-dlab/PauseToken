@@ -22,7 +22,8 @@ from transformers.utils import is_torch_xla_available
 
 def pack_in_data_field(example):
     #check for fields of type torch.Tensor (use filter function)
-    string_fields = [key for key in example.keys() if isinstance(example[key], str)]
+    #TODO: This should be fixed to be more general
+    string_fields = [key for key in example.keys() if isinstance(example[key], str) or (isinstance(example[key], list) and isinstance(example[key][0], str))]
     data_fields = [key for key in example.keys() if key not in string_fields]
     example["data"] = {key: example[key] for key in data_fields}     
     for col in data_fields:
@@ -191,7 +192,8 @@ class WeightedSFTTrainer(SFTTrainer):
             num_proc=self.dataset_num_proc,
             batch_size=self.dataset_batch_size,
         )
-        tokenized_dataset = tokenized_dataset.add_column(self.reward_col_name, dataset[self.reward_col_name])
+        if self.reward_col_name not in tokenized_dataset.column_names:
+            tokenized_dataset = tokenized_dataset.add_column(self.reward_col_name, dataset[self.reward_col_name])
         return tokenized_dataset
         
     def compute_weights(self, inputs):
@@ -346,11 +348,9 @@ class InvariantModelingTrainer(Trainer):
                 trainer_eval_data = trainer_eval_data.map(self.name_to_formatting_func[str_name], batched=True, remove_columns=eval_dataset.column_names)
                 trainer_eval_data = trainer_eval_data.map(lambda x: add_train_method_name(x, col_name = self.trainer_name_col , method_name = name))
                 trainer_config["eval_dataset"] = trainer_eval_data
-            
             # before_instantiation_cols = set(trainer_train_data.features)
             cls = trainer_config.pop("trainer_class")
             trainer = cls(**trainer_config)
-            
             train_data.append(
                 trainer.train_dataset
                 .map(lambda x: pack_in_data_field(x))
@@ -398,7 +398,7 @@ class InvariantModelingTrainer(Trainer):
         # self.lr_scheduler = self.trainer.lr_scheduler
         
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
-
+        
         trainer_name = inputs.pop(self.trainer_name_col)
         first_train_method = trainer_name[0].item()
         self.current_train_method = self.num_to_train_method[first_train_method]
@@ -473,6 +473,9 @@ class PauseHeadDPO(DPOTrainer):
     def __init__(self, pause_token_id ,*args, **kwargs):
         self.pause_token_id = pause_token_id
         super().__init__(*args, **kwargs)
+        if self.ref_model is not None:
+            self.ref_model.set_to_pause_logits()
+
     
     def tokenize_row(self, feature, model: Optional[Union[PreTrainedModel, nn.Module]] = None) -> Dict:
         batch = super().tokenize_row(feature, model)
@@ -484,17 +487,43 @@ class PauseHeadDPO(DPOTrainer):
                         batch[key]))
         return batch        
     def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_pause_logits()
         model.set_to_pause_logits()
         return super().compute_loss(model, inputs, return_outputs)
+
+class WeightedSFTTrainerLMLoss(WeightedSFTTrainer):
+    def __init__(self, pause_token_id ,*args, **kwargs):
+        self.pause_token_id = pause_token_id
+        super().__init__(*args, **kwargs)
+        
+    def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_lm_logits()
+        model.set_to_lm_logits()
+        weights = self.compute_weights(inputs)
+        out = model(inputs['input_ids'][:, :-1])
+        b, s, v = out.logits.shape
+        logits_reshaped = out.logits.reshape(-1,v) #einops.rearrange(out.logits, 'b s v -> (b s) v')
+        targets_reshaped = inputs['input_ids'][:, 1:].reshape(-1) #einops.rearrange(inputs['input_ids'][:, 1:], 'b s -> (b s)')
+        targets_reshaped = torch.where(targets_reshaped == self.pause_token_id, -100, targets_reshaped)
+        losses_reshaped = nn.functional.cross_entropy(logits_reshaped, targets_reshaped, reduce=False, ignore_index=-100)
+        losses = losses_reshaped.reshape(b,s) #einops.rearrange(losses_reshaped, '(b s) -> b s', b=b, s=s)
+        losses = losses.reshape((self.n_samples_per_prefix, -1, s))
+        weighted_losses = weights*losses
+        weighted_losses = weighted_losses.sum(dim=0)
+        return weighted_losses.mean()
     
 class SFTTrainerLMLoss(SFTTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_lm_logits()
+        self.model.set_to_lm_loss()
         model.set_to_lm_logits()
         model.set_to_lm_loss()
         return super().compute_loss(model, inputs, return_outputs)
     
 class SFTTrainerPauseLoss(SFTTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_pause_logits()
+        self.model.set_to_pause_loss()
         model.set_to_pause_logits()
         model.set_to_pause_loss()
         return super().compute_loss(model, inputs, return_outputs)

@@ -223,7 +223,7 @@ def rollout(
                 input_ids=tokenized_prompt.input_ids,
                 attention_mask=tokenized_prompt.attention_mask,
                 pad_token_id=tokenizer.pad_token_id,
-                **generation_args
+                generation_config= GenerationConfig(**generation_args)
             )
             
         res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id, tokenizer))
@@ -377,5 +377,8 @@ def get_training_args(args):
             save_steps=args.save_steps,                       
             logging_steps=args.logging_steps,                      
             save_total_limit=2,                         
-            gradient_accumulation_steps=args.gradient_accumulation_steps
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            report_to="wandb",
+            run_name=args.run_name,
+            seed=123,
         )       
