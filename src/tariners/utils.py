@@ -96,7 +96,6 @@ def pause_ground_truth_constrained_rollout(
     batch_size = 8,
     n_samps_per_prompt = 1,
     include_gt = False,
-    pause_temperature = 1.0
 ):
     """ Perform a rollout with pause ground truth constraint. Meaning that at generation, the model can either generate as next token the pause token or the next ground truth token.
     
@@ -120,17 +119,15 @@ def pause_ground_truth_constrained_rollout(
     :type n_samps_per_prompt: int
     :param include_gt: Include the ground truth (w/out pauses) in the generated samples
     :type include_gt: bool
-    :param pause_temperature: Pause temperature (see 5.3 of Overleaf Amortized Search For Language Model Decoding)
-    :type pause_temperature: float
     :return: List of generated samples
     :rtype: List[dict]
     """
     constraint_module = PauseGroundTruthConstraint(tokens_to_filter=[pause_token_id,tokenizer.pad_token_id], max_tokens=generation_args.get("max_length"))
-    pause_temperature_logit_processor = PauseLogitsProcessor(pause_token_id=pause_token_id, pause_temperature= pause_temperature, softmax_temperature=generation_args.get("temperature",1.0))
     was_in_training = model.training
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
     model.eval()
+    
     res = []
     
 
@@ -160,7 +157,6 @@ def pause_ground_truth_constrained_rollout(
                     attention_mask=tokenized_prompt.attention_mask,
                     pad_token_id=tokenizer.pad_token_id,
                     prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                    logits_processor=LogitsProcessorList([pause_temperature_logit_processor]),
                     **generation_args
                 )
             
@@ -227,7 +223,7 @@ def rollout(
                 input_ids=tokenized_prompt.input_ids,
                 attention_mask=tokenized_prompt.attention_mask,
                 pad_token_id=tokenizer.pad_token_id,
-                **generation_args
+                generation_config= GenerationConfig(**generation_args)
             )
             
         res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id, tokenizer))
@@ -381,5 +377,8 @@ def get_training_args(args):
             save_steps=args.save_steps,                       
             logging_steps=args.logging_steps,                      
             save_total_limit=2,                         
-            gradient_accumulation_steps=args.gradient_accumulation_steps
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            report_to="wandb",
+            run_name=args.run_name,
+            seed=123,
         )       

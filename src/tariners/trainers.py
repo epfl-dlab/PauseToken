@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from trl import SFTTrainer
+from trl import SFTTrainer, DPOTrainer
 import torch
 import warnings
 import numpy as np
@@ -17,14 +17,44 @@ from transformers import TrainingArguments, PreTrainedTokenizerBase, EvalPredict
 from transformers.data.data_collator import DataCollator
 from torch import nn
 import torch
+import copy
+from transformers.utils import is_torch_xla_available
 
 def pack_in_data_field(example):
-    res = {"data": example}
-    return res
+    #check for fields of type torch.Tensor (use filter function)
+    #TODO: This should be fixed to be more general
+    string_fields = [key for key in example.keys() if isinstance(example[key], str) or (isinstance(example[key], list) and isinstance(example[key][0], str))]
+    data_fields = [key for key in example.keys() if key not in string_fields]
+    example["data"] = {key: example[key] for key in data_fields}     
+    for col in data_fields:
+        example.pop(col)
+    return example
 
 def add_train_method_name(example, col_name ,method_name):
     example[col_name] = method_name
     return example
+
+def make_ds_compatible( datasets: List[Dataset]):
+    def fill_missing_cols(example, cols, in_data_field = False):
+        for col in cols:
+            if in_data_field:
+                example["data"][col] = None
+            else:
+                example[col] = None
+        return example
+    #make sure all datasets have the same columns in "data" field
+    cols = [col for dataset in datasets for col in dataset[0]["data"].keys()]
+    cols = set(cols)
+    for i,dataset in enumerate(datasets):
+        missing_cols = cols - set(dataset[0]["data"].keys())
+        datasets[i] = dataset.map(lambda x: fill_missing_cols(x, missing_cols, in_data_field=True))
+    #make sure all datasets have the same columns in the dataset
+    cols = [col for dataset in datasets for col in dataset.column_names]
+    cols = set(cols)
+    for i,dataset in enumerate(datasets):
+        missing_cols = cols - set(dataset.column_names)
+        datasets[i] = dataset.map(lambda x: fill_missing_cols(x, missing_cols, in_data_field=False))
+    return datasets
 
 class SFTIgnoreTokensInLossTrainer(SFTTrainer):
     """ Trainer typically used to pretrain Pause Tokens model. It ignores the loss for the tokens specified in ignore_tokens.
@@ -162,7 +192,8 @@ class WeightedSFTTrainer(SFTTrainer):
             num_proc=self.dataset_num_proc,
             batch_size=self.dataset_batch_size,
         )
-        tokenized_dataset = tokenized_dataset.add_column(self.reward_col_name, dataset[self.reward_col_name])
+        if self.reward_col_name not in tokenized_dataset.column_names:
+            tokenized_dataset = tokenized_dataset.add_column(self.reward_col_name, dataset[self.reward_col_name])
         return tokenized_dataset
         
     def compute_weights(self, inputs):
@@ -259,7 +290,8 @@ class InvariantModelingTrainer(Trainer):
                 eval_dataset,
                 num_to_trainer_config,
                 train_batch_size = args.train_batch_size,
-                eval_batch_size = args.eval_batch_size
+                eval_batch_size = args.eval_batch_size,
+                remove_unused_columns = args.remove_unused_columns
             )
         self.trainers = trainers
         self.train_dataset = train_dataset
@@ -280,14 +312,19 @@ class InvariantModelingTrainer(Trainer):
             preprocess_logits_for_metrics = preprocess_logits_for_metrics
         )
         self._signature_columns = ["data", self.trainer_name_col]
+        self.losses = {}
     
     def create_optimizer_and_scheduler(self, num_training_steps: int):
-        for trainer in self.trainers.values():
-            trainer.create_optimizer_and_scheduler(num_training_steps)
+        super().create_optimizer_and_scheduler(num_training_steps)
+        # num_training_steps = num_training_steps // len(self.trainers)
+        # for trainer in self.trainers.values():
+        #     trainer.create_optimizer_and_scheduler(num_training_steps)
     
-    def prepare_dataset(self, train_dataset, eval_dataset, num_to_trainer_config,train_batch_size, eval_batch_size):
+    
+    
+    def prepare_dataset(self, train_dataset, eval_dataset, num_to_trainer_config,train_batch_size, eval_batch_size,remove_unused_columns):
         #assert that the dataset has the column trainer_name_col, "rewards" and "text"
-
+        num_to_trainer_config = copy.deepcopy(num_to_trainer_config)
         train_data_subset_samplers = {}
         eval_data_subset_samplers = {}
         train_data = []
@@ -295,38 +332,44 @@ class InvariantModelingTrainer(Trainer):
         trainers = {}
         last_idx_train = 0
         last_idx_eval = 0
+
         for name in num_to_trainer_config.keys():
             #Fetch Train Data Related to the Trainer and format it
             str_name = self.num_to_train_method[name]
-            if self.trainer_name_col is not None:
-                trainer_train_data = train_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
-            trainer_train_data = trainer_train_data.map(self.name_to_formatting_func[str_name])
-            trainer_train_data = trainer_train_data.map(lambda x: add_train_method_name(x, col_name = self.trainer_name_col , method_name = name))
+            
+            trainer_train_data = train_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
+            if self.name_to_formatting_func.get(str_name) is not None:
+                trainer_train_data = trainer_train_data.map(self.name_to_formatting_func[str_name],batched=True, remove_columns=train_dataset.column_names)
             #fetch trainer config
             trainer_config = num_to_trainer_config[name]
             trainer_config["train_dataset"] = trainer_train_data
             if eval_dataset is not None:
-                if self.trainer_name_col is not None:
-                    trainer_eval_data = eval_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
-                trainer_eval_data = trainer_eval_data.map(self.name_to_formatting_func[str_name])
+                trainer_eval_data = eval_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
+                trainer_eval_data = trainer_eval_data.map(self.name_to_formatting_func[str_name], batched=True, remove_columns=eval_dataset.column_names)
                 trainer_eval_data = trainer_eval_data.map(lambda x: add_train_method_name(x, col_name = self.trainer_name_col , method_name = name))
                 trainer_config["eval_dataset"] = trainer_eval_data
-            
-            
+            # before_instantiation_cols = set(trainer_train_data.features)
             cls = trainer_config.pop("trainer_class")
             trainer = cls(**trainer_config)
-            train_data.append(trainer.train_dataset.map(pack_in_data_field).map(lambda x: add_train_method_name(x, col_name=self.trainer_name_col, method_name=name)).select_columns(["data",self.trainer_name_col]))
+            train_data.append(
+                trainer.train_dataset
+                .map(lambda x: pack_in_data_field(x))
+                .map(lambda x: add_train_method_name(x, col_name=self.trainer_name_col, method_name=name))
+            )
             train_data_subset_samplers[name] = range(last_idx_train, last_idx_train + len(trainer.train_dataset))
             last_idx_train += len(trainer.train_dataset)
             trainer.train_dataset = None
+
             if eval_dataset is not None:
+                raise NotImplementedError("Not Tested yet on eval data")
                 eval_data[name] = trainer.eval_dataset
                 eval_data.append(trainer.eval_dataset)
                 eval_data_subset_samplers[name] = range(last_idx_eval, last_idx_eval + len(trainer.eval_dataset))
                 last_idx_eval += len(trainer.eval_dataset)
                 trainer.eval_dataset = None
             trainers[name] = trainer
-        
+
+        train_data = make_ds_compatible(train_data)
         train_data = concatenate_datasets(train_data)
         train_data_subset_samplers = BatchSubsetsSampler(
             subset_to_sampler = train_data_subset_samplers,
@@ -335,6 +378,7 @@ class InvariantModelingTrainer(Trainer):
         )
         
         if len(eval_data) > 0:
+            raise NotImplementedError("Not Tested yet on eval data")
             eval_data = concatenate_datasets(eval_data)
             eval_data_subset_samplers = BatchSubsetsSampler(
                 subset_to_sampler = eval_data_subset_samplers,
@@ -350,18 +394,71 @@ class InvariantModelingTrainer(Trainer):
             
     def set_trainer(self, name: str):
         self.trainer = self.trainers[name]
-        self.optimizer = self.trainer.optimizer
-        self.lr_scheduler = self.trainer.lr_scheduler
+        # self.optimizer = self.trainer.optimizer
+        # self.lr_scheduler = self.trainer.lr_scheduler
         
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+        
         trainer_name = inputs.pop(self.trainer_name_col)
-        print(trainer_name)
         first_train_method = trainer_name[0].item()
+        self.current_train_method = self.num_to_train_method[first_train_method]
         if not (first_train_method == trainer_name).all():
             raise ValueError(f"All samples in the batch should have the same trainer,but got {inputs[self.trainer_name_col]}")
         self.set_trainer(first_train_method)        
-        return self.trainer.training_step(model, inputs)
+        loss = self.trainer.training_step(model, inputs)
+        loss_name = f'{self.current_train_method}_loss'
+        if loss_name in self.losses:
+            self.losses[loss_name] += loss
+        else:
+            self.losses[loss_name] = loss
+        return loss
     
+        
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            if is_torch_xla_available():
+                xm.mark_step()
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            
+            for ls in self.losses:
+                ls_scalar =  self._nested_gather(self.losses[ls]).mean().item()
+                logs[ls] = round(ls_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+                self.losses[ls] -= self.losses[ls]
+            
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+            logs["learning_rate"] = self._get_learning_rate()
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+            self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+            self._report_to_hp_search(trial, self.state.global_step, metrics)
+
+            # Run delayed LR scheduler now that metrics are populated
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                metric_to_check = self.args.metric_for_best_model
+                if not metric_to_check.startswith("eval_"):
+                    metric_to_check = f"eval_{metric_to_check}"
+                self.lr_scheduler.step(metrics[metric_to_check])
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial, metrics=metrics)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
     def _get_train_sampler(self):
         return self.train_dataset_subset_samplers
     
@@ -370,12 +467,63 @@ class InvariantModelingTrainer(Trainer):
         
     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None):
         raise NotImplementedError("Not implemented yet")
-class TestTrainerPauseLoss(SFTTrainer):
+
+class PauseHeadDPO(DPOTrainer):
+    
+    def __init__(self, pause_token_id ,*args, **kwargs):
+        self.pause_token_id = pause_token_id
+        super().__init__(*args, **kwargs)
+        if self.ref_model is not None:
+            self.ref_model.set_to_pause_logits()
+
+    
+    def tokenize_row(self, feature, model: Optional[Union[PreTrainedModel, nn.Module]] = None) -> Dict:
+        batch = super().tokenize_row(feature, model)
+        for key in batch.keys():
+            if "_labels" in key:
+                batch[key] = list(
+                    map(
+                        lambda x: int(x == self.pause_token_id) if x != self.label_pad_token_id else self.label_pad_token_id,
+                        batch[key]))
+        return batch        
     def compute_loss(self, model, inputs, return_outputs=False):
-        model.set_to_pause_loss()
+        self.model.set_to_pause_logits()
+        model.set_to_pause_logits()
+        return super().compute_loss(model, inputs, return_outputs)
+
+class WeightedSFTTrainerLMLoss(WeightedSFTTrainer):
+    def __init__(self, pause_token_id ,*args, **kwargs):
+        self.pause_token_id = pause_token_id
+        super().__init__(*args, **kwargs)
+        
+    def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_lm_logits()
+        model.set_to_lm_logits()
+        weights = self.compute_weights(inputs)
+        out = model(inputs['input_ids'][:, :-1])
+        b, s, v = out.logits.shape
+        logits_reshaped = out.logits.reshape(-1,v) #einops.rearrange(out.logits, 'b s v -> (b s) v')
+        targets_reshaped = inputs['input_ids'][:, 1:].reshape(-1) #einops.rearrange(inputs['input_ids'][:, 1:], 'b s -> (b s)')
+        targets_reshaped = torch.where(targets_reshaped == self.pause_token_id, -100, targets_reshaped)
+        losses_reshaped = nn.functional.cross_entropy(logits_reshaped, targets_reshaped, reduce=False, ignore_index=-100)
+        losses = losses_reshaped.reshape(b,s) #einops.rearrange(losses_reshaped, '(b s) -> b s', b=b, s=s)
+        losses = losses.reshape((self.n_samples_per_prefix, -1, s))
+        weighted_losses = weights*losses
+        weighted_losses = weighted_losses.sum(dim=0)
+        return weighted_losses.mean()
+    
+class SFTTrainerLMLoss(SFTTrainer):
+    def compute_loss(self, model, inputs, return_outputs=False):
+        self.model.set_to_lm_logits()
+        self.model.set_to_lm_loss()
+        model.set_to_lm_logits()
+        model.set_to_lm_loss()
         return super().compute_loss(model, inputs, return_outputs)
     
-class TestTrainerLMLoss(SFTTrainer):
+class SFTTrainerPauseLoss(SFTTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
-        model.set_to_lm_loss()
+        self.model.set_to_pause_logits()
+        self.model.set_to_pause_loss()
+        model.set_to_pause_logits()
+        model.set_to_pause_loss()
         return super().compute_loss(model, inputs, return_outputs)

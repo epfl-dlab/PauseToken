@@ -16,7 +16,7 @@ class BatchSubsetsSampler(Sampler[List[int]]):
         self.resample_sample_till_all_done = resample_sample_till_all_done
     
     def __len__(self):
-        return len(self.subset_to_sampler) * len(max(self.subset_to_sampler.values(), key=len)) // self.batch_size
+        return len(self.subset_to_sampler) * len(max(self.subset_to_sampler.values(), key=len))
         
     
     def __iter__(self):

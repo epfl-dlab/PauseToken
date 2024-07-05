@@ -2,7 +2,7 @@ from torch import nn
 from transformers.utils import ModelOutput, PushToHubMixin
 from transformers import PreTrainedModel,PretrainedConfig,AutoModelForCausalLM
 from dataclasses import dataclass, asdict,field
-from typing import Optional, Tuple, Dict, Any, Union
+from typing import Optional, Tuple, Dict, Any, Union, TypeVar
 import torch
 from peft import AutoPeftModelForCausalLM, PeftConfig, get_peft_model
 import warnings
@@ -186,6 +186,7 @@ class SequenceClassifierOutputWithPastAndPauseLogits(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
     attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
     pause_logits: Optional[torch.FloatTensor] = None
+    lm_logits: Optional[torch.FloatTensor] = None
 
 class PauseClassifierWrapper(PreTrainedModel):
     config_class = PauseCLFConfig
@@ -209,6 +210,7 @@ class PauseClassifierWrapper(PreTrainedModel):
                 self.config.language_model_peft_config_set_fields = None
         else:    
             self.language_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=config.path_to_lm) #hydra.utils.instantiate({"_target_": config.base_model_class, "config": config.base_model_config})
+            
             if "PeftModelForCausalLM" in config.language_model_class:
                 peft_config = self._deserialize_peft_config()
                 self.language_model = get_peft_model(self.language_model,peft_config)
@@ -218,12 +220,21 @@ class PauseClassifierWrapper(PreTrainedModel):
         self.pause_classifier = nn.Linear(self.language_model.config.hidden_size, 2, dtype=torch_dtype)
         self.pause_classifier.to(self.language_model.device)
         self.pause_token_id = config.pause_token_id
+        self._resize_if_necessary()
         assert config.loss_type in ["lm_loss", "pause_loss", "combined"], "loss_type should be either 'lm_loss', 'pause_loss' or 'combined'"
         self.loss_type = config.loss_type
         self.pause_loss_coeff = config.pause_loss_coeff
         self.lm_loss_coeff = config.lm_loss_coeff
         self.pause_temperature = config.pause_temperature if hasattr(config, "pause_temperature") else 1.0
-
+        self.set_to_lm_logits()
+        
+        
+    def _resize_if_necessary(self):
+        if self.pause_token_id == self.language_model.config.vocab_size:
+            self.language_model.resize_token_embeddings(self.pause_token_id + 1)
+        elif self.pause_token_id > self.language_model.config.vocab_size:
+            raise ValueError("Model embedding size is smaller than pause token id. Please resize the model embedding size to fit the pause token id.")
+        
     def _serialize_peft_config(self, peft_config: PeftConfig):
         set_fields = []
         peft_config_dict = peft_config.to_dict()
@@ -244,6 +255,59 @@ class PauseClassifierWrapper(PreTrainedModel):
        
     def prepare_inputs_for_generation(self, *args, **kwargs):
         return self.language_model.prepare_inputs_for_generation(*args, **kwargs)
+    
+    def freeze_lm_head(self, lm_head_name: str = None):
+        if lm_head_name is not None:
+            lm_head = getattr(self.language_model, lm_head_name)
+        else:
+            lm_head_name,lm_head = [(name,param) for name,param in self.language_model.named_children()][-1]
+            warnings.warn(f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, \
+                make sure this is the correct head. If not, please provide the correct name as an argument.")
+        for param in lm_head.parameters():
+            param.requires_grad = False
+            
+    def unfreeze_lm_head(self,lm_head_name: str = None):
+        if lm_head_name is not None:
+            lm_head = getattr(self.language_model, lm_head_name)
+        else:
+            lm_head_name,lm_head = [(name,param) for name,param  in self.language_model.named_children()][-1]
+            warnings.warn(f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, \
+                make sure this is the correct head. If not, please provide the correct name as an argument.")
+            
+        for param in lm_head.parameters():
+            param.requires_grad = True
+            
+    def freeze_lm_body(self, lm_head_name: str = None):
+        
+        if lm_head_name is not None:
+            lm_head = getattr(self.language_model, lm_head_name)
+        else:
+
+            lm_head_name,lm_head  = [(name,param) for name,param in self.language_model.named_children()][-1]
+            
+            warnings.warn(f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, \
+                make sure this is the correct head. If not, please provide the correct name as an argument.")
+        #check if lm_head requires grad
+        lm_head_requires_grad = any([p.requires_grad for p in lm_head.parameters()])
+        self.freeze_language_model()
+        if lm_head_requires_grad:
+            self.unfreeze_lm_head(lm_head_name)
+                
+    def unfreeze_lm_body(self,lm_head_name: str = None):
+        
+        if lm_head_name is not None:
+            lm_head = getattr(self.language_model, lm_head_name)
+        else:
+
+            lm_head_name,lm_head  = [(name,param) for name,param in self.language_model.named_children()][-1]
+            
+            warnings.warn(f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, \
+                make sure this is the correct head. If not, please provide the correct name as an argument.")
+        #check if lm_head requires grad
+        lm_head_requires_grad = any([p.requires_grad for p in lm_head.parameters()])
+        self.unfreeze_language_model()
+        if not lm_head_requires_grad:
+            self.freeze_lm_head(lm_head_name)
         
     def freeze_language_model(self):
         #Freeze everything except the pause classifier
@@ -265,6 +329,12 @@ class PauseClassifierWrapper(PreTrainedModel):
         for param in self.pause_classifier.parameters():
             param.requires_grad = True
     
+    def set_to_pause_logits(self):
+        self.return_pause_logits_as_logits = True
+        
+    def set_to_lm_logits(self):
+        self.return_pause_logits_as_logits = False
+        
     def set_to_pause_loss(self):
         self.loss_type = "pause_loss"
     
@@ -273,10 +343,11 @@ class PauseClassifierWrapper(PreTrainedModel):
         
     def set_to_combined_loss(self):
         self.loss_type = "combined"
-    
+        
     def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
-        if "return_dict" not in kwargs:
+        if "return_dict" not in kwargs or kwargs["return_dict"] is None:
             kwargs["return_dict"] = True
+    
         assert kwargs["return_dict"], "return_dict should be set to True"
         #add output_hidden_states to the args
         kwargs["output_hidden_states"] = True  
@@ -287,7 +358,7 @@ class PauseClassifierWrapper(PreTrainedModel):
             # Create Pause labels (make sure it's on the same device as the model and a long tensor)
             pause_labels = torch.where(labels == self.pause_token_id, 1, 0).long().to(self.language_model.device)
             lm_head_labels = torch.where(labels == self.pause_token_id, -100, labels).long().to(self.language_model.device)
-            kwargs["labels"] = lm_head_labels
+            
         
         else:
             pause_labels = None
@@ -302,20 +373,21 @@ class PauseClassifierWrapper(PreTrainedModel):
         ##TODO: ADD IF NOT IN TRAINING
         if pause_labels is not None:
             # Shift so that tokens < n predict n
-            shift_logits = pause_logits[..., :-1, :].contiguous()
-            shift_labels = pause_labels[..., 1:].contiguous()
+            shift_pause_logits = pause_logits[..., :-1, :].contiguous()
+            shift_pause_labels = pause_labels[..., 1:].contiguous()
             # Flatten the tokens
-            shift_logits = shift_logits.view(-1, 2)
-            shift_labels = shift_labels.view(-1)
+            shift_pause_logits = shift_pause_logits.view(-1, 2)
+            shift_pause_labels = shift_pause_labels.view(-1)
             # Ensure tensors are on the same device
-            shift_labels = shift_labels.to(shift_logits.device)
+            shift_pause_labels = shift_pause_labels.to(shift_pause_logits.device)
             loss_fct = torch.nn.CrossEntropyLoss()
-            pause_loss = loss_fct(shift_logits, shift_labels)
+            pause_loss = loss_fct(shift_pause_logits, shift_pause_labels)
         else:
             pause_loss = None 
         
         ### INSERT PAUSE LOGIT IN LOGITS POSITION OF PAUSE TOKEN
-        if not self.pause_classifier.training and not self.language_model.training:
+        outputs.logits[..., self.pause_token_id] = torch.finfo(outputs.logits.dtype).min
+        if not self.training:
     
             pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
             
@@ -335,8 +407,20 @@ class PauseClassifierWrapper(PreTrainedModel):
                 torch.isnan(outputs.logits) | torch.isinf(outputs.logits),
                 torch.finfo(outputs.logits.dtype).min,
                 outputs.logits
-            )      
+            )
+        elif labels is not None:
+            
+            shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
+            shift_lm_labels = lm_head_labels[..., 1:].contiguous()
+            # Flatten the tokens
+            shift_lm_logits = shift_lm_logits.view(-1, self.language_model.config.vocab_size)
+            shift_lm_labels = shift_lm_labels.view(-1)
+            # Ensure tensors are on the same device
+            shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
+            loss_fct = torch.nn.CrossEntropyLoss()
+            outputs.loss = loss_fct(shift_lm_logits, shift_lm_labels)
         
+        lm_logits = outputs.logits
         lm_loss = outputs.loss
         if labels is not None:
             if self.loss_type == "pause_loss":
@@ -346,6 +430,9 @@ class PauseClassifierWrapper(PreTrainedModel):
             #     outputs.loss = outputs.loss 
             elif self.loss_type == "combined":
                 outputs.loss = self.pause_loss_coeff * pause_loss + self.lm_loss_coeff * outputs.loss
+
+        if self.return_pause_logits_as_logits and self.training:
+            outputs.logits = pause_logits
         
         return SequenceClassifierOutputWithPastAndPauseLogits(
             loss = outputs.loss,
@@ -355,8 +442,10 @@ class PauseClassifierWrapper(PreTrainedModel):
             past_key_values = outputs.past_key_values,
             hidden_states = outputs.hidden_states,
             attentions = outputs.attentions,
-            pause_logits = pause_logits
+            pause_logits = pause_logits,
+            lm_logits = lm_logits,
         )
+        
         
     
         

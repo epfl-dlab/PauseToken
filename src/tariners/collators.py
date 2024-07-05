@@ -36,6 +36,8 @@ class ConditionalCollator(DataCollatorMixin):
         train_method = examples[0][self.name_col]
         collator = self.name_to_collator[train_method]
         data = [example["data"] for example in examples]
+        #remove any field of data that is None
+        data = [{key: value for key, value in example.items() if value is not None} for example in data]
         tensor = collator(data)
         tensor[self.name_col] = torch.tensor([example[self.name_col] for example in examples]).long()
         return tensor
