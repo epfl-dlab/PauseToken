@@ -1,0 +1,61 @@
+_target_: src.models.transformer_dbn_classifier.TransformerDBNClassifier
+
+key: "transformer_dbn_classifier"
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: 'min'
+  factor: 0.95
+  patience: 10
+  cooldown: 0
+
+monitor: "val/loss"
+
+####################################################
+
+# compile model for faster training with pytorch 2.0
+compile: False
+
+nn:
+  _target_: src.models.components.transformer.TransformerDBN
+  embedding_dim: 256
+  output_dim: ${model.nn.num_embedding}
+  dbn_after_each_layer: False
+  dbn_last_layer: True
+  shared_embedding_dbn: False
+  num_embedding: 10
+  seq_len: 11 # TODO: set this automatically based on the data config file or take it form some higher level folder. 
+  emb_dropout: 0.1  
+  depth: 6
+  pool: 'mean' # 'mean' or 'cls'
+  supervision: False # TODO: move it below?
+  loss_coeffs:
+    disc_loss: 0.001
+
+  discrete_layer: 
+    _target_: src.models.components.discrete_layers.vqvae.VQVAEDiscreteLayer
+    key: 'vqvae'
+    temperature: 1.0
+    label_smoothing_scale: 0.0
+    dist_ord: 2
+    vocab_size: ${model.nn.num_embedding}
+    dictionary_dim: ${model.nn.embedding_dim}
+    hard: True
+    projection_method: "layer norm" # "unit-sphere" "scale" "layer norm" or "None"
+    beta: 0.25
+
+  transformer_layer:
+    _target_: src.models.components.transformer.TransformerLayer
+    num_heads: 8
+    dropout: ${model.nn.emb_dropout}
+    dim: ${model.nn.embedding_dim}
+    mlp_dim: ${model.nn.embedding_dim}
+
+      

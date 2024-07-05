@@ -1,0 +1,11 @@
+_target_: src.data.pvr_datamodule.PVRDataModule
+batch_size: 128 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+train_val_test_split: [55_000, 5_000, 10_000]
+num_workers: 0
+pin_memory: False
+
+seed: 0
+pointer_size: 1
+agg_func: "sum_mod_10"
+window_size: 3
+trim_window: False

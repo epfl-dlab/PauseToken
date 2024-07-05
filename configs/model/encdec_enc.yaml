@@ -1,0 +1,83 @@
+_target_: src.models.encdec_enc.EncDecEncModel
+compile: True
+
+encdec_config:
+  _target_: transformers.BartConfig
+  vocab_size: 50265
+  max_position_embeddings: 256
+  encoder_layers: 4
+  encoder_ffn_dim: 4096
+  encoder_attention_heads: 4
+  decoder_layers: 4
+  decoder_ffn_dim: 4096
+  decoder_attention_heads: 4
+  d_model: 1024
+  use_cache: True
+
+autoreg_wrapper_config:
+  use_past_key_values: False
+  use_last_step_states: True
+  max_lengths: 
+    input: 30
+    output: 30
+  soft_average: 
+    p_eos_backward: True
+    p_eos_forward: False
+    word_embeds_with_scores_forward: True
+
+
+enc_config:
+  _target_: transformers.BertConfig
+  vocab_size: 20
+  hidden_size: 1024
+  num_hidden_layers: 4
+  num_attention_heads: 4
+  intermediate_size: 3072
+  max_position_embeddings: 256
+  type_vocab_size: 1
+  use_cache: True
+
+probe_discretizer:
+  _target_: blocks.modules.discrete_bottleneck.softmax.SoftmaxDiscreteBottleneck
+probe_discretizer_config: 
+  dimensions:
+    decoder_embedding_dim: 1024
+    vocab_size: ${...enc_config.vocab_size}
+    encoder_embedding_dim: 1024
+    unembedding_dim: ${...enc_config.vocab_size}
+  quantize_vector: True 
+  temperature: 1.0
+  encoder_embedding_trainable: True
+  decoder_embedding_trainable: True
+  linear_head_trainable: True
+
+input_discretizer:
+  _target_: blocks.modules.discrete_bottleneck.abstract_discrete_layer.AbstractDiscreteLayer
+input_discretizer_config:
+  dimensions:
+    decoder_embedding_dim: 1024
+    vocab_size: ${...encdec_config.vocab_size}
+    encoder_embedding_dim: 1024
+    unembedding_dim: ${...encdec_config.vocab_size}
+  quantize_vector: True 
+  temperature: 1.0
+  encoder_embedding_trainable: True
+  decoder_embedding_trainable: True
+  linear_head_trainable: True
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: 'min'
+  factor: 0.95
+  patience: 10
+  cooldown: 0
+
+monitor: "val/loss"
+input_tokenizer_name: "facebook/bart-base"
