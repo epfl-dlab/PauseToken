@@ -1,5 +1,5 @@
 *wandb*
-*models*
+*thirdparty*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -172,7 +172,6 @@ cython_debug/
 configs/local/default.yaml
 /data/
 /logs/
-src/data/outputs/
 .env
 **/.DS_Store
 

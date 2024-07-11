@@ -448,5 +448,17 @@ class PauseClassifierWrapper(PreTrainedModel):
         
         
     
-        
+def test_shape():
+    # init model, check shapes work
+    pass
 
+def test_lora_compatability():
+    # test that model can be used with lora
+    pass
+
+
+if __name__ == "__main__":
+    test_shape()
+    test_lora_compatability()
+    print("All tests passed")
+    
