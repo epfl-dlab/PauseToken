@@ -1,11 +1,14 @@
 
 import sys
 from typing import List,Dict,Union
-sys.path.append("..")
+
+sys.path.append("..",)
+sys.path.append(".")
 from thirdparty.openai.grade_school_math.dataset import extract_answer,INVALID_ANS
 import math
 import torch
 from utils import strip_special_tokens
+
 class AbstractReward:
     def __call__(self, model_output: Union[str,List[str]], ground_truth: Union[str,List[str]]):
         if isinstance(model_output, str):
@@ -39,8 +42,6 @@ class GSM8KCorrectnessReward(AbstractReward):
     
     def get_max_reward(self):
         return 1
-
-
 
 class LogLikelihoodReward(AbstractReward):
     def __init__(self, tokenizer, model,tokens_ids_to_ignore,invalid_answer_penalty = torch.finfo(torch.float).min):
@@ -104,6 +105,43 @@ class LogLikelihoodReward(AbstractReward):
         #TODO: Probably change this, but not using it for now
         return -10
     
+
+class GSM8KFinalAnswerLogLikelihoodReward(LogLikelihoodReward):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.tokens_ids_to_ignore.append(self.tokenizer.eos_token_id)
+        self.tokens_ids_to_ignore.append(tokenizer.encode(' ')[0])
+
+    def get_start_of_answer_token_position(self, model_output: str):
+        #find the position of the first token of the answer
+        identifier = self.tokenizer.encode('####')[0]
+        tokenized_output = self.tokenizer(model_output, return_tensors="pt", padding=False, truncation=True)
+        start_of_answer_token_position = torch.where(tokenized_output['input_ids'] == identifier)[1].item()
+        return start_of_answer_token_position
+
+    def get_masked_output_logits(self, model_output: str, padding: bool):
+        tokenized_seqs = self.tokenizer(model_output, return_tensors="pt", padding=padding, truncation=True).to(self.model.device)
+        with torch.no_grad():
+            outputs = self.model(**tokenized_seqs, return_dict=True)
+
+        # discard the last token, it's model's output to EOS
+        # logits_log_softmax = torch.nn.functional.log_softmax(outputs.logits[:,:-1,:], dim=-1)
+        logits_log_softmax = torch.nn.functional.log_softmax(outputs['lm_logits'][:, :-1, :], dim=-1)
+        # #get mask on tokens to ignore
+        full_mask = torch.zeros_like(outputs.logits[:,:-1,:], dtype=torch.bool).to(self.model.device)
+        full_mask[:,:self.get_start_of_answer_token_position(model_output)] = True
+        for token_id in self.tokens_ids_to_ignore:
+            token_mask = (tokenized_seqs['input_ids'][:,1:] == token_id)
+            full_mask[token_mask,:] = True
+        
+        logits_log_softmax[full_mask] = 0.0
+        #fetch output of logits_log_softmax using tokenized_seqs['input_ids']
+        model_output_logits = torch.gather(logits_log_softmax, dim=-1, index=tokenized_seqs['input_ids'][:,1:].unsqueeze(-1)).squeeze(-1)
+    
+        return model_output_logits 
+    
+    
+
 class LogLikelihoodRewardWithPausePenalty(LogLikelihoodReward):
     def __init__(self, pause_str = "<|pause|>" ,*args,**kwargs):
         super().__init__(*args,**kwargs)
@@ -153,3 +191,42 @@ class GSM8KDeltaAnswerReward(AbstractReward):
     
     def get_max_reward(self):
         return 0
+    
+if __name__ == '__main__':
+    import transformers
+    from tokenizers import AddedToken
+    from pause_classifier_wrapper import PauseClassifierWrapper, PauseCLFConfig
+    
+    lm =  transformers.AutoModelForCausalLM.from_pretrained("gpt2")
+    tokenizer = transformers.AutoTokenizer.from_pretrained("gpt2")
+    
+    pause_token = AddedToken(
+        "<|pause|>", 
+        single_word=False, 
+        lstrip=False, 
+        rstrip=False
+    )
+    
+    tokenizer.add_tokens([pause_token], special_tokens=True)
+    lm.resize_token_embeddings(len(tokenizer))
+    pause_token_id = tokenizer.convert_tokens_to_ids("<|pause|>")
+    pause_clf_config = PauseCLFConfig(
+        pause_token_id=pause_token_id,
+    )
+    model = PauseClassifierWrapper(pause_clf_config,lm)
+    
+    # reward = LogLikelihoodReward(
+    #         tokenizer=tokenizer,
+    #         model=model,
+    #         tokens_ids_to_ignore=[pause_token_id],
+    #     )
+
+    reward = GSM8KFinalAnswerLogLikelihoodReward(
+            tokenizer=tokenizer,
+            model=model,
+            tokens_ids_to_ignore=[pause_token_id],
+        )
+
+    mock_sentence =  " He saved up $110 total because 95 + 15 =<|pause|> <<95<|pause|>+15=110>>1<|pause|>1<|pause|>0\nHe saved $15 from his allowance because 3 x 5 = <<3<|pause|>*5=15>>15\nHe earned $60 mowing lawns because 4 x 15 = <<4*15=60>>6<|pause|>0\nHe earned $35 shoveling driveways because 110 - 60 - 15 = <<110-60-15=35>>35\nHe shoveled 5 driveways because 3<|pause|>5 / 7 = <<3<|pause|>5/7=5>>5\n####<|pause|> 5 <|endoftext|>"
+    gt = None    
+    print(reward(mock_sentence, gt))
