@@ -39,7 +39,8 @@ class GSM8KCorrectnessReward(AbstractReward):
     
     def get_max_reward(self):
         return 1
-    
+
+
 
 class LogLikelihoodReward(AbstractReward):
     def __init__(self, tokenizer, model,tokens_ids_to_ignore,invalid_answer_penalty = torch.finfo(torch.float).min):
@@ -78,6 +79,7 @@ class LogLikelihoodReward(AbstractReward):
             return self.invalid_ans_penalty
         
         was_in_training = self.model.training
+        self.model.eval()
         masked_output_logits = self.get_masked_output_logits(model_output, padding=False)
         ll = masked_output_logits.sum()
         if was_in_training:
@@ -90,6 +92,7 @@ class LogLikelihoodReward(AbstractReward):
         answers = [strip_special_tokens(output,self.tokenizer) for output in model_output]
         invalid_ans_mask = [answer == INVALID_ANS for answer in answers]
         was_in_training = self.model.training
+        self.model.eval()
         masked_output_logits = self.get_masked_output_logits(model_output,padding= True)
         ll = masked_output_logits.sum(dim=-1)
         ll[invalid_ans_mask] = self.invalid_ans_penalty
@@ -101,6 +104,35 @@ class LogLikelihoodReward(AbstractReward):
         #TODO: Probably change this, but not using it for now
         return -10
     
+class LogLikelihoodRewardWithPausePenalty(LogLikelihoodReward):
+    def __init__(self, pause_str = "<|pause|>" ,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.pause_str = pause_str
+    
+    def n_tokens_penalty(self,model_output):
+        
+        if isinstance(model_output, str):
+            #count how many times pause_str appears in model_output
+            n_pauses = model_output.count(self.pause_str)
+            penalty = 6.0 / (torch.pi ** 2) * (1.0 / (n_pauses + 1)**2)
+            
+        
+        elif isinstance(model_output, list):
+            n_pauses = [output.count(self.pause_str) for output in model_output]
+            penalty = [6.0 / (torch.pi ** 2 )* (1.0 / (n_pause + 1)**2) for n_pause in n_pauses]    
+        return torch.log(torch.tensor(penalty))
+    
+    def reward_fn(self, model_output: str, ground_truth: str):
+        ll = super().reward_fn(model_output,ground_truth)
+        penalty = self.n_tokens_penalty(model_output)
+        return ll + penalty
+            
+    def batch_call(self, model_output: List[str], ground_truth: List[str]):
+        ll = super().batch_call(model_output,ground_truth)
+        penalty = self.n_tokens_penalty(model_output)
+        
+        return ll + penalty
+
 class GSM8KDeltaAnswerReward(AbstractReward):
     
     def __init__(self, invalid_ans_penalty: float = -1000, ceiled = True):
