@@ -84,6 +84,8 @@ def parse_args():
     parser.add_argument("--train-method", default="wsft", type=str)
     parser.add_argument("--run-first-n", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--max-pause-tokens", type=int, default=50)
+    parser.add_argument("--no-pause-model", action="store_true")
     return parser.parse_args()
 
 
@@ -101,7 +103,9 @@ def main():
     maximal_reward = reward.get_max_reward()
     
     if model_dir:
-    
+        if args.no_pause_model:
+            model = transformers.AutoModelForCausalLM.from_pretrained(model_dir, device_map='auto')
+            tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
         # try:
         # model = AutoPeftModelForCausalLM.from_pretrained(model_dir, device_map='auto')
         # tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
@@ -112,8 +116,9 @@ def main():
         # tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
         #     except:
                 #put all on gpu (without using auto)
-        model = PauseClassifierWrapper.from_pretrained(model_dir,device_map= "cuda:0" ,torch_dtype= torch.bfloat16)
-        tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
+        else:
+            model = PauseClassifierWrapper.from_pretrained(model_dir,device_map= "cuda:0" ,torch_dtype= torch.bfloat16)
+            tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir)
         
     results = []
     tokenizer.pad_token=tokenizer.unk_token
@@ -129,12 +134,12 @@ def main():
         dataset = dataset.map(lambda x: add_max_reward(x,maximal_reward),batched=True)
         
     dataset= dataset.map(formatting_original_dataset_func, batched=True)
-   
     results = rollout(
         model,
         tokenizer,
         dataset,
         prompt_field="text",
+        pause_token_id=tokenizer.convert_tokens_to_ids(PAUSE_SYMBOL),
         generation_args = {
             "temperature": 1.0,
             "repetition_penalty": 1.0,
@@ -144,6 +149,7 @@ def main():
             "stop_string": "</s>"
         },
         batch_size=args.batch_size,
+        max_pauses=args.max_pause_tokens,
     )
             
     json_res = []

@@ -18,29 +18,59 @@ class PauseLogitsProcessor(LogitsProcessor):
     :rtype: torch.FloatTensor
     """
     
-    def __init__(self, pause_token_id, pause_temperature, softmax_temperature):
+    def __init__(self, pause_token_id, pause_temperature, softmax_temperature=1.0, max_pauses= None):
         self.pause_token_id = pause_token_id
         self.pause_temperature = pause_temperature
         self.softmax_temperature = softmax_temperature
+        self.max_pauses = max_pauses
         
     # TODO: batching
     def process_logits(self, input_ids, scores):
-        probs = torch.nn.functional.softmax(1/self.softmax_temperature * scores, dim=-1)
-        pause_prob = probs[..., self.pause_token_id].clone().unsqueeze(-1)
-        pause_odds = pause_prob / (1 - pause_prob)
-        pause_new_prob = self.pause_temperature * pause_odds/(1 + self.pause_temperature * pause_odds)
+        pause_prob = scores[: , self.pause_token_id].clone().clamp(0,1)
         
-        mask = torch.ones_like(probs, dtype=torch.bool)
-        is_nan_condition = torch.isnan(pause_new_prob).squeeze(-1)
-        full_prob_on_pause = torch.where(is_nan_condition)[0]
-        mask[full_prob_on_pause,:] = False
-        probs = torch.where(mask ,probs * (1- pause_new_prob)/ (1 - pause_prob), probs)
-        probs[:, self.pause_token_id] = torch.where(is_nan_condition, 1.0 , pause_new_prob.squeeze(-1))
-        log_probs = self.softmax_temperature * torch.log(probs)
-        #check if `inf`, `nan` are in probs
-        if torch.isnan(probs).any() or torch.isinf(probs).any():
-            raise ValueError("LogitsProcessor: the model generated `inf` or `nan` values")
+        sample_pause = torch.bernoulli(pause_prob)
+        scores[..., self.pause_token_id] = float("-inf")
+        
+        probs = torch.nn.functional.softmax(1/self.softmax_temperature * scores, dim=-1)
+        
+        if self.max_pauses is not None:
+            
+            pause_occurence = (input_ids == self.pause_token_id).sum( dim=-1)
+     
+            sample_pause = torch.where(pause_occurence >= self.max_pauses, 0, sample_pause)
+            
+        probs = probs * (1-sample_pause).unsqueeze(-1)
+        probs[...,self.pause_token_id] = sample_pause
+            
+        log_probs = torch.log(probs)
+
+        log_probs = torch.where(
+            torch.isnan(log_probs) | torch.isinf(log_probs),
+            torch.finfo(log_probs.dtype).min,
+            log_probs
+        )
         return log_probs
+        
+        
+        # probs = torch.nn.functional.softmax(1/self.softmax_temperature * scores, dim=-1)
+
+        # pause_prob = probs[..., self.pause_token_id].clone().unsqueeze(-1)
+
+        # pause_odds = pause_prob / (1 - pause_prob)
+
+        # pause_new_prob = self.pause_temperature * pause_odds/(1 + self.pause_temperature * pause_odds)
+        
+        # mask = torch.ones_like(probs, dtype=torch.bool)
+        # is_nan_condition = torch.isnan(pause_new_prob).squeeze(-1)
+        # full_prob_on_pause = torch.where(is_nan_condition)[0]
+        # mask[full_prob_on_pause,:] = False
+        # probs = torch.where(mask ,probs * (1- pause_new_prob)/ (1 - pause_prob), probs)
+        # probs[:, self.pause_token_id] = torch.where(is_nan_condition, 1.0 , pause_new_prob.squeeze(-1))
+        # log_probs = self.softmax_temperature * torch.log(probs)
+        # #check if `inf`, `nan` are in probs
+        # if torch.isnan(probs).any() or torch.isinf(probs).any():
+        #     raise ValueError("LogitsProcessor: the model generated `inf` or `nan` values")
+        # return log_probs
                 
     def __call__(
         self, input_ids: torch.LongTensor, scores: torch.FloatTensor

@@ -11,6 +11,7 @@ from utils import strip_special_tokens
 
 class AbstractReward:
     def __call__(self, model_output: Union[str,List[str]], ground_truth: Union[str,List[str]]):
+   
         if isinstance(model_output, str):
             return self.reward_fn(model_output, ground_truth)
         elif isinstance(model_output, list):
@@ -30,12 +31,14 @@ class AbstractReward:
         raise NotImplementedError
 
 class GSM8KCorrectnessReward(AbstractReward):
-    
+    def __init_(self, tokenizer):
+        self.tokenizer = tokenizer
+        
     def reward_fn(self, model_output: str, ground_truth: str):
         #an adaptation of thirdparty.openai.grade_school_math.dataset.is_correct
-        gt_answer = extract_answer(ground_truth)
+        gt_answer = extract_answer(strip_special_tokens(ground_truth,self.tokenizer))
         assert gt_answer != INVALID_ANS
-        pred_answer = extract_answer(model_output)
+        pred_answer = extract_answer(strip_special_tokens(model_output,self.tokenizer))
         if pred_answer == INVALID_ANS:
             return -1
         return int(pred_answer == gt_answer)
@@ -75,7 +78,7 @@ class LogLikelihoodReward(AbstractReward):
     def reward_fn(self, model_output: str, ground_truth: str):
         
         answer = extract_answer(strip_special_tokens(model_output,self.tokenizer))
-
+     
         if answer == INVALID_ANS:
             return self.invalid_ans_penalty
         
@@ -192,6 +195,8 @@ class GSM8KDeltaAnswerReward(AbstractReward):
     def get_max_reward(self):
         return 0
     
+    
+    
 if __name__ == '__main__':
     import transformers
     from tokenizers import AddedToken
@@ -203,8 +208,8 @@ if __name__ == '__main__':
     pause_token = AddedToken(
         "<|pause|>", 
         single_word=False, 
-        lstrip=False, 
-        rstrip=False
+        lstrip=True, 
+        rstrip=True
     )
     
     tokenizer.add_tokens([pause_token], special_tokens=True)
@@ -215,18 +220,13 @@ if __name__ == '__main__':
     )
     model = PauseClassifierWrapper(pause_clf_config,lm)
     
-    # reward = LogLikelihoodReward(
-    #         tokenizer=tokenizer,
-    #         model=model,
-    #         tokens_ids_to_ignore=[pause_token_id],
-    #     )
-
-    reward = GSM8KFinalAnswerLogLikelihoodReward(
+    reward = LogLikelihoodReward(
             tokenizer=tokenizer,
             model=model,
             tokens_ids_to_ignore=[pause_token_id],
         )
-
+    
     mock_sentence =  " He saved up $110 total because 95 + 15 =<|pause|> <<95<|pause|>+15=110>>1<|pause|>1<|pause|>0\nHe saved $15 from his allowance because 3 x 5 = <<3<|pause|>*5=15>>15\nHe earned $60 mowing lawns because 4 x 15 = <<4*15=60>>6<|pause|>0\nHe earned $35 shoveling driveways because 110 - 60 - 15 = <<110-60-15=35>>35\nHe shoveled 5 driveways because 3<|pause|>5 / 7 = <<3<|pause|>5/7=5>>5\n####<|pause|> 5 <|endoftext|>"
     gt = None    
     print(reward(mock_sentence, gt))
+    

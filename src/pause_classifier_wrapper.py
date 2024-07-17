@@ -4,7 +4,7 @@ from transformers import PreTrainedModel,PretrainedConfig,AutoModelForCausalLM
 from dataclasses import dataclass, asdict,field
 from typing import Optional, Tuple, Dict, Any, Union, TypeVar
 import torch
-from peft import AutoPeftModelForCausalLM, PeftConfig, get_peft_model
+from peft import AutoPeftModelForCausalLM, PeftConfig, get_peft_model,PeftModel
 import warnings
 from huggingface_hub import hf_hub_download
 from safetensors.torch import save_file as safe_save_file
@@ -200,20 +200,8 @@ class PauseClassifierWrapper(PreTrainedModel):
             # breakpoint()
             # self.config.base_model_config = language_model.config
             self.config.language_model_class = f"{language_model.__class__.__module__}.{language_model.__class__.__qualname__}"
-            
-            if hasattr(language_model, "peft_config"):
-                peft_config, set_fields = self._serialize_peft_config(language_model.peft_config["default"])
-                self.config.language_model_peft_config = json.dumps(peft_config)
-                self.config.language_model_peft_config_set_fields = set_fields
-            else:
-                self.config.language_model_peft_config = None
-                self.config.language_model_peft_config_set_fields = None
         else:    
             self.language_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=config.path_to_lm) #hydra.utils.instantiate({"_target_": config.base_model_class, "config": config.base_model_config})
-            
-            if "PeftModelForCausalLM" in config.language_model_class:
-                peft_config = self._deserialize_peft_config()
-                self.language_model = get_peft_model(self.language_model,peft_config)
                 
         #get same dtype as model parameter
         torch_dtype = self.language_model.config.torch_dtype
@@ -227,7 +215,24 @@ class PauseClassifierWrapper(PreTrainedModel):
         self.lm_loss_coeff = config.lm_loss_coeff
         self.pause_temperature = config.pause_temperature if hasattr(config, "pause_temperature") else 1.0
         self.set_to_lm_logits()
-        
+    
+    @classmethod
+    def from_pretrained(cls,*args, **kwargs):
+        # check if there is "adapter_config.json" in pretrained_model_name_or_path folder
+        pretrained_model_name_or_path = None if len(args) == 0 else args[0]
+        if pretrained_model_name_or_path is not None and os.path.exists(os.path.join(pretrained_model_name_or_path, "adapter_config.json")):
+            peft_config = PeftConfig.from_pretrained(pretrained_model_name_or_path)
+            pause_clf_path = peft_config.base_model_name_or_path
+            
+            if len(args) > 1:
+                pause_classifier = cls.from_pretrained(pause_clf_path, *args[1:], **kwargs)
+            else:
+                pause_classifier = cls.from_pretrained(pause_clf_path, **kwargs)
+          
+            return PeftModel.from_pretrained(pause_classifier, model_id = pretrained_model_name_or_path, **kwargs)
+            
+        else:
+            return super().from_pretrained(*args, **kwargs)
         
     def _resize_if_necessary(self):
         if self.pause_token_id == self.language_model.config.vocab_size:
@@ -235,21 +240,6 @@ class PauseClassifierWrapper(PreTrainedModel):
         elif self.pause_token_id > self.language_model.config.vocab_size:
             raise ValueError("Model embedding size is smaller than pause token id. Please resize the model embedding size to fit the pause token id.")
         
-    def _serialize_peft_config(self, peft_config: PeftConfig):
-        set_fields = []
-        peft_config_dict = peft_config.to_dict()
-        for key, value in peft_config_dict.items():
-            if isinstance(value, set):
-                peft_config_dict[key] = list(value)
-                set_fields.append(key)
-        return peft_config_dict, set_fields
-    
-    def _deserialize_peft_config(self):
-        language_model_peft_config = copy.deepcopy(json.loads(self.config.language_model_peft_config))
-        for field in self.config.language_model_peft_config_set_fields:
-            language_model_peft_config[field] = set(language_model_peft_config[field])
-        return  PeftConfig.from_peft_type(**language_model_peft_config)
-    
     def set_pause_temperature(self, temparature: float):
         self.pause_temperature = temparature
        
@@ -357,9 +347,8 @@ class PauseClassifierWrapper(PreTrainedModel):
         if labels is not None:
             # Create Pause labels (make sure it's on the same device as the model and a long tensor)
             pause_labels = torch.where(labels == self.pause_token_id, 1, 0).long().to(self.language_model.device)
+            pause_labels = torch.where(labels == -100, -100, pause_labels).long().to(self.language_model.device)
             lm_head_labels = torch.where(labels == self.pause_token_id, -100, labels).long().to(self.language_model.device)
-            
-        
         else:
             pause_labels = None
             
@@ -370,66 +359,91 @@ class PauseClassifierWrapper(PreTrainedModel):
         last_hidden_state = outputs.hidden_states[-1]
         pause_logits = self.pause_classifier(last_hidden_state)
         
-        ##TODO: ADD IF NOT IN TRAINING
-        if pause_labels is not None:
-            # Shift so that tokens < n predict n
-            shift_pause_logits = pause_logits[..., :-1, :].contiguous()
-            shift_pause_labels = pause_labels[..., 1:].contiguous()
-            # Flatten the tokens
-            shift_pause_logits = shift_pause_logits.view(-1, 2)
-            shift_pause_labels = shift_pause_labels.view(-1)
-            # Ensure tensors are on the same device
-            shift_pause_labels = shift_pause_labels.to(shift_pause_logits.device)
-            loss_fct = torch.nn.CrossEntropyLoss()
-            pause_loss = loss_fct(shift_pause_logits, shift_pause_labels)
-        else:
-            pause_loss = None 
-        
-        ### INSERT PAUSE LOGIT IN LOGITS POSITION OF PAUSE TOKEN
-        outputs.logits[..., self.pause_token_id] = torch.finfo(outputs.logits.dtype).min
-        if not self.training:
     
+        ### INSERT PAUSE LOGIT IN LOGITS POSITION OF PAUSE TOKEN
+        outputs.logits[..., self.pause_token_id] = torch.finfo(outputs.logits.dtype).min 
+        
+        lm_loss = None
+        pause_loss = None
+        combined_loss = None      
+        if labels is not None and pause_labels is not None:
+            if self.loss_type == "combined":
+                shift_pause_labels = pause_labels[..., 1:].contiguous()
+                shift_pause_logits = pause_logits[..., :-1, :].contiguous()
+                
+                shift_lm_labels = lm_head_labels[..., 1:].contiguous()
+                shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
+                
+                pause_log_probs = - torch.nn.functional.log_softmax(shift_pause_logits, dim=-1)
+                lm_log_probs = - torch.nn.functional.log_softmax(shift_lm_logits, dim=-1)
+         
+                nll_pause = pause_log_probs.gather(dim=-1, index=torch.clamp(shift_pause_labels,min=0).unsqueeze(-1)).squeeze(-1)
+                nll_lm = lm_log_probs.gather(dim=-1, index=torch.clamp(shift_lm_labels,min=0).unsqueeze(-1)).squeeze(-1)
+                nll_lm.masked_fill_(shift_lm_labels.eq(-100), 0.0)
+                nll_pause.masked_fill_(shift_pause_labels.eq(-100), 0.0)
+    
+                combined_loss = (nll_pause + nll_lm).mean()
+                
+            else:
+                ### PAUSE LOSS
+                # Shift so that tokens < n predict n
+                shift_pause_logits = pause_logits[..., :-1, :].contiguous()
+                shift_pause_labels = pause_labels[..., 1:].contiguous()
+                # Flatten the tokens
+                shift_pause_logits = shift_pause_logits.view(-1, 2)
+                shift_pause_labels = shift_pause_labels.view(-1)
+                # Ensure tensors are on the same device
+                shift_pause_labels = shift_pause_labels.to(shift_pause_logits.device)
+                loss_fct = torch.nn.CrossEntropyLoss()
+                pause_loss = loss_fct(shift_pause_logits, shift_pause_labels)
+                
+                ## LM LOSS
+                shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
+                shift_lm_labels = lm_head_labels[..., 1:].contiguous()
+                # Flatten the tokens
+                shift_lm_logits = shift_lm_logits.view(-1, self.language_model.config.vocab_size)
+                shift_lm_labels = shift_lm_labels.view(-1)
+                # Ensure tensors are on the same device
+                shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
+                loss_fct = torch.nn.CrossEntropyLoss()
+                lm_loss = loss_fct(shift_lm_logits, shift_lm_labels)
+        
+            
+        
+        lm_logits = outputs.logits.clone()
+        lm_loss = outputs.loss
+        
+        if not self.training:
             pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
             
-            sample_pause = torch.bernoulli(pause_prob[..., -1 ,1])
+            outputs.logits[..., -1 ,self.pause_token_id] = pause_prob[..., -1 ,1]
+            # pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
             
-            outputs.logits[..., self.pause_token_id] = float("-inf")
+            # sample_pause = torch.bernoulli(pause_prob[..., -1 ,1])
             
-            probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            # outputs.logits[..., self.pause_token_id] = float("-inf")
             
-            probs[..., -1, :] = probs[..., -1, :] * (1-sample_pause).unsqueeze(-1)
+            # probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
             
-            probs[..., -1 ,self.pause_token_id] = sample_pause
+            # probs[..., -1, :] = probs[..., -1, :] * (1-sample_pause).unsqueeze(-1)
             
-            outputs.logits = torch.log(probs)
+            # probs[..., -1 ,self.pause_token_id] = sample_pause
+            
+            # outputs.logits = torch.log(probs)
 
-            outputs.logits = torch.where(
-                torch.isnan(outputs.logits) | torch.isinf(outputs.logits),
-                torch.finfo(outputs.logits.dtype).min,
-                outputs.logits
-            )
-        elif labels is not None:
-            
-            shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
-            shift_lm_labels = lm_head_labels[..., 1:].contiguous()
-            # Flatten the tokens
-            shift_lm_logits = shift_lm_logits.view(-1, self.language_model.config.vocab_size)
-            shift_lm_labels = shift_lm_labels.view(-1)
-            # Ensure tensors are on the same device
-            shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
-            loss_fct = torch.nn.CrossEntropyLoss()
-            outputs.loss = loss_fct(shift_lm_logits, shift_lm_labels)
+            # outputs.logits = torch.where(
+            #     torch.isnan(outputs.logits) | torch.isinf(outputs.logits),
+            #     torch.finfo(outputs.logits.dtype).min,
+            #     outputs.logits
+            # )
         
-        lm_logits = outputs.logits
-        lm_loss = outputs.loss
         if labels is not None:
             if self.loss_type == "pause_loss":
                 outputs.loss = pause_loss
-            #TECHNICALLY THERE WOULD BE THIS BUT NO NEED SINCE ALREADY DONE (ADDING FOR COMPREHENSION)
-            # elif self.loss_type == "lm_loss":
-            #     outputs.loss = outputs.loss 
+            elif self.loss_type == "lm_loss":
+                outputs.loss = lm_loss
             elif self.loss_type == "combined":
-                outputs.loss = self.pause_loss_coeff * pause_loss + self.lm_loss_coeff * outputs.loss
+                outputs.loss = combined_loss
 
         if self.return_pause_logits_as_logits and self.training:
             outputs.logits = pause_logits
