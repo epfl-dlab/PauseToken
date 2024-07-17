@@ -47,12 +47,13 @@ class GSM8KCorrectnessReward(AbstractReward):
         return 1
 
 class LogLikelihoodReward(AbstractReward):
-    def __init__(self, tokenizer, model,tokens_ids_to_ignore,invalid_answer_penalty = torch.finfo(torch.float).min):
+    def __init__(self, tokenizer, model,tokens_ids_to_ignore,invalid_answer_penalty = torch.finfo(torch.float).min, use_conditional_logits=True):
         self.tokenizer = tokenizer
         self.model = model
         self.tokens_ids_to_ignore = tokens_ids_to_ignore
         self.invalid_ans_penalty = invalid_answer_penalty
-        
+        self.use_conditional_logits = use_conditional_logits
+
     def set_model(self, model):
         self.model = model
         
@@ -63,6 +64,9 @@ class LogLikelihoodReward(AbstractReward):
             outputs = self.model(**tokenized_seqs, return_dict=True)
         
         logits_log_softmax = torch.nn.functional.log_softmax(outputs.logits[:,:-1,:], dim=-1)
+        if not self.use_conditional_logits:
+            logits_not_pause_log_softmax = torch.nn.functional.log_softmax(outputs['pause_logits'][:, :-1, :], dim=-1)[..., 0]
+            logits_log_softmax += logits_not_pause_log_softmax.unsqueeze(-1)
         # #get mask on tokens to ignore
         full_mask = torch.zeros_like(outputs.logits[:,:-1,:], dtype=torch.bool).to(self.model.device)
         for token_id in self.tokens_ids_to_ignore:
@@ -130,6 +134,9 @@ class GSM8KFinalAnswerLogLikelihoodReward(LogLikelihoodReward):
         # discard the last token, it's model's output to EOS
         # logits_log_softmax = torch.nn.functional.log_softmax(outputs.logits[:,:-1,:], dim=-1)
         logits_log_softmax = torch.nn.functional.log_softmax(outputs['lm_logits'][:, :-1, :], dim=-1)
+        if not self.use_conditional_logits:
+            logits_not_pause_log_softmax = torch.nn.functional.log_softmax(outputs['pause_logits'][:, :-1, :], dim=-1)[..., 0]
+            logits_log_softmax += logits_not_pause_log_softmax.unsqueeze(-1)
         # #get mask on tokens to ignore
         full_mask = torch.zeros_like(outputs.logits[:,:-1,:], dtype=torch.bool).to(self.model.device)
         full_mask[:,:self.get_start_of_answer_token_position(model_output)] = True
@@ -208,8 +215,8 @@ if __name__ == '__main__':
     pause_token = AddedToken(
         "<|pause|>", 
         single_word=False, 
-        lstrip=True, 
-        rstrip=True
+        # lstrip=True, 
+        # rstrip=True
     )
     
     tokenizer.add_tokens([pause_token], special_tokens=True)
@@ -220,11 +227,18 @@ if __name__ == '__main__':
     )
     model = PauseClassifierWrapper(pause_clf_config,lm)
     
-    reward = LogLikelihoodReward(
+    # reward = LogLikelihoodReward(
+    #         tokenizer=tokenizer,
+    #         model=model,
+    #         tokens_ids_to_ignore=[pause_token_id],
+    #     )
+    
+    reward = GSM8KFinalAnswerLogLikelihoodReward(
             tokenizer=tokenizer,
             model=model,
             tokens_ids_to_ignore=[pause_token_id],
-        )
+            use_conditional_logits=False
+    )
     
     mock_sentence =  " He saved up $110 total because 95 + 15 =<|pause|> <<95<|pause|>+15=110>>1<|pause|>1<|pause|>0\nHe saved $15 from his allowance because 3 x 5 = <<3<|pause|>*5=15>>15\nHe earned $60 mowing lawns because 4 x 15 = <<4*15=60>>6<|pause|>0\nHe earned $35 shoveling driveways because 110 - 60 - 15 = <<110-60-15=35>>35\nHe shoveled 5 driveways because 3<|pause|>5 / 7 = <<3<|pause|>5/7=5>>5\n####<|pause|> 5 <|endoftext|>"
     gt = None    
