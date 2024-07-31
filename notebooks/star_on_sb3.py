@@ -203,14 +203,16 @@ class myEnv(Env):
         tokenizer: PreTrainedTokenizer,
         termination_tokens: List[int],
         max_tokens: int,
+        filler_token: int = -100,
     ):
         self.reward = reward
         self.termination_tokens = termination_tokens
         self.max_tokens = max_tokens
         self.tokenizer = tokenizer
-        self.observation_space =  spaces.Discrete(tokenizer.vocab_size)
+        self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.Discrete(tokenizer.vocab_size)
         self.current_state = []
+        self.filler_token = filler_token
     def step(self, action):
         self.current_state.append(action.item())
         return self._get_obs()
@@ -243,11 +245,12 @@ class myEnv(Env):
         is_terminated =  self.is_terminated(self.current_state)
         is_truncated = self.is_truncated(self.current_state)
         info = {}
-        self.last_obs = self.current_state[-1]
-        return self.last_obs , reward, is_terminated, is_truncated, info
+        full_current_state = self.current_state
+        if len(self.current_state) < self.max_tokens:
+            full_current_state = self.current_state + [self.filler_token] * (self.max_tokens - len(self.current_state))
+        return full_current_state , reward, is_terminated, is_truncated, info
 
     def render(self):
-        breakpoint()
         return self.tokenizer.decode(self.current_state)
 
     def close(self):
@@ -262,14 +265,14 @@ class myEnv(Env):
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, FlattenExtractor
-from typing import Type, Optional, Dict, Any
+from typing import Type, Optional, Dict, Any, Tuple
 from gymnasium import spaces
 import torch
 import gymnasium as gym
 from transformers import PreTrainedModel
 from transformers import PreTrainedTokenizer
 from stable_baselines3.common.type_aliases import Schedule
-from stable_baselines3.common.utils import get_linear_fn
+from stable_baselines3.common.utils import get_linear_fn,obs_as_tensor
 class LLMBasePolicy(BasePolicy):
     
     def __init__(
@@ -286,12 +289,13 @@ class LLMBasePolicy(BasePolicy):
         optimizer_class: Type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         squash_output: bool = False,
+        filler_token: int = -100,
         **kwargs,
     ):
         
         if observation_space is None:
             #check vocab size
-            observation_space = spaces.Discrete(lm.config.vocab_size)
+            observation_space = spaces.MultiDiscrete([lm.config.vocab_size]* tokenizer.vocab_size, dtype = np.int64) 
         if action_space is None:
             action_space = spaces.Discrete(lm.config.vocab_size)
         
@@ -307,6 +311,7 @@ class LLMBasePolicy(BasePolicy):
         )
         self.lm = lm
         self.tokenizer = tokenizer
+        self.filler_token = filler_token
         self._build(lr_schedule)
         
     def _build(self, lr_schedule: Schedule):
@@ -316,9 +321,14 @@ class LLMBasePolicy(BasePolicy):
             **self.optimizer_kwargs,
         )
         self.lm.eval()
-        
     
+    def obs_to_tensor(self, observation: np.ndarray) -> Tuple[PyTorchObs, bool]:    
+        assert isinstance(observation, np.ndarray), "Observation must be a numpy array"
+        obs_tensor = obs_as_tensor(observation, self.device)
+        return obs_tensor, True
+        
     def compute_nll_loss(self, logits, labels):
+                
         shift_lm_logits = logits[..., :-1, :].contiguous()
         shift_lm_labels = labels[..., 1:].contiguous()
         # Flatten the tokens
@@ -326,18 +336,30 @@ class LLMBasePolicy(BasePolicy):
         shift_lm_labels = shift_lm_labels.view(-1)
         # Ensure tensors are on the same device
         shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
-        loss_fct = torch.nn.CrossEntropyLoss()
+        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.filler_token)
         return loss_fct(shift_lm_logits, shift_lm_labels)
     
-    def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
+    def remove_filler_tokens(self, obs: torch.Tensor):
+        #check for any filler tokens
+        if not (obs == self.filler_token).any():
+            return obs
         
+        shape = obs.shape
+        if len(shape) == 1:
+            return obs[obs != self.filler_token].reshape(-1,1)
+        else:
+            return [ob[ob != self.filler_token] for ob in obs]
+            #find 
+    
+    def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if (isinstance(obs, dict) and 'input_ids' in obs and 'attention_mask' not in obs):
             obs = obs["input_ids"]
         #make input_ids and attention_mask
         if isinstance(obs, torch.Tensor):
-            decoded_seq = self.tokenizer.batch_decode(obs)
+            filt_obs = self.remove_filler_tokens(obs)
+            decoded_seq = self.tokenizer.batch_decode(filt_obs)
             feature = self.tokenizer(decoded_seq, return_tensors="pt", padding=True, truncation=True)
-        elif isinstance(obs, dict):
+        elif isinstance(obs, dict) and "input_ids" in obs and "attention_mask" in obs:
             feature = obs
         else:
             raise ValueError("Observation type not supported")
@@ -371,13 +393,100 @@ class LLMBasePolicy(BasePolicy):
             return torch.multinomial(probs, num_samples=1)
 
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
+from stable_baselines3.common.vec_env import VecNormalize 
+from stable_baselines3.common.type_aliases import ReplayBufferSamples
+from stable_baselines3.common.buffers import ReplayBuffer
+class LMReplayBuffer(ReplayBuffer):
+    def __init__(
+        self,
+        *args,
+        filler_token = -100,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.filler_token = filler_token
+        self.eos_token_id = eos_token_id
+        self.observations.fill(self.filler_token)
+        self.actions.fill(self.filler_token)
+        if self.optimize_memory_usage:
+            self.next_observations.fill(self.filler_token)
+    
+    def set_filler_token(self, filler_token):
+        self.observations[self.observations == self.filler_token] = filler_token
+        self.actions[self.actions == self.filler_token] = filler_token
+        if self.optimize_memory_usage:
+            self.next_observations[self.next_observations == self.filler_token] = filler_token
+        self.filler_token = filler_token
+        
+    
+    def add(
+        self,
+        obs: np.ndarray,
+        next_obs: np.ndarray,
+        action: np.ndarray,
+        reward: np.ndarray,
+        done: np.ndarray,
+        infos: List[Dict[str, Any]],
+    ) -> None:
+        #find sequences where done is True
+        done_indices = np.where(done)[0]
+        if len(done_indices) > 0:
+            finished_obs = obs[done_indices]
+            finished_actions = action[done_indices]
+            finished_rewards = reward[done_indices]
+            finished_infos = [infos[i] for i in done_indices]
+            finished_next_obs = next_obs[done_indices]
+        
+            super().add(finished_obs, finished_next_obs, finished_actions, finished_rewards, done, finished_infos)
+            
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+        # Sample randomly the env idx
+        env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
+
+        if self.optimize_memory_usage:
+            next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
+        else:
+            next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
+
+        data = (
+            self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
+            self.actions[batch_inds, env_indices, :],
+            next_obs,
+            # Only use dones that are not due to timeouts
+            # deactivated by default (timeouts is initialized as an array of False)
+            (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
+            self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+        )
+        return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
+
+from stable_baselines3.common.vec_env import VecEnv
+from stable_baselines3.common.noise import ActionNoise
+from stable_baselines3.common.type_aliases import RolloutReturn, TrainFreq
+from stable_baselines3.common.callbacks import BaseCallback
 class STaR(OffPolicyAlgorithm):
     
     def __init__(self,*args, **kwargs):
         super().__init__(*args, **kwargs)
         self._setup_model()
-    
-    
+        self.policy.filler_token = kwargs["env"].filler_token
+        self.replay_buffer.set_filler_token(kwargs["env"].filler_token)
+        
+    def collect_rollouts(
+        self,
+        env: VecEnv,
+        callback: BaseCallback,
+        train_freq: TrainFreq,
+        replay_buffer: ReplayBuffer,
+        action_noise: Optional[ActionNoise] = None,
+        learning_starts: int = 0,
+        log_interval: Optional[int] = None,
+    ) -> RolloutReturn:
+        
+        og_padding_side = self.policy.tokenizer.padding_side
+        self.policy.tokenizer.padding_side = "left"
+        res = super().collect_rollouts(env, callback, train_freq, replay_buffer, action_noise, learning_starts, log_interval)
+        self.policy.tokenizer.padding_side = og_padding_side
+        return res
     
     def train(self, gradient_steps: int, batch_size: int) -> None:
         self.policy.train()
@@ -386,18 +495,16 @@ class STaR(OffPolicyAlgorithm):
                 
         nll_losses = []
         
-        
         for _ in range(gradient_steps):
             self._n_updates += 1
             
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
-            breakpoint()
             
             actions = replay_data.actions
-            
+
             output = self.policy(replay_data.observations)
             
-            nll_loss = self.policy.compute_nll_loss(output.logits, actions)
+            nll_loss = self.policy.compute_nll_loss(output.logits, replay_data.observations)
             
             nll_losses.append(nll_loss.item())
             
@@ -413,43 +520,41 @@ class STaR(OffPolicyAlgorithm):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         
 
-        
-
 if __name__ == "__main__":
     #load gpt2 model
     from transformers import GPT2LMHeadModel, GPT2Tokenizer
     from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
     from stable_baselines3.common.buffers import ReplayBuffer 
-    lm = GPT2LMHeadModel.from_pretrained("gpt2", device_map = "cpu")
+    model = GPT2LMHeadModel.from_pretrained("gpt2", device_map = "cpu")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     tokenizer.pad_token = tokenizer.unk_token
     #get eos token id
     eos_token_id = tokenizer.eos_token_id
     #initialize reward
-    reward = GSM8KFinalAnswerLogLikelihoodReward(tokenizer,lm,[])
+    reward = GSM8KFinalAnswerLogLikelihoodReward(tokenizer,model,[])
 
     env = myEnv(reward,tokenizer, [eos_token_id], 1024)
     
-    tokenizer.pad_token = tokenizer.unk_token
-    obs,_ = env.reset()
-    model = LLMBasePolicy(lr_schedule = get_linear_fn(start = 1e-5, end = 1e-7, end_fraction= 0.95), lm=lm, tokenizer=tokenizer)
-    for i in range(10):
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, is_truncated, info = env.step(action)
-        if done:
-            break
-    print("Result of Prediction")
-    print(env.render()) 
     
-    # policy = LLMBasePolicy
-    # policy_kwargs = {"lm": model, "tokenizer": tokenizer, "lr_schedule": get_linear_fn(start = 1e-5, end = 1e-7, end_fraction= 0.95)}
+    policy = LLMBasePolicy
+    policy_kwargs = {"lm": model, "tokenizer": tokenizer, "lr_schedule": get_linear_fn(start = 1e-5, end = 1e-7, end_fraction= 0.95)}
     
-    # algo = STaR(
-    #     policy = policy,
-    #     policy_kwargs = policy_kwargs,
-    #     env=env,
-    #     learning_rate=1e-5,
-    #     train_freq = TrainFreq(5, TrainFrequencyUnit.STEP),replay_buffer_class= ReplayBuffer
-    # )
-    # algo.learn(1000)
-     
+    algo = STaR(
+        policy = policy,
+        policy_kwargs = policy_kwargs,
+        env=env,
+        learning_rate=1e-5,
+        train_freq = TrainFreq(1, TrainFrequencyUnit.EPISODE),
+        replay_buffer_class= LMReplayBuffer,
+    )
+    algo.learn(1000)
+    # tokenizer.pad_token = tokenizer.unk_token
+    # initial_state = tokenizer("The dog is")["input_ids"]
+    # obs = env.reset(initial_state)
+    
+    # for i in range(10):
+    #     action, _states = model.predict(obs, deterministic=True)
+    #     obs, reward, done, is_truncated, info = env.step(action)
+    #     if done:
+    #         break
+    # print(env.render())   
