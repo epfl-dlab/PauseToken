@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=42", "setuptools-scm"]
+
+[tool.setuptools]
+py-modules = ["lm_stable_baselines"]
+
+[tool.setuptools.dynamic]
+version = {attr = "lm_stable_baselines.VERSION"}
+
+[project]
+license = {file = "LICENSE"}
+name = "lm_stable_baselines"
+description = 'TODO'
+authors = [
+    { name = "Nicolas Baldwin", email = "nicolas.baldwin@epfl.ch"},
+    { name = "Mohammad Hossein Amani", email = "mohammad.amani@epfl.ch" }
+]
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+
+dependencies = [
+    "stable_baselines3==2.3.2",
+    "datasets==2.18.0",
+    "transformers==4.39.3",
+    "peft==0.10.0",
+    "scipy==1.13.0",
+    "matplotlib==3.8.4",
+    "hydra-core==1.3.2",
+    "hydra-colorlog==1.2.0",
+    "hydra-optuna-sweeper==1.2.0",
+    "wandb",
+    "rootutils",
+    "pre-commit",
+    "rich",
+    "pytest",
+    "einops",
+    "sh"
+]
+
+[project.urls]

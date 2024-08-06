@@ -4,10 +4,15 @@
 
 1. Create a new conda envrionment:
     ```
-    conda create -n pausetok python=3.11
-    conda activate pausetok
+    conda create -n lm_stable_baselines python=3.11
+    conda activate lm_stable_baselines
     ````
-2. Installing pytorch. I haven't found a version that works for both on runai and on iccluster 🥲 (something with the `trl` library causes problems)so here's my solution:
+
+4. Install lm_stable_baselines:
+    ```
+    pip install -e .  
+    ```
+<!-- 2. Installing pytorch. I haven't found a version that works for both on runai and on iccluster 🥲 (something with the `trl` library causes problems)so here's my solution:
     - **If you're on Runai**, install the following requirements for torch:
         ```
         pip install -r runai_torch_requirements.txt
@@ -15,11 +20,12 @@
     - **If you're on the iccluster**, install the following requirements for torch:
         ```
         pip install -r torch_requirements.txt
-        ```
-3. Install the rest of the requirements:
+        ``` -->
+<!-- 3. Install the rest of the requirements:
     ```
     pip install -r pip_requirements.txt
-    ```
+    ``` -->
+
 
 ## Data Generation
 
