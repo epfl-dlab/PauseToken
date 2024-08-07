@@ -21,7 +21,6 @@ class STaR(OffPolicyAlgorithm):
         self.policy.filler_token = all_filler_token[0]
         self.replay_buffer.set_filler_token(all_filler_token[0])
         
-        
     def collect_rollouts(
         self,
         env: VecEnv,
@@ -103,7 +102,6 @@ class STaR(OffPolicyAlgorithm):
             
             nll_loss.backward()
             
-            # torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
                     
             

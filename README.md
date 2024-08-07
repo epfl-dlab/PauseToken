@@ -8,10 +8,14 @@
     conda activate lm_stable_baselines
     ````
 
-4. Install lm_stable_baselines:
+2. Install lm_stable_baselines:
     ```
     pip install -e .  
     ```
+3. To run our experiments with pytorch-lightning:
+    ````
+    pip install pytorch-lightning==2.3.3
+    ````
 <!-- 2. Installing pytorch. I haven't found a version that works for both on runai and on iccluster 🥲 (something with the `trl` library causes problems)so here's my solution:
     - **If you're on Runai**, install the following requirements for torch:
         ```
