@@ -5,7 +5,7 @@ defaults:
 
 
 
-_target_: lm_stable_baselines3.training_algorithms.STaR
+_target_: ???
 
 ## TODO: What to do here ? Should I just put this in another config file ?
 
