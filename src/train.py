@@ -1,12 +1,11 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
-import lightning as L
 import rootutils
 import torch
-from lightning import Callback, LightningDataModule, LightningModule, Trainer
-from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+from pytorch_lightning import seed_everything
+from datasets import Dataset
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -34,7 +33,9 @@ from src.utils import (
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
+    hydra_custom_resolvers
 )
+
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -52,30 +53,47 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
-        L.seed_everything(cfg.seed, workers=True)
+        seed_everything(cfg.seed, workers=True)
 
-    log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data, _recursive_=False)
+    log.info(f"Instantiating dataset <{cfg.data._target_}>")
+    dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
 
-    log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model, _recursive_=False)
+    log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
+    tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
-    log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+    log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
+    language_model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
 
-    log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+    log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
+    reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
 
-    log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+    log.info(f"instantiating environment <{cfg.rl_algorithm.environment._target_}>")
+    env = hydra.utils.instantiate(cfg.rl_algorithm.environment, dataset=dataset, tokenizer=tokenizer, reward=reward, termination_tokens=tokenizer.eos_token_id)
+
+    log.info(f"Instantiating policy <{cfg.rl_algorithm.policy._target_}>")
+    policy = hydra.utils.instantiate(cfg.rl_algorithm.policy, lm=language_model, tokenizer=tokenizer)
+  
+
+    # log.info("Instantiating callbacks...")
+    # callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+
+    # log.info("Instantiating loggers...")
+    # logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
+    # log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
+    # trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
     object_dict = {
         "cfg": cfg,
-        "datamodule": datamodule,
-        "model": model,
-        "callbacks": callbacks,
-        "logger": logger,
-        "trainer": trainer,
+        "dataset": dataset,
+        "tokenizer": tokenizer,
+        "language_model": language_model,
+        "reward": reward,
+        "env": env,
+        "policy": policy,
+        # "callbacks": callbacks,
+        # "logger": logger,
+        # "trainer": trainer,
     }
 
     if logger:

@@ -1,6 +1,6 @@
 defaults:
-  - models/language_models@lm: gpt2
-  - models/tokenizers@tokenizer: gpt2
+  - model/language_model: gpt2
+  - model/tokenizer: gpt2
 
 _target_: lm_stable_baselines.policies.LLMBasePolicy
 
@@ -16,3 +16,4 @@ optimizer_class: torch.optim.Adam
 optimizer_kwargs: null
 squash_output: false
 filler_token: -100
+max_output_generation_length: 600

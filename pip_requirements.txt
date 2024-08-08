@@ -24,3 +24,5 @@ rich            # beautiful text formatting in terminal
 pytest          # tests
 einops
 sh            # for running bash commands in some tests (linux/macos only)
+# lightning_utilities # for some utility functions for logging in terminal
+pytorch_lightning==2.4.0

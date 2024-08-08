@@ -19,10 +19,9 @@ def print_config_tree(
     cfg: DictConfig,
     print_order: Sequence[str] = (
         "data",
-        "model",
+        "rl_algorithm",
         "callbacks",
         "logger",
-        "trainer",
         "paths",
         "extras",
     ),

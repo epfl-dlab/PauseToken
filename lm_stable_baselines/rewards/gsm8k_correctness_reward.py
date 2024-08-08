@@ -1,16 +1,16 @@
 from lm_stable_baselines.rewards import AbstractReward
 import torch
+from transformers import PreTrainedTokenizer
 from lm_stable_baselines.utils import strip_special_tokens, extract_answer, INVALID_ANS 
 
 class GSM8KCorrectnessReward(AbstractReward):
-    """ Reward function for the GSM8K dataset. This reward function checks if the model output is correct given the ground truth answer. The ground truth answer must be in the GSM8K dataset format
+    """Reward function for the GSM8K dataset. This reward function checks if the model output is correct given the ground truth answer. The ground truth answer must be in the GSM8K dataset format
     
     :param tokenizer: Tokenizer
     :type tokenizer: transformers.PreTrainedTokenizer
     """
-    
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
+    def __init__(self, tokenizer: PreTrainedTokenizer, **kwargs):
+        super().__init__(tokenizer, **kwargs)
         
     def reward_fn(self, model_output: torch.LongTensor, ground_truth: torch.LongTensor):
         """An adaptation of thirdparty.openai.grade_school_math.dataset.is_correct. Reward function, returns 1.0 if the model output is correct w.r.t. ground truth, 0.0 if it is incorrect, -1.0 if the model output is invalid

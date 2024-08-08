@@ -33,6 +33,7 @@ class LanguageModelEnv(Env):
         termination_tokens: List[int],
         max_tokens: int,
         dataset: Dataset = None,
+        require_dataset: bool = False,
         filler_token: int = -100,
     ):
         super(LanguageModelEnv, self).__init__()
@@ -43,7 +44,7 @@ class LanguageModelEnv(Env):
         self.tokenizer = tokenizer
         self.filler_token = filler_token
         
-        if not LanguageModelEnv.dataset:
+        if require_dataset and not LanguageModelEnv.dataset:
             if dataset is None:
                 raise ValueError("dataset must be provided")
             LanguageModelEnv.dataset = dataset
