@@ -5,7 +5,8 @@ from transformers import PreTrainedTokenizer
 from datasets import Dataset
 from lm_stable_baselines.rewards import AbstractReward
 import numpy as np
-
+from lm_stable_baselines.utils import remove_filler_tokens
+import warnings
 class LanguageModelEnv(Env):
     """ Environment for language models. This class is a subclass of gym.Env and is used to handle language model environments. 
     This environment allows to sample from a dataset and compute rewards based on the model output and the ground truth.
@@ -48,10 +49,10 @@ class LanguageModelEnv(Env):
             LanguageModelEnv.dataset = dataset
         
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
-        self.action_space = spaces.Discrete(tokenizer.vocab_size)
+        self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """ Apply an action to the environment. For a language model it's simply adding the action to the current state
         
         :param action: Action to apply
@@ -59,7 +60,8 @@ class LanguageModelEnv(Env):
         :return: Observation, reward, termination signal, truncation signal, info
         :rtype: Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]
         """
-        self.current_state.append(action.item())
+        clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
+        self.current_state.extend(clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
         return observation, reward, terminated, truncated, info
 
@@ -82,6 +84,7 @@ class LanguageModelEnv(Env):
         :return: True if the state is truncated, False otherwise
         :rtype: bool
         """
+          
         if not self.is_terminated(state) and len(state) >= self.max_tokens:
             return True
         return False
@@ -116,8 +119,11 @@ class LanguageModelEnv(Env):
         #save the current state (input text)
         self.current_state = batch_encoding["input_ids"].reshape(-1).tolist()
         
+        if len(self.current_state) > self.max_tokens:
+            warnings.warn(f"The sampled input text here below is longer than max_tokens ({len(self.current_state)} > {self.max_tokens}): \n {self.input_text} \n Another example will be sampled")
+            return self.reset(seed=seed, options=options)
+        
         #return the observation and info
-        self.last_obs = self.current_state
         self.terminated = False
         self.truncated = False
         self.done = False
@@ -135,10 +141,7 @@ class LanguageModelEnv(Env):
         reward = self.reward(self.current_state, self.output_text) if is_terminated or is_truncated else self.reward.get_min_reward()
         
         info = {}
-        self.last_obs = self.current_state
-        full_current_state = self.current_state #self.resize_obs()
-       
-        return np.array(full_current_state) , reward, is_terminated, is_truncated, info
+        return np.array(self.current_state) , reward, is_terminated, is_truncated, info
 
     def render(self):
         """ Render the current state

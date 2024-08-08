@@ -3,8 +3,10 @@ import numpy as np
 import torch
 from typing import Union, List
 from transformers import PreTrainedTokenizer
+from functools import partial
 ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
+
 
 def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Tensor, List[torch.Tensor]]:
     """ Remove filler tokens from the obs tensor. Function usually used before padding
@@ -28,7 +30,7 @@ def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Te
     return [ob[ob != filler_token] for ob in obs]
 
 
-def add_filler_tokens(array: np.array, max_tokens: int, filler_token: int)-> np.array:
+def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, filler_token: int)-> Union[np.ndarray, torch.Tensor]:
     """ Add filler tokens to the array to make it of length max_tokens
     
     :param array: Array to add filler tokens to
@@ -40,8 +42,25 @@ def add_filler_tokens(array: np.array, max_tokens: int, filler_token: int)-> np.
     :return: Array with filler tokens
     :rtype: np.array
     """
+    if isinstance(array, torch.Tensor):
+        cat_method = partial(torch.cat, dim = -1)
+        create_tensor_method = partial(torch.full, device = array.device)
+    elif isinstance(array, np.ndarray):
+        cat_method = partial(np.concatenate, axis = -1)
+        create_tensor_method = np.full
+    else:
+        raise ValueError("Array must be either a numpy array or a torch tensor")
+    
     if array.shape[-1] < max_tokens:
-        return np.concatenate([array, np.array([filler_token] * (max_tokens - array.shape[-1]))])
+        array_shape = list(array.shape)[:-1]
+        last_dim = max_tokens - array.shape[-1]
+        filler_tensor = create_tensor_method(tuple(array_shape + [last_dim]), filler_token)
+        
+        return cat_method([array, filler_tensor])
+    
+    elif array.shape[-1] > max_tokens:
+        raise ValueError("Array is already longer than max_tokens")
+    
     return array
 
 def extract_answer(completion: str) -> str:

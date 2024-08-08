@@ -20,6 +20,7 @@ class STaR(OffPolicyAlgorithm):
         assert all([filler_token == all_filler_token[0] for filler_token in all_filler_token]), "All environments must have the same filler token"
         self.policy.filler_token = all_filler_token[0]
         self.replay_buffer.set_filler_token(all_filler_token[0])
+        self.env.set_filler_token(all_filler_token[0])
         
     def collect_rollouts(
         self,
