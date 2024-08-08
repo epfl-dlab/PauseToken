@@ -1,7 +1,8 @@
 defaults:
-  # - env: ???
-  - policies@policy: llm_base_policy
-  - buffers@buffer: lm_replay_buffer
+  - environment: language_model_env
+  - reward: default
+  - policy: llm_base_policy
+  - buffer: lm_replay_buffer
 
 
 
@@ -14,7 +15,6 @@ _target_: ???
 # #fetch all arguments from buffer except _target_
 # replay_buffer_kwargs: ${get_dict_except:${buffer},"_target_"}
 
-# env: ???
 learning_rate: 1e-5
 buffer_size: 1000000
 learning_starts: 100

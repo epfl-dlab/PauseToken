@@ -1,12 +1,18 @@
 from typing import List,Union
 import torch
 
+from abc import ABC, abstractmethod
+from transformers import PreTrainedTokenizer
 
-class AbstractReward:
-    """ Abstract class for reward functions. This class should be subclassed and the reward_fn method should be overriden. 
-    Additonally, the get_max_reward and get_min_reward methods should be overriden to return the maximum and minimum reward values respectively.
-    Optionally, the batch_call method can be overriden to compute the reward more efficiently in batch.
+class AbstractReward(ABC):
+    """ Abstract class for reward functions. This class should be subclassed and the reward_fn method should be overridden. 
+    Additionally, the get_max_reward and get_min_reward methods should be overridden to return the maximum and minimum reward values respectively.
+    Optionally, the batch_call method can be overridden to compute the reward more efficiently in batch.
     """
+    def __init__(self, tokenizer: PreTrainedTokenizer, **kwargs):
+        self.kwargs = kwargs
+        self.tokenizer = tokenizer
+
     def __call__(
         self,
         model_output: Union[List[int], List[List[int]], torch.LongTensor],

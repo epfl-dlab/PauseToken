@@ -1,0 +1,9 @@
+defaults:
+  - default
+
+_target_: src.data.dataset_from_file.DatasetFromFile
+
+path: ???
+
+input_label: ???
+output_label: ???

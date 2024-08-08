@@ -1,0 +1,15 @@
+defaults:
+  - dataset_from_file
+
+path: "data/gsm8k_json/gsm8k/"
+    
+files: 
+  - "train"
+  - "test"
+
+file_type: "json"
+
+train_val_test_split: [0.9, 0.1, -1]
+
+input_label: "question"
+output_label: "answer"

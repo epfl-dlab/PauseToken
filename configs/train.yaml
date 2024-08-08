@@ -4,14 +4,14 @@
 # order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  # - data: read_activation_from_file
+  - data: gsm8k
   # - model: encdec_enc
   # - callbacks: default
-  # - logger: wandb # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: wandb # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   # - trainer: default
-  # - paths: default
-  # - extras: default
-  - policy: 
+  - paths: default
+  - extras: default
+  - rl_algorithm: off_policy
   - hydra: default
 
   # experiment configs allow for version control of specific hyperparameters
@@ -29,9 +29,8 @@ defaults:
   - debug: null
 
 # determines the log directory's identifier
-name: "symbolic_probing" # ???
-run_name: "debugging" # ???
-
+name: "rllm" # ???
+run_name: "debug" # ???
 
 # task name, determines output directory path
 task_name: "train"
