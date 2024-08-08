@@ -12,7 +12,7 @@ class LMReplayBuffer(ReplayBuffer):
     def __init__(
         self,
         *args,
-        tokenizer,
+        tokenizer: transformers.PreTrainedTokenizer = None,
         reward_threshold: float = None,
         filler_token = -100, 
         **kwargs
@@ -28,7 +28,13 @@ class LMReplayBuffer(ReplayBuffer):
             self.next_observations.fill(self.filler_token)
         self.tokenizer = tokenizer
         self.reward_threshold = reward_threshold
-        
+    
+    def set_tokenizer(self, tokenizer):
+        self.tokenizer = tokenizer
+    
+    def set_reward_threshold(self, reward_threshold):
+        self.reward_threshold = reward_threshold
+    
     def set_filler_token(self, filler_token):
         
         self.observations[self.observations == self.filler_token] = filler_token

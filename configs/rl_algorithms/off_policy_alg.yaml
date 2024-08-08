@@ -1,0 +1,42 @@
+defaults:
+  # - env: ???
+  - policies@policy: llm_base_policy
+  - buffers@buffer: lm_replay_buffer
+
+
+
+_target_: lm_stable_baselines3.training_algorithms.STaR
+
+## TODO: What to do here ? Should I just put this in another config file ?
+
+# #fetch _target_ argument from buffer
+# replay_buffer_class: ${buffer._target_}
+# #fetch all arguments from buffer except _target_
+# replay_buffer_kwargs: ${get_dict_except:${buffer},"_target_"}
+
+# env: ???
+learning_rate: 1e-5
+buffer_size: 1000000
+learning_starts: 100
+batch_size: 256
+tau: 0.005
+gamma: 0.99
+train_freq: (1, 'step')
+gradient_steps: 1
+action_noise: null
+optimize_memory_usage: false
+stats_window_size: 100
+tensorboard_log: null
+verbose: 0
+device: "auto"
+support_multi_env: false
+monitor_wrapper: true
+seed: null
+use_sde: false
+sde_sample_freq: -1
+use_sde_at_warmup: false
+sde_support: true
+supported_action_spaces: null
+
+
+

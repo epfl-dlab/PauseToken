@@ -1,0 +1,18 @@
+defaults:
+  - models/language_models@lm: gpt2
+  - models/tokenizers@tokenizer: gpt2
+
+_target_: lm_stable_baselines.policies.LLMBasePolicy
+
+observation_space: null #these are inferred from the lm
+action_space: null #these are inferred from the lm
+lr_schedule: null
+tokenizer: ??? 
+lm: ???
+features_extractor_class: null
+features_extractor_kwargs: null
+normalize_images: false
+optimizer_class: torch.optim.Adam
+optimizer_kwargs: null
+squash_output: false
+filler_token: -100

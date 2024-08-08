@@ -1,1 +1,1 @@
-from lm_stable_baselines.policies.lm_base_policy import LLMBasePolicy
+from lm_stable_baselines.policies.llm_base_policy import LLMBasePolicy
