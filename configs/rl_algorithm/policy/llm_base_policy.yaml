@@ -1,6 +1,7 @@
 defaults:
   - model/language_model: gpt2
   - model/tokenizer: gpt2
+  - generation/default
 
 _target_: lm_stable_baselines.policies.LLMBasePolicy
 
@@ -14,3 +15,5 @@ optimizer_kwargs: null
 squash_output: false
 filler_token: -100
 max_output_generation_length: 600
+
+

@@ -13,7 +13,6 @@ defaults:
   - extras: default
   - rl_algorithm: off_policy
   - hydra: default
-
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
   - experiment: null
@@ -29,8 +28,11 @@ defaults:
   - debug: null
 
 # determines the log directory's identifier
-name: "rllm" # ???
+name: "Control Tokens" # ???
 run_name: "debug" # ???
+logger:
+  name: ${..run_name}
+  project: ${..name}
 
 # task name, determines output directory path
 task_name: "train"

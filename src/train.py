@@ -56,6 +56,13 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("seed"):
         seed_everything(cfg.seed, workers=True)
 
+    if cfg.logger is not None:
+        log.info(f"Instantiating up logger <{cfg.logger._target_}>")
+        logger = hydra.utils.instantiate(cfg.logger)
+    else:
+        log.info("No logger found in config! Skipping... Will be using stable-baselines3 logger.")
+        logger = None
+
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
 
@@ -81,7 +88,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         for _ in range(cfg.rl_algorithm.n_envs)
         ]
     )
-    rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env)
+    rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
+    
     # log.info(f"Instantiating policy <{cfg.rl_algorithm.policy._target_}>")
     # policy = hydra.utils.instantiate(cfg.rl_algorithm.policy, lm=language_model, tokenizer=tokenizer)
   
@@ -107,7 +115,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # "logger": logger,
         # "trainer": trainer,
     }
-
+    breakpoint()
     
     # TODO: How do we do this ? Sould we just create the wandb logger here?
     # if logger:

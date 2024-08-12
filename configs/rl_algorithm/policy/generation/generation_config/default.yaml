@@ -1,0 +1,78 @@
+ #an example of generation_config (with default arguments of GenerationConfig)
+_target_: transformers.GenerationConfig
+
+# Parameters that control the length of the output
+max_length: 20
+max_new_tokens: null
+min_length: 0
+min_new_tokens: null
+early_stopping: false
+max_time: null
+
+# Parameters that control the generation strategy used
+do_sample: False
+num_beams: 1
+num_beam_groups: 1
+penalty_alpha: null
+use_cache: True
+
+# Parameters for manipulation of the model output logits
+temperature: 1.0
+top_k: 50
+toop_p: 1.0
+typical_p: 1.0
+epsilon_cutoff: 0.0
+eta_cutoff: 0.0
+diversity_penalty: 0.0
+repetition_penalty: 1.0
+encoder_repetition_penalty: 1.0
+length_penalty: 1.0
+no_repeat_ngram_size: 0
+bad_words_ids: null
+force_words_ids: null
+renormalize_logits: False
+constraints: null
+forced_bos_token_id: null
+forced_eos_token_id: null
+remove_invalid_values: False
+exponential_decay_length_penalty: null
+suppress_tokens: null
+begin_suppress_tokens: null
+forced_decoder_ids: null
+sequence_bias: null
+guidance_scale: null
+low_memory: null
+
+# Parameters that define the output variables of `generate`
+num_return_sequences: 1
+output_attentions: False
+output_hidden_states: False
+output_scores: False
+output_scores: False
+output_logits: null
+return_dict_in_generate: False
+
+# Special tokens that can be used at generation time
+pad_token_id: null
+bos_token_id: null
+eos_token_id: null
+
+# Generation parameters exclusive to encoder-decoder models
+encoder_no_repeat_ngram_size: 0
+decoder_start_token_id: null
+
+# Cache implementation
+cache_implementation: null
+
+# Prompt lookup decoding
+prompt_lookup_num_tokens: null
+max_matching_ngram_size: null
+
+# Wild card
+generation_kwargs: {}
+
+# The remaining attributes do not parametrize `.generate()`, but are informative and/or used by the hub
+# interface.
+_from_model_config: null
+_commit_hash: null
+transformers_version: null # if set to null, it will be filled with the transformers version used to create the config

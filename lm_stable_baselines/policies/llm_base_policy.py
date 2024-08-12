@@ -39,6 +39,26 @@ class LLMBasePolicy(BasePolicy):
     :type squash_output: bool
     :param filler_token: Filler token
     :type filler_token: int
+    :param generation_config: Generation config (Huggingface)
+    :type generation_config: GenerationConfig
+    :param logit_processor: Logit processor (Huggingface generate function argument)
+    :type logit_processor: Any
+    :param stopping_criteria: Stopping criteria (Huggingface generate function argument)
+    :type stopping_criteria: Any
+    :param prefix_allowed_tokens_fn: Prefix allowed tokens function (Huggingface generate function argument)
+    :type prefix_allowed_tokens_fn: Any
+    :param synced_gpus: Synced GPUs (Huggingface generate function argument)
+    :type synced_gpus: Any
+    :param assistant_model: Assistant model (Huggingface generate function argument)
+    :type assistant_model: Any
+    :param streamer: Streamer (Huggingface generate function argument)
+    :type streamer: Any
+    :param negative_prompt_ids: Negative prompt IDs (Huggingface generate function argument)
+    :type negative_prompt_ids: Any
+    :param generation_kwargs: Generation keyword arguments (Huggingface generate function argument)
+    :type generation_kwargs: Dict[str, Any]
+    :param kwargs: Additional keyword arguments
+    :type kwargs: Dict[str, Any]
     """
     
     def __init__(
@@ -96,7 +116,7 @@ class LLMBasePolicy(BasePolicy):
         self.streamer = streamer
         self.negative_prompt_ids = negative_prompt_ids
         self.generation_kwargs = generation_kwargs
-        
+        self.kwargs = kwargs
         self._build(lr_schedule)
         
         

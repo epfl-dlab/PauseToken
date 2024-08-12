@@ -6,8 +6,8 @@ defaults:
 
 
 
-_target_: lm_stable_baselines.training_algorithms.STaR
-n_envs: 3
+_target_: stable_baselines3.common.off_policy_algorithm.OffPolicyAlgorithm
+n_envs: 1
 ## TODO: What to do here ? Should I just put this in another config file ?
 policy_class: ${.policy._target_}
 policy_kwargs: ${get_dict_except:${.policy},"_target_"}

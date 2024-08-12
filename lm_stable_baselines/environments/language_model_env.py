@@ -25,7 +25,12 @@ class LanguageModelEnv(Env):
     :type filler_token: int
     """
     # class variable pointer to dataset - it should be done only once
-    dataset = None 
+    dataset: Dataset = None
+    stage: str = "train"
+    last_idx: int = 0
+    read_sequentially: bool = False
+    
+    
     def __init__(
         self,
         reward: AbstractReward,
@@ -48,7 +53,7 @@ class LanguageModelEnv(Env):
             if dataset is None:
                 raise ValueError("dataset must be provided")
             LanguageModelEnv.dataset = dataset
-        
+        breakpoint()
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
@@ -90,6 +95,14 @@ class LanguageModelEnv(Env):
             return True
         return False
     
+    def set_stage(self, stage: str, read_sequentially: bool = False):
+        valid_stages = ["train", "val", "test"]
+        assert stage in valid_stages, f"stage must be one of {valid_stages}"
+        assert stage in LanguageModelEnv.dataset, f"stage {stage} not found in dataset"
+        LanguageModelEnv.stage = stage
+        LanguageModelEnv.last_idx = 0
+        LanguageModelEnv.read_sequentially = read_sequentially
+        
     def reset(
         self,
         seed = 123,
@@ -111,8 +124,16 @@ class LanguageModelEnv(Env):
         super().reset(seed=seed)
         #sample a new example
         if id is None:
-            id = self.np_random.choice(len(LanguageModelEnv.dataset))
-        input_sample = LanguageModelEnv.dataset[id]
+            if not LanguageModelEnv.read_sequentially:
+                id = self.np_random.choice(len(LanguageModelEnv.dataset[LanguageModelEnv.stage]))
+                LanguageModelEnv.last_idx = id
+            else:
+                id = LanguageModelEnv.last_idx + 1
+                if LanguageModelEnv.last_idx >= len(LanguageModelEnv.dataset[LanguageModelEnv.stage]):
+                    id = 0
+                LanguageModelEnv.last_idx = id
+                
+        input_sample = LanguageModelEnv.dataset[self.stage][id]
         input_text = input_sample["input_text"]
         #save the output text (ground truth)
         self.output_text = self.tokenizer(input_sample["output_text"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()

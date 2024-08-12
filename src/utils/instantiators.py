@@ -54,13 +54,16 @@ def instantiate_loggers(logger_cfg: DictConfig):
 
     return logger
     
-def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment):
+def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     """Instantiates RL algorithm from config.
 
     :param rl_cfg: A DictConfig object containing RL algorithm configurations.
     :param lm: A PreTrainedModel object.
     :param tokenizer: A PreTrainedTokenizer object.
+    :param environment: A LanguageModelEnv object.
+    :param logger: A Logger object.
     :return: A BaseAlgorithm object.
+    :rtype: BaseAlgorithm
     """
     cp = OmegaConf.to_container(rl_cfg,resolve=True)
     
@@ -75,4 +78,8 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment):
     cp["policy_kwargs"]["tokenizer"] = tokenizer
     cp["env"] = environment
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
+    if not hasattr(rl_alg, "policy"):
+        rl_alg._setup_model()
+    if logger is not None:
+        rl_alg.set_logger(logger)
     return rl_alg
