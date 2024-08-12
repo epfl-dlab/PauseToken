@@ -6,7 +6,8 @@ import torch
 from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
 from datasets import Dataset
-
+from src.utils.instantiators import instantiate_rl_algorithm
+from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -68,10 +69,21 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
 
     log.info(f"instantiating environment <{cfg.rl_algorithm.environment._target_}>")
-    env = hydra.utils.instantiate(cfg.rl_algorithm.environment, dataset=dataset, tokenizer=tokenizer, reward=reward, termination_tokens=tokenizer.eos_token_id)
-
-    log.info(f"Instantiating policy <{cfg.rl_algorithm.policy._target_}>")
-    policy = hydra.utils.instantiate(cfg.rl_algorithm.policy, lm=language_model, tokenizer=tokenizer)
+    env = LMDummyVecEnv(
+        [
+            lambda: hydra.utils.instantiate(
+                cfg.rl_algorithm.environment,
+                dataset=dataset,
+                tokenizer=tokenizer,
+                reward=reward,
+                termination_tokens=tokenizer.eos_token_id
+            )
+        for _ in range(cfg.rl_algorithm.n_envs)
+        ]
+    )
+    rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env)
+    # log.info(f"Instantiating policy <{cfg.rl_algorithm.policy._target_}>")
+    # policy = hydra.utils.instantiate(cfg.rl_algorithm.policy, lm=language_model, tokenizer=tokenizer)
   
 
     # log.info("Instantiating callbacks...")
@@ -90,15 +102,17 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "language_model": language_model,
         "reward": reward,
         "env": env,
-        "policy": policy,
+        "policy": rl_alg.policy,
         # "callbacks": callbacks,
         # "logger": logger,
         # "trainer": trainer,
     }
 
-    if logger:
-        log.info("Logging hyperparameters!")
-        log_hyperparameters(object_dict)
+    
+    # TODO: How do we do this ? Sould we just create the wandb logger here?
+    # if logger:
+    #     log.info("Logging hyperparameters!")
+    #     log_hyperparameters(object_dict)
 
     if cfg.get("train"):
         log.info("Starting training!")

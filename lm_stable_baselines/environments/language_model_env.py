@@ -43,7 +43,7 @@ class LanguageModelEnv(Env):
         self.max_tokens = max_tokens
         self.tokenizer = tokenizer
         self.filler_token = filler_token
-        
+
         if require_dataset and not LanguageModelEnv.dataset:
             if dataset is None:
                 raise ValueError("dataset must be provided")

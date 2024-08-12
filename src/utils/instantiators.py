@@ -6,9 +6,11 @@ import hydra
 import copy
 # from lightning import Callback
 # from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig,OmegaConf
 
 from src.utils import pylogger
+from omegaconf import open_dict
+
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -52,4 +54,25 @@ def instantiate_loggers(logger_cfg: DictConfig):
 
     return logger
     
+def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment):
+    """Instantiates RL algorithm from config.
+
+    :param rl_cfg: A DictConfig object containing RL algorithm configurations.
+    :param lm: A PreTrainedModel object.
+    :param tokenizer: A PreTrainedTokenizer object.
+    :return: A BaseAlgorithm object.
+    """
+    cp = OmegaConf.to_container(rl_cfg,resolve=True)
     
+    
+    keys_to_delete = "environment","reward","policy","buffer","n_envs"
+    for key in keys_to_delete:
+        del cp[key]
+    
+    cp["replay_buffer_class"] = hydra.utils.get_class(cp["replay_buffer_class"])
+    cp["policy"] = hydra.utils.get_class(cp.pop("policy_class")) 
+    cp["policy_kwargs"]["lm"] = lm
+    cp["policy_kwargs"]["tokenizer"] = tokenizer
+    cp["env"] = environment
+    rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
+    return rl_alg

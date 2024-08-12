@@ -6,14 +6,16 @@ defaults:
 
 
 
-_target_: ???
-
+_target_: lm_stable_baselines.training_algorithms.STaR
+n_envs: 3
 ## TODO: What to do here ? Should I just put this in another config file ?
+policy_class: ${.policy._target_}
+policy_kwargs: ${get_dict_except:${.policy},"_target_"}
 
 # #fetch _target_ argument from buffer
-# replay_buffer_class: ${buffer._target_}
+replay_buffer_class: ${.buffer._target_}
 # #fetch all arguments from buffer except _target_
-# replay_buffer_kwargs: ${get_dict_except:${buffer},"_target_"}
+replay_buffer_kwargs: ${get_dict_except:${.buffer},"_target_"}
 
 learning_rate: 1e-5
 buffer_size: 1000000
@@ -21,7 +23,7 @@ learning_starts: 100
 batch_size: 256
 tau: 0.005
 gamma: 0.99
-train_freq: (1, 'step')
+train_freq: 100
 gradient_steps: 1
 action_noise: null
 optimize_memory_usage: false

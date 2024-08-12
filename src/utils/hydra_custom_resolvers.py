@@ -1,11 +1,20 @@
 from omegaconf import OmegaConf
 import math
 import os
+from copy import deepcopy
+import hydra
 
+def resolve_tuple(*args):
+    return tuple(args)
+
+def get_class_from_name(name):
+    return hydra.utils.get_class(name)
 
 def get_dict_except(cfg, *keys):
-    breakpoint()
-    return {k: v for k, v in cfg.items() if k not in keys}
+    cp = deepcopy(cfg)
+    for key in keys:
+        delattr(cp, key)
+    return cp
 
 def add_args(*args):
     return sum(float(x) for x in args)
@@ -81,4 +90,8 @@ OmegaConf.register_new_resolver("num_files", num_files_in_directory)
 
 OmegaConf.register_new_resolver("path_to_python_executable", path_to_python_executable)
 
-# OmegaConf.register_new_resolver("get_dict_except", get_dict_except)
+OmegaConf.register_new_resolver("get_dict_except", get_dict_except)
+
+OmegaConf.register_new_resolver("get_class_from_name", get_class_from_name)
+
+OmegaConf.register_new_resolver("as_tuple", resolve_tuple)
