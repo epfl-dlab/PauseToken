@@ -1,5 +1,5 @@
 _target_: lm_stable_baselines.buffers.LMReplayBuffer
 
-handle_timeout_termination: true
+handle_timeout_termination: false
 reward_threshold: null
 filler_token: -100

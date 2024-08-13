@@ -53,7 +53,7 @@ class LanguageModelEnv(Env):
             if dataset is None:
                 raise ValueError("dataset must be provided")
             LanguageModelEnv.dataset = dataset
-        breakpoint()
+
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
@@ -66,7 +66,9 @@ class LanguageModelEnv(Env):
         :return: Observation, reward, termination signal, truncation signal, info
         :rtype: Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]
         """
+        
         clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
+
         self.current_state.extend(clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
         return observation, reward, terminated, truncated, info
@@ -134,9 +136,9 @@ class LanguageModelEnv(Env):
                 LanguageModelEnv.last_idx = id
                 
         input_sample = LanguageModelEnv.dataset[self.stage][id]
-        input_text = input_sample["input_text"]
+        input_text = input_sample["input"]
         #save the output text (ground truth)
-        self.output_text = self.tokenizer(input_sample["output_text"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
+        self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
         batch_encoding = self.tokenizer(input_text, return_tensors="np", padding=True, truncation=True)
         #save the current state (input text)
         self.current_state = batch_encoding["input_ids"].reshape(-1).tolist()

@@ -197,7 +197,6 @@ class LLMBasePolicy(BasePolicy):
         
         action_space_dim = self.action_space.shape[0]
         actions = add_filler_tokens(actions, action_space_dim, self.filler_token)
-        
         return actions
     
     def pre_predict(self, observation: PyTorchObs) -> PyTorchObs:
@@ -221,6 +220,7 @@ class LLMBasePolicy(BasePolicy):
         feature = self.extract_features(observation)
         inputs = feature["input_ids"]
         self.pre_predict(inputs)
+    
         with torch.no_grad():
             outputs = self.lm.generate(
                 inputs = feature["input_ids"],

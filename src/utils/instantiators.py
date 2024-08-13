@@ -73,10 +73,18 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
         del cp[key]
     
     cp["replay_buffer_class"] = hydra.utils.get_class(cp["replay_buffer_class"])
+    cp["replay_buffer_kwargs"]["tokenizer"] = tokenizer
     cp["policy"] = hydra.utils.get_class(cp.pop("policy_class")) 
     cp["policy_kwargs"]["lm"] = lm
     cp["policy_kwargs"]["tokenizer"] = tokenizer
     cp["env"] = environment
+    if cp["policy_kwargs"].get("generation",None) is not None:
+        gen_args = cp["policy_kwargs"].pop("generation")
+        gen_config = gen_args.pop("generation_config", None)
+        gen_config = hydra.utils.instantiate(gen_config) if gen_config is not None else None
+        gen_args["generation_config"] = gen_config
+        cp["policy_kwargs"] = {**cp["policy_kwargs"], **gen_args}
+                
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
     if not hasattr(rl_alg, "policy"):
         rl_alg._setup_model()

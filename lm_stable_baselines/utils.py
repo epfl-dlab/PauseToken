@@ -4,6 +4,7 @@ import torch
 from typing import Union, List
 from transformers import PreTrainedTokenizer
 from functools import partial
+import warnings
 ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
 
@@ -20,7 +21,7 @@ def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Te
     """
     #check for any filler tokens
     if not (obs == filler_token).any():
-        return obs
+        return obs.reshape(-1,1) if len(obs.shape) == 1 else [ob for ob in obs]
     
     shape = obs.shape
     #if it is a 1D tensor we can filter it directly
@@ -51,18 +52,23 @@ def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, f
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
     
+    if array.shape[-1] >= max_tokens:
+        warnings.warn(
+            f"Array is already longer than max_tokens (max_tokens: {max_tokens}, your array length: {array.shape[-1]}). \
+                Array will be truncated. If this is not the desired behavior, consider increasing the max_tokens parameter")
+        array = array[..., :max_tokens]
+        
     if array.shape[-1] < max_tokens:
         array_shape = list(array.shape)[:-1]
         last_dim = max_tokens - array.shape[-1]
         filler_tensor = create_tensor_method(tuple(array_shape + [last_dim]), filler_token)
         
-        return cat_method([array, filler_tensor])
-    
-    elif array.shape[-1] > max_tokens:
-        raise ValueError("Array is already longer than max_tokens")
-    
-    return array
+        array = cat_method([array, filler_tensor])
 
+    return array
+        
+    
+    
 def extract_answer(completion: str) -> str:
     """ Extracts the answer from the completion following the GSM8K dataset format
     

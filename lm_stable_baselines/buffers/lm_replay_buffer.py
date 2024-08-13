@@ -8,6 +8,11 @@ from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.type_aliases import ReplayBufferSamples
 from lm_stable_baselines.utils import remove_filler_tokens
 
+def double_indexing(array: np.ndarray, idx1: np.ndarray, idx2: Optional[np.ndarray] = None) -> np.ndarray:
+    if idx2 is None:
+        return array[idx1]
+    return array[idx1][idx2]
+
 class LMReplayBuffer(ReplayBuffer):
     def __init__(
         self,
@@ -24,7 +29,7 @@ class LMReplayBuffer(ReplayBuffer):
         self.filler_token = filler_token
         self.observations.fill(self.filler_token)
         self.actions.fill(self.filler_token)
-        if self.optimize_memory_usage:
+        if not self.optimize_memory_usage:
             self.next_observations.fill(self.filler_token)
         self.tokenizer = tokenizer
         self.reward_threshold = reward_threshold
@@ -59,31 +64,32 @@ class LMReplayBuffer(ReplayBuffer):
         done: np.ndarray,
         infos: List[Dict[str, Any]],
     ) -> None:
+        
         #find sequences where done is True
         done_indices = np.where(done)[0]
-        finished_rewards = reward[done_indices]
         #check if rewards are above threshold
         if self.reward_threshold is not None:
-            above_thrsh_rewards = np.where(finished_rewards > self.reward_threshold)[0]
+            above_thrsh_rewards = np.where(reward[done_indices] > self.reward_threshold)[0]
         else:
             above_thrsh_rewards = None
-            
+
         if len(done_indices) > 0 and (above_thrsh_rewards is None or len(above_thrsh_rewards) > 0):
-            finished_rewards = finished_rewards[above_thrsh_rewards]
-            finished_obs = obs[done_indices][above_thrsh_rewards]
-            finished_actions = action[done_indices][above_thrsh_rewards]
+            finished_rewards = double_indexing(reward, done_indices, above_thrsh_rewards)
+            finished_obs = double_indexing(obs, done_indices, above_thrsh_rewards)
+            finished_actions = double_indexing(action, done_indices, above_thrsh_rewards)
             
             finished_infos = [infos[i] for i in done_indices]
             if above_thrsh_rewards is not None:
                 finished_infos = [finished_infos[i] for i in above_thrsh_rewards]
-            finished_next_obs = next_obs[done_indices][above_thrsh_rewards]
-            finished_done = done[done_indices][above_thrsh_rewards]
             
-            if (above_thrsh_rewards is not None and len(above_thrsh_rewards) > 1) or above_thrsh_rewards is None and len(done_indices) > 1:
+            finished_next_obs = double_indexing(next_obs, done_indices, above_thrsh_rewards)
+            finished_done = double_indexing(done, done_indices, above_thrsh_rewards)
+            if len(finished_rewards) == 1:
                 super().add(finished_obs, finished_next_obs, finished_actions, finished_rewards, finished_done, finished_infos)
-            for i in range(len(finished_obs)):
-                super().add(finished_obs[i], finished_next_obs[i], finished_actions[i], finished_rewards[i], finished_done[i], finished_infos[i])
-            
+            elif len(finished_rewards) > 1:
+                for i in range(len(finished_rewards)):
+                    super().add(finished_obs[i], finished_next_obs[i], finished_actions[i], finished_rewards[i], finished_done[i], [finished_infos[i]])
+    
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
@@ -112,9 +118,10 @@ class LMReplayBuffer(ReplayBuffer):
         actions = self.tokenizer(
             self.tokenizer.batch_decode(
                 remove_filler_tokens(self.actions[batch_inds, env_indices, :], self.filler_token)
-            , return_tensors="pt", padding=True, truncation=True)
+            ),
+             return_tensors="pt", padding=True, truncation=True
         )["input_ids"]
-    
+
         data = (
             obs,
             actions,

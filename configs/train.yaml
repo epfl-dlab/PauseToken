@@ -11,6 +11,7 @@ defaults:
   # - trainer: default
   - paths: default
   - extras: default
+  - trainer: default
   - rl_algorithm: off_policy
   - hydra: default
   # experiment configs allow for version control of specific hyperparameters

@@ -1,5 +1,5 @@
 defaults:
-  - generation_config: null
+  - generation_config: default
   - logit_processor: null
 
 

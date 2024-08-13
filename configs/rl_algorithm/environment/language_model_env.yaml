@@ -2,3 +2,4 @@ _target_: lm_stable_baselines.environments.LanguageModelEnv
 
 max_tokens: ${rl_algorithm.policy.max_output_generation_length}
 require_dataset: True
+filler_token: -100

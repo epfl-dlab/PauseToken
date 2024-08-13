@@ -2,7 +2,7 @@
 _target_: transformers.GenerationConfig
 
 # Parameters that control the length of the output
-max_length: 20
+max_length: 1024
 max_new_tokens: null
 min_length: 0
 min_new_tokens: null
@@ -19,7 +19,7 @@ use_cache: True
 # Parameters for manipulation of the model output logits
 temperature: 1.0
 top_k: 50
-toop_p: 1.0
+top_p: 1.0
 typical_p: 1.0
 epsilon_cutoff: 0.0
 eta_cutoff: 0.0
@@ -47,7 +47,6 @@ low_memory: null
 num_return_sequences: 1
 output_attentions: False
 output_hidden_states: False
-output_scores: False
 output_scores: False
 output_logits: null
 return_dict_in_generate: False

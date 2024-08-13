@@ -23,14 +23,14 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams = {}
 
     cfg = OmegaConf.to_container(object_dict["cfg"])
-    model = object_dict["model"]
+    model = object_dict["language_model"]
     trainer = object_dict["trainer"]
 
     if not trainer.logger:
         log.warning("Logger not found! Skipping hyperparameter logging...")
         return
 
-    hparams["model"] = cfg["model"]
+    hparams["model"] = cfg["rl_algorithm"]
 
     # save number of model parameters
     hparams["model/params/total"] = sum(p.numel() for p in model.parameters())
@@ -53,5 +53,4 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["seed"] = cfg.get("seed")
 
     # send hparams to all loggers
-    for logger in trainer.loggers:
-        logger.log_hyperparams(hparams)
+    trainer.logger.log_hyperparams(hparams)

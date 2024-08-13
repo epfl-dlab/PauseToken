@@ -1,19 +1,12 @@
-_target_: lightning.pytorch.trainer.Trainer
+defaults:
+  - /callbacks@learn_callbacks: default
 
-default_root_dir: ${paths.output_dir}
+_target_: src.trainer.lmsb_trainer.LMSBTrainer
 
-min_epochs: 1 # prevents early stopping
-max_epochs: 10
+inner_loop_timesteps: 1000
+n_outer_loops: 10 
+log_interval: 100
+tb_log_name: "run"
+progress_bar: False
+num_val_samples: null
 
-accelerator: cpu
-devices: 1
-
-# mixed precision for extra speed-up
-# precision: 16
-
-# perform a validation loop every N training epochs
-check_val_every_n_epoch: 1
-
-# set True to to ensure deterministic results
-# makes training slower but gives more reproducibility than just setting seeds
-deterministic: False

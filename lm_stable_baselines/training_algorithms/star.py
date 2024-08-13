@@ -70,14 +70,6 @@ class STaR(OffPolicyAlgorithm):
         :param infos: List of additional information about the transition.
             It may contain the terminal observations and information about timeout.
         """
-        for i, done in enumerate(dones):
-            if done and infos[i].get("terminal_observation") is not None:
-                infos[i]["terminal_observation"] = \
-                    add_filler_tokens(
-                        infos[i]["terminal_observation"],
-                        len(self.observation_space),
-                        self.policy.filler_token
-                    )
         super()._store_transition(replay_buffer, buffer_action, new_obs, reward, dones, infos)
                         
     

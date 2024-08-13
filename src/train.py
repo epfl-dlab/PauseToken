@@ -69,6 +69,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
+    if tokenizer.pad_token is None:
+        log.warning("No padding token found! Setting padding token to unk token.")
+        tokenizer.pad_token = tokenizer.unk_token
+        
+
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
     language_model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
 
@@ -83,26 +88,17 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 dataset=dataset,
                 tokenizer=tokenizer,
                 reward=reward,
-                termination_tokens=tokenizer.eos_token_id
+                termination_tokens=[tokenizer.eos_token_id]
             )
         for _ in range(cfg.rl_algorithm.n_envs)
         ]
     )
+    log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")
     rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
+    log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
-    # log.info(f"Instantiating policy <{cfg.rl_algorithm.policy._target_}>")
-    # policy = hydra.utils.instantiate(cfg.rl_algorithm.policy, lm=language_model, tokenizer=tokenizer)
-  
-
-    # log.info("Instantiating callbacks...")
-    # callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
-
-    # log.info("Instantiating loggers...")
-    # logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
-
-    # log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    # trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
-
+    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg)
+    
     object_dict = {
         "cfg": cfg,
         "dataset": dataset,
@@ -112,30 +108,32 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "env": env,
         "policy": rl_alg.policy,
         # "callbacks": callbacks,
-        # "logger": logger,
-        # "trainer": trainer,
+        "logger": logger,
+        "trainer": trainer,
+        "rl_algorithm": rl_alg,
     }
-    breakpoint()
     
     # TODO: How do we do this ? Sould we just create the wandb logger here?
-    # if logger:
-    #     log.info("Logging hyperparameters!")
-    #     log_hyperparameters(object_dict)
+    if logger:
+        log.info("Logging hyperparameters!")
+        log_hyperparameters(object_dict)
 
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        trainer.fit()
+        # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        
 
     train_metrics = trainer.callback_metrics
 
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        if ckpt_path == "":
-            log.warning("Best ckpt not found! Using current weights for testing...")
-            ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-        log.info(f"Best ckpt path: {ckpt_path}")
+    # if cfg.get("test"):
+    #     log.info("Starting testing!")
+    #     ckpt_path = trainer.checkpoint_callback.best_model_path
+    #     if ckpt_path == "":
+    #         log.warning("Best ckpt not found! Using current weights for testing...")
+    #         ckpt_path = None
+    #     trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+    #     log.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
 

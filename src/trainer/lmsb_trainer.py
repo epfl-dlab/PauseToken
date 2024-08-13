@@ -1,20 +1,19 @@
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
-from stable_baselines3.common.policies import BasePolicy
-from datasets import Dataset
+from lm_stable_baselines.buffers import LMReplayBuffer
 import warnings
+from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
 class LMSBTrainer:
     def __init__(
         self,
         rl_algorithm: BaseAlgorithm,
-        eval_dataset: Dataset,
         inner_loop_timesteps: int,
         n_outer_loops: int,
         learn_callbacks: MaybeCallback = None,
         log_interval: int = 100,
         tb_log_name: str = "run",
         progress_bar: bool = False,
-        callbacks = None #TODO: define type
+        num_val_samples: int = None,
     ):
         self.learn_kwargs = {
             "total_timesteps": inner_loop_timesteps,
@@ -25,8 +24,8 @@ class LMSBTrainer:
         }
         self.rl_algorithm = rl_algorithm
         self.n_outer_loops = n_outer_loops
-        self.eval_dataset = eval_dataset
-        self.callbacks = callbacks
+        self.num_val_samples = num_val_samples
+        self.logger = self.rl_algorithm.logger
     
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
@@ -42,41 +41,93 @@ class LMSBTrainer:
         
         self.rl_algorithm.env.set_stage(stage, read_sequentially = read_sequentially)
     
-    def run_validation(self):
+    def evaluation(self, stage: str):
         # Run evaluation on validation set
         #Probably I need to call predict on the model and collect samples
-        pass
+        if self.num_val_samples is None:
+            if "val" in self.rl_algorithm.env.envs[0].dataset:
+                warnings.warn("num_val_samples was not provided (None), inferring from dataset")
+                num_val_samples = len(self.rl_algorithm.env.envs[0].dataset["val"])
+                self.num_val_samples = num_val_samples
+            else:
+                raise ValueError(f"num_val_samples was not provided (None) and no validation samples were found in the dataset so it could not be inferred")
+        
+        validation_replay_buffer = LMReplayBuffer(
+            num_val_samples,
+            self.rl_algorithm.observation_space,
+            self.rl_algorithm.action_space,
+            device = self.rl_algorithm.device,
+            n_envs = 1,
+            optimize_memory_usage = True,
+            **self.rl_algorithm.replay_buffer_kwargs
+        )
+        
+        train_freq = TrainFreq(frequency= num_val_samples, unit = TrainFrequencyUnit.STEP)
+        
+        rollout = self.rl_algorithm.collect_rollouts(
+            self.rl_algorithm.env,
+            train_freq= train_freq,
+            action_noise=self.rl_algorithm.action_noise,
+            learning_starts=0,
+            replay_buffer=validation_replay_buffer,
+            log_interval=self.learn_kwargs["log_interval"],
+            callback=self.learn_kwargs["callback"]
+        )
+        breakpoint()
+        #TODO: Compute or extract metrics (e.g. reward)
+        
+        #TODO: Save validation metrics
+        
+        #TODO: Save rollouts to file
+    def run_validation(self):
+        self.set_stage("val")
+        self.evaluation("val")
+    
     
     def run_test(self):
         # Run evaluation on test set
-        pass
+        self.eval_dataset.set_stage("test")
+        self.evaluation("test")
     
     def save_model(self):
         # Save model
         pass
-    
-    def call_callback(self, callback_name: str):
-        callback_fn = getattr(self.callbacks, callback_name, None)
-        if callable(callback_fn):
-            callback_fn(self)
-        else:
-            warnings.warn(f"Callback {callback_name} not found or not callable, This should not happen. Skipping...")
-    
+        
+    def on_validation_start(self):
+        pass
+        
+    def on_validation_end(self):
+        self.set_stage("val")
+        
+    def on_learn_start(self):
+        self.set_stage("train")
+        
+    def on_learn_end(self):
+        pass
+        
+    def on_outer_loop_start(self):
+        pass
+     
     def fit(self):
+       
         for _ in range(self.n_outer_loops):
-            self.call_callback("on_outer_loop_start")
+            self.on_outer_loop_start()
             # Learn
-            self.set_stage("train")
-            self.call_callback("on_learn_start")
+            
+            
+            self.on_learn_start()
+            print("Running Learn Stage ... ")
             self.rl_algorithm.learn(**self.learn_kwargs)
-            self.call_callback("on_learn_end")
+            self.on_learn_end()
             
             # Run evaluation on validation set
-            self.set_stage("val")
-            self.call_callback("on_validation_start")
-            self.run_validation()
-            self.call_callback("on_validation_end")
             
+            self.on_validation_start()
+            print("Running Validation Stage ... ")
+            self.run_validation()
+            self.on_validation_end()
+            
+            print("Saving model")
             # Save model
             self.save_model()
             
