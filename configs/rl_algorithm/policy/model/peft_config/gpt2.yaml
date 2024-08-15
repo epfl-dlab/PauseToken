@@ -1,0 +1,5 @@
+defaults:
+  - default
+
+target_modules: 
+  - "c_attn"

@@ -14,11 +14,13 @@ defaults:
 
   - trainer: trl_trainer/sft
   
-  - rl_algorithm/policy/model/language_model@model: gpt2
+  - rl_algorithm/policy/model/language_model: gpt2
 
-  - rl_algorithm/policy/model/tokenizer@tokenizer: gpt2
+  - rl_algorithm/policy/model/tokenizer: gpt2
 
-  - rl_algorithm/policy/generation@generation: default
+  - rl_algorithm/policy/generation: default
+
+  - rl_algorithm/policy/model/peft_config@trainer.peft_config: null
   
   - metrics: default
 
@@ -36,6 +38,7 @@ defaults:
 
   # debugging config (enable through command line, e.g. `python train.py debug=default)
   - debug: null
+
 
 # determines the log directory's identifier
 name: "Control Tokens" # ???

@@ -1,0 +1,7 @@
+_target_: peft.LoraConfig
+task_type: CAUSAL_LM
+r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+modules_to_save: null
+target_modules: null

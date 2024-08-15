@@ -61,20 +61,20 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
 
-    log.info(f"Instantiating tokenizer <{cfg.tokenizer._target_}>")
-    tokenizer = hydra.utils.instantiate(cfg.tokenizer)
+    log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
+    tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
     if tokenizer.pad_token is None:
         log.warning("No padding token found! Setting padding token to unk token.")
         tokenizer.pad_token = tokenizer.unk_token
         
-    log.info(f"Instantiating language model <{cfg.model._target_}>")
-    model = hydra.utils.instantiate(cfg.model)
+    log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
+    model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
     
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
     generation = instantiate_generation_params(
-        OmegaConf.to_container(cfg.generation,resolve=True)
+        OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )
     
     #I have to covert to a container because some of the types canno be save in json (e.g., ListConfig)
@@ -86,6 +86,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         eval_dataset=dataset["val"],
         _convert_="partial",
     )
+    
     object_dict = {
         "cfg": cfg,
         "dataset": dataset,

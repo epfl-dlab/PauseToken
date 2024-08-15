@@ -5,7 +5,7 @@ defaults:
   - override /rl_algorithm: star
   - override /rl_algorithm/policy/model/language_model: gpt2
   - override /rl_algorithm/policy/model/tokenizer: gpt2
-  - override /rl_algorithm/policy/generation/generation_config: gpt2
+  - override /rl_algorithm/policy/model/peft_config: gpt2
   - override /rl_algorithm/reward: gsm8k
 
 name: "star on gsm8k"

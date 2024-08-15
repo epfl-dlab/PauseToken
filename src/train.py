@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
-
+from peft import get_peft_model
 import hydra
 import rootutils
 import torch
@@ -76,7 +76,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
     language_model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
-
+    if cfg.rl_algorithm.policy.model.get("peft_config", None) is not None:
+        peft_config = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.peft_config)
+        language_model = get_peft_model(language_model, peft_config)
+    
     log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
 

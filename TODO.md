@@ -8,7 +8,7 @@ TODO:
     - Do we want to save in SB3's format?
     - Do we want to just save the LM via HF ?
     - Both ?
-- Test pipelineo on mistral using STaR
+- Test pipeline on mistral using STaR
     - Don't forget to set reward_threshold to -1 in the config of the buffer
 - Retake a look at the pause token model and how it fits in this framework
 - Test pipeline on pause token model
