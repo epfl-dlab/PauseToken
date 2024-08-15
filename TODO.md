@@ -3,7 +3,7 @@ TODO:
 - Add script for doing SFT on models on a specific dataset (as a warmup for the model) DONE
     - in test function, save test predictions DONE
     - evaluation metrics DONE
-- Peft Option for stable basline algorithms  (probaly can mostly be done in the config)
+- Peft Option for stable basline algorithms  (probaly can mostly be done in the config) DONE
 - Saving and Loading models:
     - Do we want to save in SB3's format?
     - Do we want to just save the LM via HF ?
