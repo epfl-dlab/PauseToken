@@ -1,7 +1,7 @@
 from lm_stable_baselines.rewards import AbstractReward
 import torch
 from transformers import PreTrainedTokenizer
-from lm_stable_baselines.utils import strip_special_tokens, extract_answer, INVALID_ANS 
+from src.utils.trainer_utils import strip_special_tokens, extract_answer, INVALID_ANS 
 
 class GSM8KCorrectnessReward(AbstractReward):
     """Reward function for the GSM8K dataset. This reward function checks if the model output is correct given the ground truth answer. The ground truth answer must be in the GSM8K dataset format

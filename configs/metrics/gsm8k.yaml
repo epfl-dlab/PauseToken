@@ -1,0 +1,6 @@
+defaults:
+  - default
+
+test:
+  accuracy:
+    _target_: src.metrics.gsm8k_metrics.is_correct

@@ -1,0 +1,48 @@
+# @package _global_
+defaults:
+  - override /rl_algorithm/policy/model/language_model@model: gpt2
+  - override /rl_algorithm/policy/model/tokenizer@tokenizer: gpt2
+  - override /metrics: gsm8k
+
+trainer:
+  max_seq_length: 600
+
+  peft_config:
+    _target_: peft.LoraConfig
+    task_type: CAUSAL_LM
+    r: 16
+    lora_alpha: 32
+    lora_dropout: 0.05
+    modules_to_save: null
+    target_modules: 
+      - "c_attn"
+
+  formatting_func:
+    _target_: functools.partial
+    _args_: 
+      - ${get_method:src.utils.trainer_utils.sft_formating_function}
+    eos_token: ${get_obj_attr:${tokenizer},[eos_token]}
+  
+data:
+  debug_n: 32
+
+  args:
+    do_eval: true
+    evaluation_strategy: "steps"
+    save_strategy: "steps"
+    eval_steps: 500
+    load_best_model_at_end: true
+    save_total_limit: 10
+    num_train_epochs: 3.0
+    per_device_train_batch_size: 8
+    per_device_eval_batch_size: 8
+    save_steps: 500
+    report_to: "wandb"
+
+test: true
+test_batch_size: 8
+test_formatting_func:
+  _target_: functools.partial
+  _args_: 
+    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+  eos_token: ${get_obj_attr:${tokenizer},[eos_token]}

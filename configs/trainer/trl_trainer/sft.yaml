@@ -1,0 +1,152 @@
+_target_: trl.SFTTrainer
+#Everything below is the default args
+compute_metrics: null
+callbacks: null
+preprocess_logits_for_metrics: null
+formatting_func: null
+infinite: null
+peft_config: null
+  #Example of peft_config
+  # _target_: peft.LoraConfig
+  #     task_type: CAUSAL_LM
+  #     r: 16
+  #     lora_alpha: 32
+  #     lora_dropout: 0.05
+  #     modules_to_save: null
+  #     target_modules: 
+  #       - "c_attn"
+dataset_text_field: null
+packing: false
+max_seq_length: null
+dataset_num_proc: null
+dataset_batch_size: 1000
+neftune_noise_alpha: null
+model_init_kwargs: null
+dataset_kwargs: null
+eval_packing: null
+num_of_sequences: 1024
+chars_per_token: 3.6
+
+args:
+  _target_: transformers.TrainingArguments
+  #Training args
+  output_dir: ${paths.output_dir}
+  overwrite_output_dir: False
+  do_train: False
+  do_eval: False
+  do_predict: False
+  prediction_loss_only: False
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  per_gpu_train_batch_size: null
+  per_gpu_eval_batch_size: null
+  gradient_accumulation_steps: 1
+  eval_accumulation_steps: null
+  eval_delay: 0
+  learning_rate: 5e-05
+  weight_decay: 0.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1e-08
+  max_grad_norm: 1.0
+  num_train_epochs: 3.0
+  max_steps: -1
+  lr_scheduler_type: 'linear'
+  lr_scheduler_kwargs: {}
+  warmup_ratio: 0.0
+  warmup_steps: 0
+  log_level: 'passive'
+  log_level_replica: 'warning'
+  log_on_each_node: True
+  logging_dir: null
+  logging_strategy: 'steps'
+  logging_first_step: False
+  logging_steps: 500
+  logging_nan_inf_filter: True
+  save_strategy: 'steps'
+  save_steps: 500
+  save_total_limit: null
+  save_safetensors: True
+  save_on_each_node: False
+  save_only_model: False
+  no_cuda: False
+  use_cpu: False
+  use_mps_device: False
+  seed: 42
+  data_seed: null
+  jit_mode_eval: False
+  use_ipex: False
+  bf16: False
+  fp16: False
+  fp16_opt_level: 'O1'
+  half_precision_backend: 'auto'
+  bf16_full_eval: False
+  fp16_full_eval: False
+  tf32: null
+  local_rank: -1
+  ddp_backend: null
+  tpu_num_cores: null
+  tpu_metrics_debug: False
+  debug: ''
+  dataloader_drop_last: False
+  eval_steps: null
+  dataloader_num_workers: 0
+  dataloader_prefetch_factor: null
+  past_index: -1
+  run_name: null
+  disable_tqdm: null
+  remove_unused_columns: True
+  label_names: null
+  load_best_model_at_end: False
+  metric_for_best_model: null
+  greater_is_better: null
+  ignore_data_skip: False
+  fsdp: ''
+  fsdp_min_num_params: 0
+  fsdp_config: null
+  fsdp_transformer_layer_cls_to_wrap: null
+  accelerator_config: null
+  deepspeed: null
+  label_smoothing_factor: 0.0
+  optim: 'adamw_torch'
+  optim_args: null
+  adafactor: False
+  group_by_length: False
+  length_column_name: 'length'
+  report_to: null
+  ddp_find_unused_parameters: null
+  ddp_bucket_cap_mb: null
+  ddp_broadcast_buffers: null
+  dataloader_pin_memory: True
+  dataloader_persistent_workers: False
+  skip_memory_metrics: True
+  use_legacy_prediction_loop: False
+  push_to_hub: False
+  resume_from_checkpoint: null
+  hub_model_id: null
+  hub_strategy: 'every_save'
+  hub_token: null
+  hub_private_repo: False
+  hub_always_push: False
+  gradient_checkpointing: False
+  gradient_checkpointing_kwargs: null
+  include_inputs_for_metrics: False
+  fp16_backend: 'auto'
+  evaluation_strategy: "no"
+  push_to_hub_model_id: null
+  push_to_hub_organization: null
+  push_to_hub_token: null
+  mp_parameters: ''
+  auto_find_batch_size: False
+  full_determinism: False
+  torchdynamo: null
+  ray_scope: 'last'
+  ddp_timeout: 1800
+  torch_compile: False
+  torch_compile_backend: null
+  torch_compile_mode: null
+  dispatch_batches: null
+  split_batches: null
+  include_tokens_per_second: False
+  include_num_input_tokens_seen: False
+  optim_target_modules: null

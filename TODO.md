@@ -1,29 +1,17 @@
+TODO:
 
-- Make every component importable with configs and hydra:
-    - Dataset (HF Dataset) 1 (masani) DONE
-    - Trainer 
-    - Environment 1 (masani) DONE
-    - Rl-algorithm DONE
-    - Policy  1 (Nicky) DONE
-    - Evaluation pipelines
-    - Logger 
-    - buffers DONE
+- Add script for doing SFT on models on a specific dataset (as a warmup for the model) DONE
+    - in test function, save test predictions DONE
+    - evaluation metrics DONE
+- Peft Option for stable basline algorithms  (probaly can mostly be done in the config)
+- Saving and Loading models:
+    - Do we want to save in SB3's format?
+    - Do we want to just save the LM via HF ?
+    - Both ?
+- Test pipelineo on mistral using STaR
+    - Don't forget to set reward_threshold to -1 in the config of the buffer
+- Retake a look at the pause token model and how it fits in this framework
+- Test pipeline on pause token model
 
-- For Trainer:
-    - Figure out difference between learn of off-policy and on-policy
-        - OFF-Policy:
-            - Until current time step < total time steps:
-                - Perform rollout
-                - Store in buffer
-                - Train
-        - ON-Policy:
-            - Actually is the same but just control collect rollout differently
-    - build trainer accordingly
-        - Call Learn with given amout of iterations
-        - Then, save model, log, possible eval ?
-
-- Logger:
-    - Can we directly use wandb with their logger =
-
-- Evaluation pipelines:
-    - Implement evaluation pipelines for different environments
+- Get PPO to work in this framework
+    - means rewriting the policy 

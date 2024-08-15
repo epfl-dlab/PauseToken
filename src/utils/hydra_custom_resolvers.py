@@ -3,6 +3,16 @@ import math
 import os
 from copy import deepcopy
 import hydra
+import warnings
+
+
+def get_obj_attr(cfg, name_priority_order):
+    obj = hydra.utils.instantiate(cfg)
+    for name in name_priority_order:
+        if hasattr(obj, name) and getattr(obj, name) is not None:
+            return getattr(obj, name)
+        
+    raise ValueError(f"None of the following attributes are present in the object: {name_priority_order}")
 
 def resolve_tuple(*args):
     return tuple(args)
@@ -95,3 +105,7 @@ OmegaConf.register_new_resolver("get_dict_except", get_dict_except)
 OmegaConf.register_new_resolver("get_class_from_name", get_class_from_name)
 
 OmegaConf.register_new_resolver("as_tuple", resolve_tuple)
+
+OmegaConf.register_new_resolver("get_method", hydra.utils.get_method)
+
+OmegaConf.register_new_resolver("get_obj_attr", get_obj_attr)

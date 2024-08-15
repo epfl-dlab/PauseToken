@@ -5,8 +5,6 @@ from typing import Union, List
 from transformers import PreTrainedTokenizer
 from functools import partial
 import warnings
-ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
-INVALID_ANS = "[invalid]"
 
 
 def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Tensor, List[torch.Tensor]]:
@@ -67,44 +65,4 @@ def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, f
 
     return array
         
-    
-    
-def extract_answer(completion: str) -> str:
-    """ Extracts the answer from the completion following the GSM8K dataset format
-    
-    :param completion: Completion
-    :type completion: str
-    :return: Extracted answer
-    :rtype  str
-    """
-    match = ANS_RE.search(completion)
-    if match:
-        match_str = match.group(1).strip()
-        match_str = match_str.replace(",", "")
-        return match_str
-    else:
-        return INVALID_ANS
 
-def is_correct(model_completion: str, gt_example: str) -> bool:
-    """ Check if the model completion is correct given the ground truth example. Completions must be in the GSM8K dataset format
-    
-    :param model_completion: Model completion
-    :type model_completion: str
-    
-    """
-    gt_answer = extract_answer(gt_example["answer"])
-    assert gt_answer != INVALID_ANS, \
-        f"Ground truth answer is invalid and doesn't follow the GSM8K formate, your ground truth answer is {gt_example['answer']}"
-    return extract_answer(model_completion) == gt_answer
-
-def strip_special_tokens(input_ids: Union[int, List[int], np.ndarray, torch.Tensor], tokenizer: PreTrainedTokenizer) -> str:
-    """ Strip special tokens from a text
-    
-    :param input_ids: Input ids
-    :type text: Union[int, List[int], np.ndarray, torch.Tensor]
-    :param tokenizer: Tokenizer
-    :type tokenizer: transformers.PreTrainedTokenizer
-    :return: Text without special tokens
-    :rtype: str
-    """
-    return tokenizer.decode(input_ids, skip_special_tokens=True)

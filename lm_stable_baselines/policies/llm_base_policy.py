@@ -1,11 +1,12 @@
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, FlattenExtractor
-from typing import Type, Optional, Dict, Any, Tuple
+from typing import Type, Optional, Dict, Any, Tuple, List, Callable
 from gymnasium import spaces
 import torch
 import gymnasium as gym
-from transformers import PreTrainedModel, GenerationConfig,PreTrainedTokenizer
+from transformers import PreTrainedModel, GenerationConfig,PreTrainedTokenizer, LogitsProcessorList, StoppingCriteria
+from transformers.generation.streamers import BaseStreamer
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.common.utils import obs_as_tensor
 import warnings
@@ -75,15 +76,15 @@ class LLMBasePolicy(BasePolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         squash_output: bool = False,
         filler_token: int = -100,
-        generation_config=None,
-        logit_processor = None,
-        stopping_criteria=None,
-        prefix_allowed_tokens_fn=None,
-        synced_gpus=None,
-        assistant_model=None,
-        streamer=None,
-        negative_prompt_ids=None,
-        generation_kwargs = {},
+        generation_config: Optional[GenerationConfig] = None,
+        logit_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteria] = None,
+        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        synced_gpus: Optional[bool] = None,
+        assistant_model: Optional[PreTrainedModel] = None,
+        streamer: Optional[BaseStreamer] = None,
+        negative_prompt_ids: Optional[torch.LongTensor] = None,
+        generation_kwargs: Optional[Dict[str,Any]] = {},
         **kwargs
     ):
         #check if observation_space and action_space are provided and set them to the default values if they are not

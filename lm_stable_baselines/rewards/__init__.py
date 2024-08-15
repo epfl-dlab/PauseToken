@@ -1,2 +1,1 @@
 from lm_stable_baselines.rewards.abstract import AbstractReward
-from lm_stable_baselines.rewards.gsm8k_correctness_reward import GSM8KCorrectnessReward

@@ -1,69 +1,44 @@
-import torch
-import os
-import json 
-import pandas as pd
+from src.utils.constants import ANSWER_TEMPLATE, QUESTION_TEMPLATE
 from datasets import Dataset
-from transformers import TrainingArguments, GenerationConfig,LogitsProcessorList
-from transformers.pipelines.pt_utils import KeyDataset
-from constraints import PauseGroundTruthConstraint,PauseLogitsProcessor
-import re
-import pathlib
-import time
+from transformers import GenerationConfig, PreTrainedTokenizer, PreTrainedModel, LogitsProcessorList, StoppingCriteria
+from transformers.generation.streamers import BaseStreamer
+from typing import Optional, Callable, List, Dict, Any, Union
+import torch
 from tqdm import tqdm
-import argparse
+import re
+import numpy as np
+import os
+import json
+from src.utils import (
+    RankedLogger,
+)
+from trl import SFTTrainer
 
-def count_num_token_occurences(token_id, tokenizer, text):
-    """ Count the number of occurences of a token in a text
-    
-    :param token_id: Token id to count
-    :type token_id: int
-    :param tokenizer: Tokenizer
-    :type tokenizer: transformers.PreTrainedTokenizer
-    :param text: Text or list of texts to count the token occurences
-    :type text: Union[str, List[str]]
-    :return: Number of occurences of the token in the text
-    :rtype: Union[int, List[int]]
-    """  
-    tokenized_text = tokenizer(text)["input_ids"]
-    if isinstance(text, str):
-        return len(list(filter(lambda x: x == token_id, tokenized_text)))
-    elif isinstance(text, list):
-        return list(
-            map(
-                lambda x: len(list(filter(lambda y: y == token_id, x))),
-                tokenized_text
-            )
-        )   
-    else:
-        raise ValueError("Text must be either a string or a list of strings.")
-        
-def strip_special_tokens(text,tokenizer):
-    """ Strip special tokens from a text
-    
-    :param text: Text to strip special tokens from
-    :type text: str
-    :param tokenizer: Tokenizer
-    :type tokenizer: transformers.PreTrainedTokenizer
-    :return: Text without special tokens
-    :rtype: str
-    """
-    tokenized_text = tokenizer(text)["input_ids"]
-    return tokenizer.decode(tokenized_text, skip_special_tokens=True)
+log = RankedLogger(__name__, rank_zero_only=True)
 
-def strip_pause_tokens(text,tokenizer,pause_token_id):
-    """ Strip pause tokens from a text
-    
-    :param text: Text to strip pause tokens from
-    :type text: str
-    :param tokenizer: Tokenizer
-    :type tokenizer: transformers.PreTrainedTokenizer
-    :param pause_token_id: Pause token id
-    :type pause_token_id: int
-    :return: Text without pause tokens
-    :rtype: str
-    """
-    pause_token = tokenizer.decode(pause_token_id)
-    return text.replace(pause_token,"")
+ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
+INVALID_ANS = "[invalid]"
+
+
+def inference_formatting_function(example, eos_token):
+    inputs = []
+    outputs = []
+    for i in range(len(example["input"])):
+        prompt = example["input"][i]
+        input = f"{QUESTION_TEMPLATE}{prompt}\n\n{ANSWER_TEMPLATE}"
+        output = f"{example['output'][i]}{eos_token}"
+        inputs.append(input)
+        outputs.append(output)
+    return {"input": inputs, "output": outputs}
+
+def sft_formating_function(example, eos_token):
+    data = []
+    for i in range(len(example["input"])):
+        prompt = example["input"][i]
+        completion = example["output"][i]
+        text = f"{QUESTION_TEMPLATE}{prompt}\n\n{ANSWER_TEMPLATE}{completion}{eos_token}"
+        data.append(text)
+    return data
 
 def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
     """ Decode and strip pad tokens from a list of sequences
@@ -78,307 +53,175 @@ def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
     :rtype: List[str]
     """
     return tokenizer.batch_decode([list(filter(lambda x: x != pad_token_id,seq))for seq in output])
-        
-def pause_ground_truth_constrained_rollout(
-    model,
-    tokenizer,
-    dataset: Dataset,
-    prompt_field,
-    ground_truth_field,
-    pause_token_id,
-    generation_args= {
-        "temperature": 0.9,
-        "top_p": 0.9,
-        "repetition_penalty": 1.0,
-        "do_sample": True,
-        "max_length": 400,
-    },
-    batch_size = 8,
-    n_samps_per_prompt = 1,
-    include_gt = False,
-):
-    """ Perform a rollout with pause ground truth constraint. Meaning that at generation, the model can either generate as next token the pause token or the next ground truth token.
+
+
+def extract_answer(completion: str) -> str:
+    """ Extracts the answer from the completion following the GSM8K dataset format
     
-    :param model: Model
-    :type model: transformers.PreTrainedModel
+    :param completion: Completion
+    :type completion: str
+    :return: Extracted answer
+    :rtype  str
+    """
+    match = ANS_RE.search(completion)
+    if match:
+        match_str = match.group(1).strip()
+        match_str = match_str.replace(",", "")
+        return match_str
+    else:
+        return INVALID_ANS
+
+def strip_special_tokens(input_ids: Union[int, List[int], np.ndarray, torch.Tensor], tokenizer: PreTrainedTokenizer) -> str:
+    """ Strip special tokens from a text
+    
+    :param input_ids: Input ids
+    :type text: Union[int, List[int], np.ndarray, torch.Tensor]
     :param tokenizer: Tokenizer
     :type tokenizer: transformers.PreTrainedTokenizer
-    :param dataset: Dataset
-    :type dataset: datasets.Dataset
-    :param prompt_field: Prompt field name. The field in the dataset that contains the prompt to feed to the model
-    :type prompt_field: str
-    :param ground_truth_field: Ground truth field name. The field in the dataset that contains the ground truth completion
-    :type ground_truth_field: str
-    :param pause_token_id: Pause token id
-    :type pause_token_id: int
-    :param generation_args: Generation arguments (Huggingface Transformers generation arguments)
-    :type generation_args: dict
-    :param batch_size: Batch size
-    :type batch_size: int
-    :param n_samps_per_prompt: Number of samples to generate per prompt
-    :type n_samps_per_prompt: int
-    :param include_gt: Include the ground truth (w/out pauses) in the generated samples
-    :type include_gt: bool
-    :return: List of generated samples
-    :rtype: List[dict]
+    :return: Text without special tokens
+    :rtype: str
     """
-    constraint_module = PauseGroundTruthConstraint(tokens_to_filter=[pause_token_id,tokenizer.pad_token_id], max_tokens=generation_args.get("max_length"))
-    was_in_training = model.training
-    og_padding_side = tokenizer.padding_side
-    tokenizer.padding_side = "left"
-    model.eval()
+    return tokenizer.decode(input_ids, skip_special_tokens=True)
+
+def save_json(data: List[Dict[str, Any]], output_folder: str, file_name: str):
+    """ Save a list of dictionaries to a json file
     
-    res = []
+    :param data: Data to save
+    :type data: List[Dict[str, Any]]
+    :param path: Path to save the data
+    :type path: str
+    """
+    path_to_output = os.path.join(output_folder, file_name)
     
-
-    #iterate dataset in batchs
-    for i in tqdm(range(0, len(dataset), batch_size),desc = "Rollout Step"): 
-        
-        if i+batch_size > len(dataset):
-            batch = dataset[prompt_field][i:]
-            ground_truths = list(map(lambda x: strip_pause_tokens(x, tokenizer, pause_token_id), dataset[ground_truth_field][i:]))
-            
-        else:
-            batch = dataset[prompt_field][i:i + batch_size]
-            ground_truths = list(map(lambda x: strip_pause_tokens(x, tokenizer, pause_token_id), dataset[ground_truth_field][i:i + batch_size]))
-            
-        bs = len(batch)
-        tokenized_prompt = tokenizer(batch, padding=True, return_tensors="pt").to(model.device)
-        tokenized_ground_truth = tokenizer(ground_truths, padding=False)["input_ids"]
-        prefix_allowed_tokens_fn = constraint_module.get_prefix_allowed_tokens_fn(
-            batch_info={"tokenized_ground_truths": tokenized_ground_truth, "pause_token_id": pause_token_id, "pad_token_id": tokenizer.pad_token_id}
-        )
-        tmp_res_per_batch_id = {j: [] for j in range(bs)}
-        for _ in range(n_samps_per_prompt):
-            
-            with torch.no_grad():
-                output = model.generate(
-                    input_ids=tokenized_prompt.input_ids,
-                    attention_mask=tokenized_prompt.attention_mask,
-                    pad_token_id=tokenizer.pad_token_id,
-                    prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-                    **generation_args
-                )
-            
-            for j,text in enumerate(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id,tokenizer)):
-                tmp_res_per_batch_id[j].append({"generated_text": text, prompt_field: batch[j]}) 
-
-        if include_gt:
-            for i,gt in enumerate(tokenizer.batch_decode(tokenized_ground_truth)):
-                tmp_res_per_batch_id[i].append({"generated_text": gt, prompt_field: batch[j]})
-            
-
-        for batch_id, texts in tmp_res_per_batch_id.items():
-            res.extend(texts)      
-    if was_in_training:
-        model.train()
-    tokenizer.padding_side = og_padding_side
-    return res
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    #write results as json
+    with open(path_to_output, 'w') as f:
+        json.dump(data, f, indent=4)
 
 
-def rollout(
-    model,
-    tokenizer,
+def get_mean_and_std(values: List[Union[int, float]]) -> Dict[str, Union[float, int]]:
+    """ Get the mean and standard deviation of a list of values
+    
+    :param values: List of values
+    :type values: List[Union[int, float]]
+    :return: Mean and standard deviation
+    :rtype: Dict[str, Union[float, int]]
+    """
+    return {
+        "mean": np.mean(values).item(),
+        "std": np.std(values).item()
+    }
+
+def get_aggregated_metrics(data: List[Dict[str, Any]], metric_names) -> Dict[str, Union[float, int]]:
+    aggregated_metrics = {}
+    for name in metric_names:
+        values = [d[name] for d in data]
+        stat_dict = get_mean_and_std(values)
+        aggregated_metrics[f"{name}_mean"] = stat_dict["mean"]
+        aggregated_metrics[f"{name}_std"] = stat_dict["std"]
+    return aggregated_metrics
+
+def test_model(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
     dataset: Dataset,
-    prompt_field ,
-    generation_args= {
-        "temperature": 0.9,
-        "top_p": 0.9,
-        "repetition_penalty": 1.0,
-        "do_sample": True,
-        "max_new_tokens": 400,
-    },
-    batch_size=8
-    ):
+    batch_size: int,
+    output_dir: Optional[str] = None,
+    prompt_field: Optional[str] = "input",
+    ground_truth_field: Optional[str] = "output",
+    generation_config: Optional[GenerationConfig] = None,
+    logit_processor: Optional[LogitsProcessorList] = None,
+    stopping_criteria: Optional[StoppingCriteria] = None,
+    prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+    synced_gpus: Optional[bool] = None,
+    assistant_model: Optional[PreTrainedModel] = None,
+    streamer: Optional[BaseStreamer] = None,
+    negative_prompt_ids: Optional[torch.LongTensor] = None,
+    generation_kwargs: Optional[Dict[str,Any]] = {},
+    evaluation_metrics: Optional[Dict[str, Callable[[str, str], Union[int, float, bool]]]] = {}
+):
     """ Perform a "normal" rollout
     
-    :param model: Model
-    :type model: transformers.PreTrainedModel
-    :param tokenizer: Tokenizer
-    :type tokenizer: transformers.PreTrainedTokenizer
-    :param dataset: Dataset
-    :type dataset: datasets.Dataset
-    :param prompt_field: Prompt field name. The field in the dataset that contains the prompt to feed to the model
-    :type prompt_field: str
-    :param generation_args: Generation arguments (Huggingface Transformers generation arguments)
-    :type generation_args: dict
-    :param batch_size: Batch size
-    :type batch_size: int
+    :param model: The model to use for generation
+    :param tokenizer: The tokenizer to use for generation
+    :param dataset: The dataset to generate from
+    :param prompt_field: The field in the dataset that contains the prompts
+    :param batch_size: The batch size to use for generation
+    :param output_dir: The output directory to save the results
+    :param generation_config: The generation config to use for generation
+    :param logit_processor: The logit processor to use for generation
+    :param stopping_criteria: The stopping criteria to use for generation
+    :param prefix_allowed_tokens_fn: The prefix allowed tokens function to use for generation
+    :param synced_gpus: Whether the gpus are synced
+    :param assistant_model: The assistant model to use for generation
+    :param streamer: The streamer to use for generation
+    :param negative_prompt_ids: The negative prompt ids to use for generation
+    :param generation_kwargs: The generation kwargs to use for generation
+    :param evaluation_metrics: The evaluation metrics to evaluate the generated text
     """
+    
+    assert not generation_kwargs.get("return_dict_in_generate", False) \
+        and not (model.config.return_dict_in_generate if hasattr(model.config, "return_dict_in_generate") else False), \
+        "The `return_dict_in_generate` is not supported by test, please set it to False. If you want to use it consider making a PR to support it."
+    
     og_padding_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
     was_in_training = model.training
     model.eval()
+    
     res = []
+    
+    gt_is_in_dataset = ground_truth_field in dataset.column_names
+    
     #iterate dataset in batchs
     for i in tqdm(range(0, len(dataset), batch_size),desc = "Rollout Step"): 
         if i+batch_size > len(dataset):
             batch = dataset[prompt_field][i:]
+            ground_truths = dataset[ground_truth_field][i:] if gt_is_in_dataset else None
         else:
             batch = dataset[prompt_field][i:i + batch_size]
+            ground_truths = dataset[ground_truth_field][i:i + batch_size] if gt_is_in_dataset else None
             
         tokenized_prompt = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(model.device)
         with torch.no_grad():
             output = model.generate(
                 input_ids=tokenized_prompt.input_ids,
                 attention_mask=tokenized_prompt.attention_mask,
-                pad_token_id=tokenizer.pad_token_id,
-                generation_config= GenerationConfig(**generation_args)
+                generation_config=generation_config,
+                logit_processor = logit_processor,
+                stopping_criteria= stopping_criteria,
+                prefix_allowed_tokens_fn= prefix_allowed_tokens_fn,
+                synced_gpus= synced_gpus,
+                assistant_model= assistant_model,
+                streamer= streamer,
+                negative_prompt_ids= negative_prompt_ids,
+                **generation_kwargs
             )
             
-        res.extend(decode_and_strip_pad_tokens(output,tokenizer.pad_token_id, tokenizer))
+        clean_text = decode_and_strip_pad_tokens(output, tokenizer.pad_token_id, tokenizer)
+        tmp_res = \
+            [
+                {
+                    "generated_text": text,
+                    "tokenized_text": pred.tolist(),
+                    "input": text.split(QUESTION_TEMPLATE)[1].split(ANSWER_TEMPLATE)[0].strip(),
+                    "predicted_output": text.split(ANSWER_TEMPLATE)[1].strip(),
+                    "ground_truth": ground_truths[i] if gt_is_in_dataset else None,
+                }
+                for i,(pred,text) in enumerate(zip(output, clean_text))
+            ]
         
-    res = [{"generated_text": text} for text in res]
+        for metric_name, metric_func in evaluation_metrics.items():
+            for j in range(len(tmp_res)):
+                tmp_res[j][metric_name] = metric_func(tmp_res[j]["generated_text"], ground_truths[j])
+        res.extend(tmp_res)
+    log.info(f"Saving test results to {os.path.join(output_dir, 'test_results.json')}")
+    save_json(res, output_dir, "test_results.json")
+    
     if was_in_training:
         model.train()
     tokenizer.padding_side = og_padding_side
-    return res
-        
     
-def dict_type(string):
-    """ Convert a string to a dictionary
-    
-    :param string: A string that represents a dictionary
-    :type string: str
-    :return: A dictionary
-    :rtype: dict
-    """
-    try:
-        return json.loads(string)
-    except json.JSONDecodeError:
-        raise argparse.ArgumentTypeError("Invalid dictionary format. Must be a valid JSON string.")
-    
+    return get_aggregated_metrics(res, list(evaluation_metrics.keys()))
 
-def save_to(data, name, output_dir):
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
-    output_path = os.path.join(output_dir, name)
-    with open(output_path, 'w') as json_file:
-        json.dump(data, json_file, indent=4, sort_keys=False)
-    
-    
-def low_resource_data(data):
-    ### data format = ['prompt': .., 'chosen': .., 'rejected': ..}
-    new_data = []
-    chosen_for_now = []
-    for sample in data:
-        if chosen_for_now.count(sample['chosen']) > 2:
-            continue
-        
-        new_data.append(sample)
-        chosen_for_now.append(sample['chosen'])
-    return new_data
-
-def chat_completion(messages, model="gpt-3.5-turbo", return_text=True, model_args=None):
-    import openai
-    if model_args is None:
-        model_args = {}
-    while True:
-        try:
-            response = openai.ChatCompletion.create(model=model, messages=messages, **model_args)
-            if return_text:
-                return response["choices"][0]["message"]["content"].strip()
-            return response
-        except Exception as e:
-            print(e)
-            print("Timed out. Waiting for 1 minute.")
-            time.sleep(60)
-            continue
-
-def get_gpt_response(input_, model='gpt-3.5-turbo', necessary_tokens=None):
-    return chat_completion([{"role": "assistant", "content": input_}], model=model, return_text=True, model_args={
-                    "temperature": 0.4,
-                    "max_tokens": 150 if not necessary_tokens else necessary_tokens,
-                    "top_p": 0.4,
-                    "frequency_penalty": 0,
-                    "presence_penalty": 0
-                    })
-        
-        
-def process_gpt_output(output_text):
-    try:
-        result_dict = json.loads(output_text)
-        return result_dict
-    except json.JSONDecodeError:
-        start_index = output_text.find('{')
-        end_index = output_text.rfind('}')
-        if start_index != -1 and end_index != -1:
-            extracted_dict_text = output_text[start_index:end_index + 1]
-            try:
-                result_dict = json.loads(extracted_dict_text)
-                return result_dict
-            except json.JSONDecodeError:
-                print("Failed to extract a valid dictionary from the text.")
-                return None
-        else:
-            print("No dictionary found in the text.")
-            return None
-        
-def remove_incomplete_last_sentence(text):
-    import nltk
-    sentences = nltk.sent_tokenize(text)
-
-    last_sentence = sentences[-1]
-    if last_sentence.endswith(('?', '.', '!')):
-        return text
-    else:
-        return ' '.join(sentences[:-1])
-
-def sanitize(sentence):
-    sanitized_sentence = re.sub(r'[^\w\s.,!?\'-]', '', sentence)
-    sanitized_sentence = re.sub(r'\s+', ' ', sanitized_sentence).strip()
-    return sanitized_sentence
-
-def get_data(data_dir, split='train', return_type='dataset', with_equivalence=False):
-    if data_dir[-1] != '/': 
-        data_dir += '/'
-    with open(f'{data_dir+split}.json', 'r') as f:
-        df = json.load(f)
-
-    df = pd.DataFrame(df)
-    if with_equivalence: 
-        with open(data_dir + f'{split}_equivalent.json', 'r') as f:
-            equivalence = json.load(f)
-        
-        df2 = df.copy()    
-        df2.drop_duplicates(subset=['chosen'], inplace=True)
-        
-        d = {'prompt': df2.prompt, 'chosen': df2.chosen, 'rejected': [equivalent['argument'] for equivalent in equivalence]}
-        
-        new_df = pd.DataFrame(data=d).reset_index(drop=True)
-        df = pd.concat([df, new_df])
- 
-        df = df.reset_index(drop=True)
-
-    if return_type == 'df':
-        return df
-    
-    for i, item in df.iterrows():
-        prompt = df.iloc[i]['prompt']
-        if 'supporting argument' in prompt:
-            prompt = prompt.replace('supporting argument', 'SUPPORTING argument of about 20 words')
-        else:
-            prompt = prompt.replace('counter argument', 'COUNTER argument of about 20 words')
-
-        prompt += '\n### Argument:'
-        df.iloc[i]['prompt'] = prompt
-    
-    return Dataset.from_dict(df)
-
-def get_training_args(args):
-    return TrainingArguments(
-            output_dir=args.output_dir,               
-            overwrite_output_dir=False,                  
-            num_train_epochs=args.n_epochs,                   
-            per_device_train_batch_size=args.batch_size,         
-            learning_rate=args.learning_rate,                      
-            warmup_steps=args.warmup_steps,                           
-            weight_decay=args.weight_decay,                         
-            adam_epsilon=args.adam_epsilon,                         
-            save_steps=args.save_steps,                       
-            logging_steps=args.logging_steps,                      
-            save_total_limit=2,                         
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
-            report_to="wandb",
-            run_name=args.run_name,
-            seed=123,
-        )       

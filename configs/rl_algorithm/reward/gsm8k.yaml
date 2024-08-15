@@ -1,1 +1,1 @@
-_target_: lm_stable_baselines.rewards.GSM8KCorrectnessReward
+_target_: src.reward.GSM8KCorrectnessReward

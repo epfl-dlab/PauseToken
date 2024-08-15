@@ -54,6 +54,14 @@ def instantiate_loggers(logger_cfg: DictConfig):
 
     return logger
     
+def instantiate_generation_params(cfg):
+
+    for key in cfg.keys():
+        cfg[key] = \
+            hydra.utils.instantiate(cfg[key]) if isinstance(cfg[key],dict) and "_target_" in cfg[key] else cfg[key]      
+    return cfg
+
+
 def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     """Instantiates RL algorithm from config.
 
@@ -78,13 +86,9 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     cp["policy_kwargs"]["lm"] = lm
     cp["policy_kwargs"]["tokenizer"] = tokenizer
     cp["env"] = environment
-    if cp["policy_kwargs"].get("generation",None) is not None:
-        gen_args = cp["policy_kwargs"].pop("generation")
-        gen_config = gen_args.pop("generation_config", None)
-        gen_config = hydra.utils.instantiate(gen_config) if gen_config is not None else None
-        gen_args["generation_config"] = gen_config
-        cp["policy_kwargs"] = {**cp["policy_kwargs"], **gen_args}
-                
+    
+    cp["policy_kwargs"] = {cp["policy_kwargs"],instantiate_generation_params(cp["policy_kwargs"]["generation"])}
+    
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
     if not hasattr(rl_alg, "policy"):
         rl_alg._setup_model()

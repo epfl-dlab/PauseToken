@@ -18,6 +18,10 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
         dataset['train'] = data_train['train']  
         dataset['val'] = data_train['test']
 
-
+    debug_n = kwargs.get('debug_n', None)
+    if debug_n is not None:
+        dataset["train"] = dataset["train"].select(range(debug_n))
+        dataset["val"] = dataset["val"].select(range(debug_n))
+        dataset["test"] = dataset["test"].select(range(debug_n)) if "test" in dataset.keys() else None
 
     return dataset
