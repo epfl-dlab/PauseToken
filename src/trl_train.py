@@ -100,6 +100,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Starting training!")
         trainer.train()
         train_metrics = trainer.state.__dict__
+        trainer.save_model(ksjlfkjsdlkf)
         # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
         
     test_metrics = {}

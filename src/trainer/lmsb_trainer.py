@@ -89,9 +89,14 @@ class LMSBTrainer:
         self.eval_dataset.set_stage("test")
         self.evaluation("test")
     
-    def save_model(self):
+    def save_model(self, save_type = "lm"):
         # Save model
-        pass
+        save_types = ["lm", "rl_alg"]
+        assert save_type in save_types, f"Invalid save_type: {save_type}, valid save_types are: {save_types}"
+        
+        if save_type == "lm":
+            self.rl_algorithm.policy.lm.save_pretrained(self.output_dir)
+        
         
     def on_validation_start(self):
         pass
@@ -113,8 +118,6 @@ class LMSBTrainer:
         for _ in range(self.n_outer_loops):
             self.on_outer_loop_start()
             # Learn
-            
-            
             self.on_learn_start()
             print("Running Learn Stage ... ")
             self.rl_algorithm.learn(**self.learn_kwargs)
@@ -130,4 +133,6 @@ class LMSBTrainer:
             print("Saving model")
             # Save model
             self.save_model()
+            
+        
             

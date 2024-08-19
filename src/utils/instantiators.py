@@ -87,7 +87,7 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     cp["policy_kwargs"]["tokenizer"] = tokenizer
     cp["env"] = environment
     
-    cp["policy_kwargs"] = {cp["policy_kwargs"],instantiate_generation_params(cp["policy_kwargs"]["generation"])}
+    cp["policy_kwargs"] = {**cp["policy_kwargs"], **instantiate_generation_params(cp["policy_kwargs"]["generation"])}
     
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
     if not hasattr(rl_alg, "policy"):
