@@ -1,6 +1,6 @@
 defaults:
   - model/language_model: gpt2
-  - model/tokenizer: gpt2
+  - model/tokenizer: auto_tokenizer
   - model/peft_config: default
   - generation: default
 
@@ -15,6 +15,6 @@ optimizer_class: ${get_class_from_name:torch.optim.Adam}
 optimizer_kwargs: null
 squash_output: false
 filler_token: -100
-max_output_generation_length: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[model_max_length]}
+max_output_generation_length: 1024
 
 

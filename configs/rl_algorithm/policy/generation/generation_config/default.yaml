@@ -2,7 +2,7 @@
 _target_: transformers.GenerationConfig
 
 # Parameters that control the length of the output
-max_length: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[model_max_length]}
+max_length: ${rl_algorithm.policy.max_output_generation_length}
 max_new_tokens: null
 min_length: 0
 min_new_tokens: null

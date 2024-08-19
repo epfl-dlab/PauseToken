@@ -23,6 +23,9 @@ class LMReplayBuffer(ReplayBuffer):
         **kwargs
     ):
         if "n_envs" in kwargs and kwargs["n_envs"] > 1:
+            # LMReplayBuffer does not distinguish between environment types. in our language modeling use case we 
+            # technically only have one environment, but multiple (batch size) instances of that environment. here we
+            # ignore the n_envs parameter and set it to 1
             warnings.warn("LMReplayBuffer does not distinguish between environments, n_envs will be ignored and set to 1")
             kwargs["n_envs"] = 1
         super().__init__(*args, **kwargs)
