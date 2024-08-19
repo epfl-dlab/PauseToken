@@ -4,4 +4,4 @@ r: 16
 lora_alpha: 32
 lora_dropout: 0.05
 modules_to_save: null
-target_modules: null
+target_modules: null # https://github.com/huggingface/peft/blob/e07095a654fa72835651e6e0ad846fc6f517baa9/src/peft/utils/constants.py#L48

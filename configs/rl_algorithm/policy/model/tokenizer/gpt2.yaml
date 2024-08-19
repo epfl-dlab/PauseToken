@@ -1,4 +1,0 @@
-defaults:
-  - auto_tokenizer
-
-pretrained_model_name_or_path: gpt2

@@ -58,6 +58,11 @@ python gsm8k_pause_injector.py --dataset_location ../data/gsm8k_jsonl/gsm8k --pa
 ```
 ## Train Models
 
+To train a model on the training data, first write your desired configs in a .yaml file, then run the following command:
+```python ./src/train.py +experiment.train=example
+```
+
+
 To fine-tune a model on the training data: 
 ```
 python src/sft.py --model-name=mistralai/Mistral-7B-v0.1 --n-epochs=2 --batch-size=8 --logging-steps=50 --use-peft=true --data-dir=data/gsm8k_jsonl/gsm8k --task=gsm8k --max-length=512 --save-steps=500 --eval-steps=300

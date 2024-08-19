@@ -4,7 +4,14 @@ import os
 from copy import deepcopy
 import hydra
 import warnings
+import importlib
 
+
+# General resolver to get any attribute from a module or class
+def get_module_attr(module_and_attr: str):
+    module_name, attr_name = module_and_attr.rsplit(".", 1)
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)
 
 def get_obj_attr(cfg, name_priority_order):
     obj = hydra.utils.instantiate(cfg)
@@ -109,3 +116,5 @@ OmegaConf.register_new_resolver("as_tuple", resolve_tuple)
 OmegaConf.register_new_resolver("get_method", hydra.utils.get_method)
 
 OmegaConf.register_new_resolver("get_obj_attr", get_obj_attr)
+
+# OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
