@@ -91,9 +91,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 dataset=dataset,
                 tokenizer=tokenizer,
                 reward=reward,
-                termination_tokens=[tokenizer.eos_token_id]
+                termination_tokens=[tokenizer.eos_token_id],
+                n_envs = cfg.rl_algorithm.n_envs, 
+                env_idx = i
             )
-        for _ in range(cfg.rl_algorithm.n_envs)
+        for i in range(cfg.rl_algorithm.n_envs)
         ]
     )
     log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")

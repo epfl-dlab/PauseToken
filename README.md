@@ -59,7 +59,7 @@ python gsm8k_pause_injector.py --dataset_location ../data/gsm8k_jsonl/gsm8k --pa
 ## Train Models
 
 To train a model on the training data, first write your desired configs in a .yaml file, then run the following command:
-```python ./src/train.py +experiment.train=example
+```python ./src/train.py experiment=train/example
 ```
 
 

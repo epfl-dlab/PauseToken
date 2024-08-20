@@ -40,6 +40,8 @@ class LanguageModelEnv(Env):
         dataset: Dataset = None,
         require_dataset: bool = False,
         filler_token: int = -100,
+        n_envs = -1,
+        env_idx = -1
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -48,15 +50,31 @@ class LanguageModelEnv(Env):
         self.max_tokens = max_tokens
         self.tokenizer = tokenizer
         self.filler_token = filler_token
+        self.require_dataset = require_dataset
+
+        LanguageModelEnv.n_envs = n_envs
+        self.env_idx = env_idx
 
         if require_dataset and not LanguageModelEnv.dataset:
             if dataset is None:
                 raise ValueError("dataset must be provided")
             LanguageModelEnv.dataset = dataset
+            self.reprermute_dataset_id_list()
 
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
+
+    def reprermute_dataset_id_list(self):
+        if LanguageModelEnv.read_sequentially:
+            LanguageModelEnv.dataset_id_list = list(range(len(LanguageModelEnv.dataset["train"])))
+        else:
+            LanguageModelEnv.dataset_id_list = np.random.permutation(len(LanguageModelEnv.dataset["train"]))
+        
+        if LanguageModelEnv.n_envs != -1:
+            self.dataset_id_list = LanguageModelEnv.dataset_id_list[self.env_idx::LanguageModelEnv.n_envs]
+        else:
+            self.dataset_id_list = LanguageModelEnv.dataset_id_list
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """ Apply an action to the environment. For a language model it's simply adding the action to the current state
@@ -108,7 +126,7 @@ class LanguageModelEnv(Env):
     def reset(
         self,
         seed = 123,
-        id: int = None,
+        id = None,
         options = None,
     ):  # type: ignore
         """ Reset the environment. This method samples a new example from the dataset and resets the environment
@@ -125,15 +143,16 @@ class LanguageModelEnv(Env):
         
         super().reset(seed=seed)
         #sample a new example
-        if id is None:
-            if not LanguageModelEnv.read_sequentially:
-                id = self.np_random.choice(len(LanguageModelEnv.dataset[LanguageModelEnv.stage]))
-                LanguageModelEnv.last_idx = id
-            else:
-                id = LanguageModelEnv.last_idx + 1
-                if LanguageModelEnv.last_idx >= len(LanguageModelEnv.dataset[LanguageModelEnv.stage]):
-                    id = 0
-                LanguageModelEnv.last_idx = id
+        if self.require_dataset:
+            idx = LanguageModelEnv.last_idx
+            LanguageModelEnv.last_idx += 1
+            if LanguageModelEnv.last_idx >= len(self.dataset_id_list):
+                LanguageModelEnv.last_idx = 0
+                self.reprermute_dataset_id_list()
+            id = int(self.dataset_id_list[idx])
+        else:
+            raise ValueError("not implemented without dataset yet")
+
                 
         input_sample = LanguageModelEnv.dataset[self.stage][id]
         input_text = input_sample["input"]

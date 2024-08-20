@@ -7,6 +7,6 @@ inner_loop_timesteps: 1000
 n_outer_loops: 10 
 log_interval: 100
 tb_log_name: "run"
-progress_bar: False
+progress_bar: True
 num_val_samples: null
 
