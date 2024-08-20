@@ -11,6 +11,7 @@ TODO:
 - Test pipeline on mistral using STaR
     - Don't forget to set reward_threshold to -1 in the config of the buffer
 - Retake a look at the pause token model and how it fits in this framework
+    - CHECK COMPUTE_LOSS FUNCTION AGAIN
 - Test pipeline on pause token model
 
 - Get PPO to work in this framework

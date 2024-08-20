@@ -14,29 +14,22 @@ if is_accelerate_available():
 from copy import deepcopy
 from src.utils.constants import CTRL_TOKEN_LABEL, LM_HEAD_LABEL, IGNORE_LABEL
 
-
-PAUSE_CONFIG_NAME = "pause_clf.json"
-SAFETENSORS_WEIGHTS_NAME = "pause_clf.safetensors"
-WEIGHTS_NAME = "pause_clf.bin"
-
 class BaseCtrlTokConfig(PretrainedConfig):
-    model_type = "pause_clf"
+    model_type = "ctrl_tok"
     
     def __init__(
         self,
-        control_token_to_id: Dict[str,int],
-        base_model_config: Optional[PretrainedConfig] = None,
+        control_token_to_id: Dict[str,int] = {},
         ctrl_token_head_temperature: float = 1.0,
+        detach_ctrl_tok_clf = False,
         **kwargs
     ):
         super().__init__(**kwargs)
         assert len(control_token_to_id) > 0, "control_token_to_id should be a list of at least one control token id"
-        assert "lm_head" not in control_token_to_id, "lm_head is a reserved token name"
         
         self.control_token_to_id = control_token_to_id
-        self.num_control_tokens = len(control_token_to_id) + 1 # +1 because one of the tokens is "don't use a control token" control token
-        
-        self.base_model_config = base_model_config
+        self.num_control_tokens = len(control_token_to_id)
+        self.detach_ctrl_tok_clf = detach_ctrl_tok_clf
         self.ctrl_token_head_temperature = ctrl_token_head_temperature
         
         
@@ -49,10 +42,6 @@ class SequenceClassifierOutputWithPastForCtrlTokens(ModelOutput):
     Args:
         loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
             Either pause loss or language modeling loss (depending on the configuration of the model)
-        lm_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-            Language modeling loss (for causal language models).
-        pause_loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
-            Pause loss.
         logits (`torch.FloatTensor` of shape `(batch_size, config.num_labels)`):
             Classification (or regression if config.num_labels==1) scores (before SoftMax).
         past_key_values (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
@@ -72,14 +61,12 @@ class SequenceClassifierOutputWithPastForCtrlTokens(ModelOutput):
 
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
-        pause_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 2)`):
+        control_token_logits (`torch.FloatTensor` of shape `(batch_size, sequence_length, 2)`):
             Pause logits.
         
     """
 
     loss: Optional[torch.FloatTensor] = None
-    lm_loss: Optional[torch.FloatTensor] = None
-    control_token_loss: Optional[torch.FloatTensor] = None
     logits: torch.FloatTensor = None
     past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[torch.FloatTensor, ...]] = None
@@ -101,8 +88,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
         else:    
             self.language_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=config.path_to_lm)
 
-        self.config.path_to_lm = language_model.config._name_or_path
-        self.config.language_model_class = f"{language_model.__class__.__module__}.{language_model.__class__.__qualname__}"
+        self.config.path_to_lm = self.language_model.config._name_or_path
+        self.config.language_model_class = f"{self.language_model.__class__.__module__}.{self.language_model.__class__.__qualname__}"
         ############################################
 
         ########## Instantiating and resizing Control Token CLF and Embeddings ##########
@@ -110,11 +97,26 @@ class BaseControlTokenWrapper(PreTrainedModel):
         torch_dtype = self.language_model.config.torch_dtype
         self.ctrl_tok_clf = nn.Linear(
             self.language_model.config.hidden_size,
-            self.config.num_control_tokens,
+            self.config.num_control_tokens + 1, # +1 because one of the tokens is "don't use a control token" control token,
             dtype=torch_dtype
         )
         self.control_token_to_id = config.control_token_to_id
         
+        self._resize_input_embeds()
+        self._resize_language_model_head()
+        
+        self.lm_head_ctrl_token_id = self.config.vocab_size #the last token is the control token for the language model head
+        ############################################
+        
+        ## TODO: Can I remove the line here below ? Is this done automatically by the model ?
+        # self.ctrl_tok_clf.to(self.language_model.device)
+        
+        #make generation config same as language model
+        self.set_lm_generation_config()
+        self.set_ctrl_token_temperature(config.ctrl_token_head_temperature)
+        
+    def _resize_input_embeds(self):
+        """ Resize the input embeddings of the language model to account for the new control tokens """
         embeddings =  self.language_model.get_input_embeddings()
         self.language_model.set_input_embeddings(
             ExtendedEmbedding(
@@ -127,16 +129,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
                 ) 
             )
         )
-        self._resize_language_model_head()
-        self.config.vocab_size = self.language_model.config.vocab_size + self.config.num_control_tokens
-        ############################################
         
-        ## TODO: Can I remove the line here below ? Is this done automatically by the model ?
-        # self.ctrl_tok_clf.to(self.language_model.device)
-        
-        #make generation config same as language model
-        self.set_lm_generation_config()
-    
     @classmethod
     def from_pretrained(cls,*args, **kwargs):
         """ Personalized from_pretrained method to load the model from a pretrained model or a pretrained model folder
@@ -148,8 +141,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
         # check if there is "adapter_config.json" in pretrained_model_name_or_path folder
         pretrained_model_name_or_path = None if len(args) == 0 else args[0]
         
-        has_adapter_config = os.path.exists(os.path.join(pretrained_model_name_or_path, "adapter_config.json"))e
-        
+        has_adapter_config = os.path.exists(os.path.join(pretrained_model_name_or_path, "adapter_config.json"))
+
         ## Check If the model has a PeftConfig
         if pretrained_model_name_or_path is not None and has_adapter_config:
             peft_config = PeftConfig.from_pretrained(pretrained_model_name_or_path)
@@ -165,6 +158,17 @@ class BaseControlTokenWrapper(PreTrainedModel):
         else:
             return super().from_pretrained(*args, **kwargs)
     
+    def save_pretrained(self, save_directory: str, *args, **kwargs):
+        """ Save the model to a directory
+        
+        :param save_directory: The directory where to save the model
+        :type save_directory: str
+        """
+        #get absolute path
+        self.name_or_path = os.path.abspath(save_directory) 
+        self.config.name_or_path = os.path.abspath(save_directory)
+        super().save_pretrained(save_directory)
+        
     
     def set_lm_generation_config(self):
         """ Set the generation config of the model to be the same as the language model """
@@ -177,12 +181,28 @@ class BaseControlTokenWrapper(PreTrainedModel):
         :type ctrl_token_id: int
         """
         for token, token_id in self.config.control_token_to_id.items():
-            assert token_id < self.config.vocab_size, \
-                f"Control token id {token_id} is out of range, the vocab size is {self.config.vocab_size}. You must set your control token ids as the last tokens of the vocabulary"
-    
+            assert \
+                token_id < self.config.vocab_size, \
+                f"Control token id {token_id} of token {token} is out of range, the vocab size is {self.config.vocab_size}." + \
+                f"You must set your control token ids as the last tokens of the vocabulary"
+            og_vocab_size = self.get_original_vocab_size()
+            assert \
+                token_id >= og_vocab_size, \
+                f"Control token id {token_id} of token {token} overlaps with the language model vocabulary." + \
+                f"You must set your control token ids as the last tokens of the vocabulary (i.e. an id >= {og_vocab_size})"
+            \
+            
     def _resize_language_model_head(self):
         """ Resize the language model head to account for the new control tokens """
-        if self.language_model.get_output_embeddings() is not None and not self.language_model.config.tie_word_embeddings:
+        if self.language_model.get_output_embeddings() is not None:
+            if self.language_model.config.tie_word_embeddings:
+                warnings.warn(f"The language model head is tied to the input embeddings " + \
+                              f"but this is not compatible with the {self.__class__.__name__} model. " + \
+                              f"Both the input embeddings and the output embeddings will be resized independently " + \
+                              f"and the tie will be broken. Setting the tie_word_embeddings to False"
+                )
+                self.language_model.config.tie_word_embeddings = False
+                           
             old_lm_head = self.language_model.get_output_embeddings()
             new_size = old_lm_head.weight.shape[0] + self.config.num_control_tokens
             if isinstance(old_lm_head, torch.nn.Embedding):
@@ -195,6 +215,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
             old_lm_head_requires_grad = old_lm_head.weight.requires_grad
             new_lm_head.requires_grad_(old_lm_head_requires_grad)
             self.language_model.set_output_embeddings(new_lm_head)
+            
+        self.config.vocab_size = self.get_original_vocab_size() + self.config.num_control_tokens
         
         self._validate_ctrl_token_id()
 
@@ -244,8 +266,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
             lm_head = getattr(self.language_model, lm_head_name)
         else:
             lm_head_name,lm_head = [(name,param) for name,param in self.language_model.named_children()][-1]
-            warnings.warn(f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, \
-                make sure this is the correct head. If not, please provide the correct name as an argument.")
+            warnings.warn(
+                f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, "+ \
+                "make sure this is the correct head. If not, please provide the correct name as an argument."
+            )
         for param in lm_head.parameters():
             param.requires_grad = False
             
@@ -259,8 +283,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
             lm_head = getattr(self.language_model, lm_head_name)
         else:
             lm_head_name,lm_head = [(name,param) for name,param  in self.language_model.named_children()][-1]
-            warnings.warn(f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, \
-                make sure this is the correct head. If not, please provide the correct name as an argument.")
+            warnings.warn(
+                f"Freezing the language model head, the name of the head to be frozen is {lm_head_name}, "+ \
+                "make sure this is the correct head. If not, please provide the correct name as an argument."
+            )
             
         for param in lm_head.parameters():
             param.requires_grad = True
@@ -278,8 +304,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
 
             lm_head_name,lm_head  = [(name,param) for name,param in self.language_model.named_children()][-1]
             
-            warnings.warn(f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, \
-                make sure this is the correct head. If not, please provide the correct name as an argument.")
+            warnings.warn(
+                f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, "+ \
+                "make sure this is the correct head. If not, please provide the correct name as an argument."
+            )
         #check if lm_head requires grad
         lm_head_requires_grad = any([p.requires_grad for p in lm_head.parameters()])
         self.freeze_language_model()
@@ -299,8 +327,9 @@ class BaseControlTokenWrapper(PreTrainedModel):
 
             lm_head_name,lm_head  = [(name,param) for name,param in self.language_model.named_children()][-1]
             
-            warnings.warn(f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, \
-                make sure this is the correct head. If not, please provide the correct name as an argument.")
+            warnings.warn(
+                f"Freezing the language model body, the name of the head to be frozen is {lm_head_name}, "+ \
+                "make sure this is the correct head. If not, please provide the correct name as an argument.")
         #check if lm_head requires grad
         lm_head_requires_grad = any([p.requires_grad for p in lm_head.parameters()])
         self.unfreeze_language_model()
@@ -331,6 +360,9 @@ class BaseControlTokenWrapper(PreTrainedModel):
         for param in self.ctrl_tok_clf.parameters():
             param.requires_grad = True
                     
+    def get_original_vocab_size(self):
+        """ Get the original vocabulary size of the language model """
+        return self.language_model.get_input_embeddings().original_embedding.weight.shape[0]
     
     def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str):
         """ Define the execution function for your control tokens here.
@@ -344,224 +376,190 @@ class BaseControlTokenWrapper(PreTrainedModel):
         """
         raise NotImplementedError("Define the execution function for your control tokens here")
     
-    def exec_fn_to_label(self, exec_fn_res: torch.LongTensor, control_token_id: int):
+    def get_id_in_ctrl_tok_clf(self, token_id: Union[torch.LongTensor,int]):
+        """ Get the control token id in the control token classifier
         
-        lm_head_token_id = self.control_token_to_id["lm_head"]
+        :param token_name: The name of the control token
+        :type token_name: int
+        """
+        og_vocab_size = self.get_original_vocab_size()
+        if isinstance(token_id, torch.LongTensor):
+            return torch.where(
+                token_id < og_vocab_size,
+                self.lm_head_ctrl_token_id - og_vocab_size,
+                token_id - og_vocab_size,
+            )
+        else: 
+            if token_id < og_vocab_size:
+                return self.lm_head_ctrl_token_id - og_vocab_size 
+            else:
+                return token_id - og_vocab_size
+ 
+    def get_ctrl_tok_labels(self, og_labels: torch.LongTensor):
         
-        label = exec_fn_res.clone()
+        #compute exectute function for all control tokens and stack them
+        stacked_ctrl_tok_labels = torch.stack(
+            [self.ctrl_tok_execute(og_labels, token) for token in self.control_token_to_id.keys()],
+            dim=0
+        ) 
         
-        #mask for the control token id
-        label[exec_fn_res == CTRL_TOKEN_LABEL] = control_token_id
+        #find the locations where a normal token is the label
+        lm_head_token_locations = (stacked_ctrl_tok_labels == LM_HEAD_LABEL).all(dim=0)
+        #find the locations where a control token is the label
+        is_ctrl_tok_cnt = (stacked_ctrl_tok_labels == CTRL_TOKEN_LABEL).count_nonzero(dim=0)
         
-        #mask for the lm head token id
-        label[exec_fn_res == LM_HEAD_LABEL] = lm_head_token_id
-                
-        return label
-    
-    def make_lm_head_label(self, og_labels: torch.LongTensor, control_tokens_labels: List[torch.LongTensor]):
-            
-        lm_head_token_locations = \
-            (
-                torch.stack(
-                    [control_tokens_labels[token] for token in control_tokens_labels],
-                    dim=0) 
-                == LM_HEAD_LABEL
-            ).all(dim=0)
-                 
-        return torch.where(lm_head_token_locations, og_labels, IGNORE_LABEL)
-    
-    def get_ctrl_tok_labels(self, labels: torch.LongTensor):
+        assert \
+            (is_ctrl_tok_cnt <= 1).all(),\
+            "There should be at most one control token per position. " + \
+            "Your execution functions are probably not mutually exclusive"
+        #locations where the label is a control token or a normal token
+        label_occs = torch.logical_xor(is_ctrl_tok_cnt == 1, lm_head_token_locations)
         
-        ctrl_tok_to_label = {}
-        execute_fn_res = []
+        #is_ctrl_tok_cnt and lm_head_token_locations should not be both True at the same time
+        assert \
+            (label_occs == torch.logical_or(is_ctrl_tok_cnt, lm_head_token_locations)).all(), \
+            "lm_head_token_locations and is_ctrl_tok_cnt should not be both True at the same time. "+ \
+            "Make sure your execution functions are mutually exclusive"
         
-        for token, token_id in self.control_token_to_id.items():
-            if token == "lm_head":
-                continue
-            exec_fn = self.ctrl_tok_execute(labels, token)
-            ctrl_tok_to_label[token] = self.exec_fn_to_label(exec_fn, token_id)
-
-        #get mask to create the lm_head label
-        lm_head_labels = self.make_lm_head_label(labels, ctrl_tok_to_label)
-                
-        ctrl_tok_to_label["lm_head"] = lm_head_labels
         
-        return ctrl_tok_to_label
+        lm_head_labels = torch.where(label_occs, og_labels, IGNORE_LABEL)
+        ctrl_tok_labels = self.get_id_in_ctrl_tok_clf(lm_head_labels)
+        lm_head_labels = torch.where(
+            ctrl_tok_labels == self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id),
+            lm_head_labels,
+            IGNORE_LABEL
+        )
+        
+        return lm_head_labels, ctrl_tok_labels
         
     def compute_loss(
         self,
-        input_ids: torch.LongTensor,
         labels: torch.LongTensor,
-        logits: Optional[torch.FloatTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        lm_logits: torch.FloatTensor,
+        ctrl_tok_logits: Optional[torch.FloatTensor],
+        attention_mask: Optional[torch.LongTensor] = None,
     ):
         assert labels is not None, "labels should not be None (labels are required for computing the loss)"
         
-        ctrl_tok_to_label = self.get_ctrl_tok_labels(labels)
+        #locations where the attention mask is 0 should be ignored (replace labels with IGNORE_LABEL)
+        if attention_mask is not None:
+            labels = torch.where(attention_mask == 0, IGNORE_LABEL, labels)
+            
+        #shift the labels and logits (For Decoder models, the first token should be ignored)
+        shifted_labels = labels[..., 1:]
+        shifted_lm_logits = lm_logits[..., :-1, :].contiguous()
+        shifted_ctrl_tok_logits = ctrl_tok_logits[..., :-1, :].contiguous()
+        
+        #get the control token labels
+        lm_head_labels, ctrl_tok_labels = self.get_ctrl_tok_labels(shifted_labels)
 
-        if logits is None:
-            
-            
-    def get_all_logits(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
+        #make sure both are contiguous
+        lm_head_labels = lm_head_labels.contiguous()
+        ctrl_tok_labels = ctrl_tok_labels.contiguous()
         
-        #make a copy of args and kwargs
-        cp_kwargs = deepcopy(kwargs)
-        cp_args = deepcopy(args)
+        #compute nll of control token head
+        ctrl_tok_nlprobs = - torch.nn.functional.log_softmax(shifted_ctrl_tok_logits, dim=-1)
+        #compute nll of lm head
+        lm_nlprobs = - torch.nn.functional.log_softmax(shifted_lm_logits, dim=-1)
         
-        if "return_dict" not in cp_kwargs or cp_kwargs["return_dict"] is None:
-            cp_kwargs["return_dict"] = True
+        #get the nll of the control token head and the lm head
+        nll_ctrl_tok = ctrl_tok_nlprobs.gather(
+            dim=-1,
+            index= torch.clamp(ctrl_tok_labels, min=0).unsqueeze(-1)
+        ).squeeze(-1)
+        nll_lm = lm_nlprobs.gather(
+            dim=-1,
+            index=torch.clamp(lm_head_labels, min=0).unsqueeze(-1)
+        ).squeeze(-1)
+        
+        #Note: it's normal that both use the lm_head_labels, 
+        # because the control token labels are derived from the lm_head_labels
+        
+        #mask tokens that are ignored in loss
+        mask_lm = (lm_head_labels == IGNORE_LABEL)
+        nll_lm.masked_fill_(mask_lm, 0.0)
+        
+        mask_ctrl_tok = (ctrl_tok_labels == IGNORE_LABEL)
+        nll_ctrl_tok.masked_fill_(mask_ctrl_tok, 0.0)    
+        
+        num_active_elements = mask_lm.numel() - (mask_lm & mask_ctrl_tok).count_nonzero()
+        loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
+        return loss
+    def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
+        
+        if "return_dict" not in kwargs or kwargs["return_dict"] is None:
+            kwargs["return_dict"] = True
             
-        assert cp_kwargs["return_dict"], "return_dict should be set to True"
-        cp_kwargs["output_hidden_states"] = True 
+        assert kwargs["return_dict"], "return_dict should be set to True"
+        kwargs["output_hidden_states"] = True 
         
         outputs = self.language_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            *cp_args,
-            **cp_kwargs
+            *args,
+            **kwargs
         )
                 
         ctrl_tok_hidden_state = \
-            outputs.hidden_states[-1].clone().detach() if self.config.detach_ctrl_tok_clf else  outputs.hidden_states[-1]
+            outputs.hidden_states[-1].clone().detach() \
+                if self.config.detach_ctrl_tok_clf else outputs.hidden_states[-1]
     
-        
         ctrl_tok_logits = self.ctrl_tok_clf(ctrl_tok_hidden_state)
         
         lm_logits = outputs.logits
+       
+        #set logit of control tokens to -inf
+        for token_id in self.control_token_to_id.values():
+            lm_logits[..., token_id] = torch.finfo(outputs.logits.dtype).min
         
         
+        return lm_logits, ctrl_tok_logits, outputs.past_key_values, outputs.hidden_states, outputs.attentions 
         
+    def make_combined_logits(self, lm_logits: torch.FloatTensor, ctrl_tok_logits: torch.FloatTensor):
+        """ Combine the logits of the language model and the control token classifier
+        
+        :param lm_logits: The logits of the language model
+        :type lm_logits: torch.FloatTensor
+        :param ctrl_tok_logits: The logits of the control token classifier
+        :type ctrl_tok_logits: torch.FloatTensor
+        """
+        ctrl_tok_probs = torch.nn.functional.softmax(ctrl_tok_logits/self.ctrl_tokens_temperature, dim=-1)
+        probs = torch.nn.functional.softmax(lm_logits, dim=-1).clone()
+        
+        use_lm_head_id = self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id)
+        mask = torch.ones_like(probs, dtype=torch.bool)
+        
+        for token_id in self.control_token_to_id.values():
+            id_in_ctrl_tok_clf = self.get_id_in_ctrl_tok_clf(token_id)
+            probs[..., token_id] = ctrl_tok_probs[..., id_in_ctrl_tok_clf]
+            mask[..., token_id] = False
+        use_lm_head_probs = ctrl_tok_probs[..., use_lm_head_id].unsqueeze(-1)
+        probs = torch.where(mask, probs * use_lm_head_probs, probs)        
+
+        assert torch.allclose(probs.sum(dim=-1), torch.ones_like(probs.sum(dim=-1))), "The logits should be normalized"
+        
+        return torch.log(probs)
         
     def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
-        if "return_dict" not in kwargs or kwargs["return_dict"] is None:
-            kwargs["return_dict"] = True
-    
-        assert kwargs["return_dict"], "return_dict should be set to True"
-        #add output_hidden_states to the args
-        kwargs["output_hidden_states"] = True  
         
-        labels = kwargs.pop("labels",None)
+        lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
+            self.forward_(input_ids, attention_mask, *args, **kwargs)
         
-        if labels is not None:
-            # Create Pause labels (make sure it's on the same device as the model and a long tensor)
-            pause_labels = torch.where(labels == self.pause_token_id, 1, 0).long().to(self.language_model.device)
-            pause_labels = torch.where(labels == -100, -100, pause_labels).long().to(self.language_model.device)
-            lm_head_labels = torch.where(labels == self.pause_token_id, -100, labels).long().to(self.language_model.device)
+        loss = self.compute_loss(
+            labels=kwargs.get("labels", None),
+            lm_logits=lm_logits,
+            ctrl_tok_logits=ctrl_tok_logits,
+        )
         
-        else:
-            pause_labels = None
+        logits = self.make_combined_logits(lm_logits, ctrl_tok_logits)
         
-        #add input_ids and attention_mask to the args
-        outputs = self.language_model(input_ids= input_ids, attention_mask = attention_mask , *args, **kwargs)
-        
-        #get last hidden state from the outputs
-        last_hidden_state = outputs.hidden_states[-1]
-        
-        if self.config.detach_ctrl_tok_clf:
-            pause_hidden_state = last_hidden_state.clone().detach()
-        else:
-            pause_hidden_state = last_hidden_state
-            
-        pause_logits = self.ctrl_tok_clf(pause_hidden_state)
-    
-        ### INSERT PAUSE LOGIT IN LOGITS POSITION OF PAUSE TOKEN
-        outputs.logits[..., self.pause_token_id] = torch.finfo(outputs.logits.dtype).min 
-        
-        lm_loss = None
-        pause_loss = None
-        combined_loss = None      
-        if labels is not None and pause_labels is not None:
-            if self.loss_type == "combined":
-                shift_pause_labels = pause_labels[..., 1:].contiguous()
-                shift_pause_logits = pause_logits[..., :-1, :].contiguous()
-                
-                shift_lm_labels = lm_head_labels[..., 1:].contiguous()
-                shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
-                
-                pause_log_probs = - torch.nn.functional.log_softmax(shift_pause_logits, dim=-1)
-                lm_log_probs = - torch.nn.functional.log_softmax(shift_lm_logits, dim=-1)
-         
-                nll_pause = pause_log_probs.gather(dim=-1, index=torch.clamp(shift_pause_labels,min=0).unsqueeze(-1)).squeeze(-1)
-                nll_lm = lm_log_probs.gather(dim=-1, index=torch.clamp(shift_lm_labels,min=0).unsqueeze(-1)).squeeze(-1)
-                nll_lm.masked_fill_(shift_lm_labels.eq(-100), 0.0)
-                nll_pause.masked_fill_(shift_pause_labels.eq(-100), 0.0)
-    
-                combined_loss = (nll_pause + nll_lm).mean()
-                
-            else:
-                ### PAUSE LOSS
-                # Shift so that tokens < n predict n
-                shift_pause_logits = pause_logits[..., :-1, :].contiguous()
-                shift_pause_labels = pause_labels[..., 1:].contiguous()
-                # Flatten the tokens
-                shift_pause_logits = shift_pause_logits.view(-1, 2)
-                shift_pause_labels = shift_pause_labels.view(-1)
-                # Ensure tensors are on the same device
-                shift_pause_labels = shift_pause_labels.to(shift_pause_logits.device)
-                loss_fct = torch.nn.CrossEntropyLoss()
-                pause_loss = loss_fct(shift_pause_logits, shift_pause_labels)
-                
-                ## LM LOSS
-                shift_lm_logits = outputs.logits[..., :-1, :].contiguous()
-                shift_lm_labels = lm_head_labels[..., 1:].contiguous()
-                # Flatten the tokens
-                
-                shift_lm_logits = shift_lm_logits.view(-1, self.config.vocab_size)
-                shift_lm_labels = shift_lm_labels.view(-1)
-                # Ensure tensors are on the same device
-                shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
-                loss_fct = torch.nn.CrossEntropyLoss()
-                lm_loss = loss_fct(shift_lm_logits, shift_lm_labels)
-        
-            
-        
-        lm_logits = outputs.logits.clone()
-        lm_loss = outputs.loss
-        
-        if not self.training:
-            pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
-            
-            outputs.logits[..., -1 ,self.pause_token_id] = pause_prob[..., -1 ,1]
-            # pause_prob = torch.nn.functional.softmax(pause_logits/self.pause_temperature, dim=-1)
-            
-            # sample_pause = torch.bernoulli(pause_prob[..., -1 ,1])
-            
-            # outputs.logits[..., self.pause_token_id] = float("-inf")
-            
-            # probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
-            
-            # probs[..., -1, :] = probs[..., -1, :] * (1-sample_pause).unsqueeze(-1)
-            
-            # probs[..., -1 ,self.pause_token_id] = sample_pause
-            
-            # outputs.logits = torch.log(probs)
-
-            # outputs.logits = torch.where(
-            #     torch.isnan(outputs.logits) | torch.isinf(outputs.logits),
-            #     torch.finfo(outputs.logits.dtype).min,
-            #     outputs.logits
-            # )
-        
-        if labels is not None:
-            if self.loss_type == "pause_loss":
-                outputs.loss = pause_loss
-            elif self.loss_type == "lm_loss":
-                outputs.loss = lm_loss
-            elif self.loss_type == "combined":
-                outputs.loss = combined_loss
-
-        if self.return_pause_logits_as_logits and self.training:
-            outputs.logits = pause_logits
-        
-        return SequenceClassifierOutputWithPastAndPauseLogits(
-            loss = outputs.loss,
-            lm_loss= lm_loss,
-            pause_loss = pause_loss,
-            logits = outputs.logits,
-            past_key_values = outputs.past_key_values,
-            hidden_states = outputs.hidden_states,
-            attentions = outputs.attentions,
-            pause_logits = pause_logits,
+        return SequenceClassifierOutputWithPastForCtrlTokens(
+            loss = loss,
+            logits = logits,
+            past_key_values = past_key_values,
+            hidden_states = hidden_states,
+            attentions = attentions,
+            control_token_logits = ctrl_tok_logits,
             lm_logits = lm_logits,
         )
     
