@@ -32,6 +32,13 @@ class PauseClassifierWrapper(BaseControlTokenWrapper):
     config_class = PauseCLFConfig
     
     def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str, **kwargs):
+        """ Execute function of pause token. Returns CTRL_TOKEN_LABEL anywhere the pause token is present in the labels tensor and LM_HEAD_LABEL elsewhere. 
+        This function is used to determine whether each token in the input sequence is a control token (or part of a control token) or not. It's also used to determine the loss of the model.
+        
+        :param labels: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence
+        :param token_name: str, name of the token to execute
+        :returns: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence with the pause token replaced by CTRL_TOKEN_LABEL and the other tokens replaced by LM_HEAD_LABEL
+        """
         if token_name == self.config.pause_token_name:
             return torch.where(labels == self.config.pause_token_id, CTRL_TOKEN_LABEL, LM_HEAD_LABEL)
         raise ValueError(f"Token name {token_name} not recognized")
