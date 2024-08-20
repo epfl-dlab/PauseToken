@@ -1,1 +1,1 @@
-_target_: src.rl_algorithm.reward.GSM8KCorrectnessReward
+_target_: src.reward.GSM8KCorrectnessReward
