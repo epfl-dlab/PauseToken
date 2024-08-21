@@ -14,6 +14,7 @@ run_name: "sft_pause_gsm8k_mistral"
 
 data:
   debug_n: null
+  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses"
 
 trainer:
   max_seq_length: 600
@@ -27,13 +28,13 @@ trainer:
     do_eval: true
     evaluation_strategy: "steps"
     save_strategy: "steps"
-    eval_steps: 500
+    eval_steps: 300
     load_best_model_at_end: true
     save_total_limit: 10
-    num_train_epochs: 3.0
+    num_train_epochs: 1.0
     per_device_train_batch_size: 8
     per_device_eval_batch_size: 8
-    save_steps: 500
+    save_steps: 300
     report_to: "wandb"
 
 save_before_train: true
