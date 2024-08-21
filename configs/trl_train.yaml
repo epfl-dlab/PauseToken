@@ -16,7 +16,7 @@ defaults:
   
   - rl_algorithm/policy/model/language_model: gpt2
 
-  - rl_algorithm/policy/model/tokenizer: gpt2
+  - rl_algorithm/policy/model/tokenizer: auto_tokenizer
 
   - rl_algorithm/policy/generation: default
 
@@ -47,6 +47,10 @@ logger:
   name: ${..run_name}
   project: ${..name}
 
+rl_algorithm:
+  policy:
+    max_output_generation_length: 1024
+
 # task name, determines output directory path
 task_name: "sft"
 
@@ -57,7 +61,7 @@ tags: ["dev"]
 
 # set False to skip model training
 train: True
-
+save_before_train: False
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
 test: True

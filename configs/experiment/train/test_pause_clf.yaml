@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - override /data: gsm8k
+  - override /rl_algorithm: star
+  - override /rl_algorithm/policy/model/language_model: pause_model
+  - override /rl_algorithm/policy/model/peft_config: gpt2
+  - override /rl_algorithm/reward: gsm8k
+
+name: "star on gsm8k"
+run_name: "debug"
+task_name: "train"
+
+trainer:
+  inner_loop_timesteps: 20
+
+rl_algorithm:
+  n_envs: 2
+  batch_size: 2
+  train_freq: 2
+  policy:
+    model:
+      tokenizer:
+        pretrained_model_name_or_path: gpt2

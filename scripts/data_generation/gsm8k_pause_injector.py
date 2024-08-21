@@ -5,12 +5,22 @@ import argparse
 import json
 import random
 from transformers import AutoTokenizer
-import sys
-sys.path.append("../src")
-from utils import dict_type
-DATA_DIR = "../data/" 
+DATA_DIR = "data/" 
 
 
+def dict_type(string):
+    """ Convert a string to a dictionary
+    
+    :param string: A string that represents a dictionary
+    :type string: str
+    :return: A dictionary
+    :rtype: dict
+    """
+    try:
+        return json.loads(string)
+    except json.JSONDecodeError:
+        raise argparse.ArgumentTypeError("Invalid dictionary format. Must be a valid JSON string.")
+    
 
 def find_pattern(input_string,pattern):
     """ Find all occurences of a pattern in a string
@@ -271,4 +281,6 @@ if __name__ == "__main__":
         print(dataset[0])
         
         print("Saving Augmented Dataset...")
-    dataset.to_json(os.path.join(args.augm_dataset_save_location,"train.json"))
+    dataset.to_json(os.path.join(args.augm_dataset_save_location,"train.json"),batch_size= len(dataset), indent = 2, lines=False)
+    test_ds = load_dataset("json", data_files=data_files, split="test")
+    test_ds.to_json(os.path.join(args.augm_dataset_save_location,"test.json"),batch_size= len(test_ds),indent = 2, lines=False)

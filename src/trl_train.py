@@ -7,6 +7,8 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import seed_everything
 from datasets import Dataset
 from src.utils.instantiators import instantiate_generation_params
+from src.model.components.control_token_wrappers import BaseControlTokenWrapper
+from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
 from src.utils.trainer_utils import test_model
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -60,7 +62,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
-
+    
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
@@ -71,11 +73,37 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
     model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
     
+    # Add control tokens to tokenizer if the language model is a control token wrapper
+    if isinstance(model, BaseControlTokenWrapper):
+        # Add new tokens to tokenizer
+        new_tokens = []
+        for token_name, token_id in sorted(model.config.control_token_to_id.items(), key=lambda x: x[1]):
+            
+            new_tokens.append(
+                AddedToken(
+                    token_name, 
+                    single_word=False, 
+                    lstrip=True, 
+                    rstrip=True
+                )
+            )
+        tokenizer.add_tokens(new_tokens, special_tokens=True)
+
+        #assert that tokenizer token ids match the control token ids
+        for token_name, token_id in model.config.control_token_to_id.items():
+            assert token_id == tokenizer.convert_tokens_to_ids(token_name), \
+                f"Token id mismatch for token {token_name}! Expected {token_id} but tokenizer tokenized it as {tokenizer.convert_tokens_to_ids(token_name)}"
+    
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )
+    
+    if cfg.get("save_before_train"):
+        model.save_pretrained(cfg.paths.output_dir + "/raw")
+        tokenizer.save_pretrained(cfg.paths.output_dir + "/raw")
+        log.info(f"Saved model and tokenizer before training to {cfg.paths.output_dir + '/raw'}")
     
     #I have to covert to a container because some of the types canno be save in json (e.g., ListConfig)
     trainer = hydra.utils.instantiate(
@@ -86,7 +114,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         eval_dataset=dataset["val"],
         _convert_="partial",
     )
-    
+
     object_dict = {
         "cfg": cfg,
         "dataset": dataset,
@@ -100,8 +128,8 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Starting training!")
         trainer.train()
         train_metrics = trainer.state.__dict__
-        trainer.save_model(ksjlfkjsdlkf)
-        # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        trainer.save_model(cfg.paths.output_dir + "/final")
+        log.info(f"Saved final model to {cfg.paths.output_dir + '/final'}")
         
     test_metrics = {}
     if cfg.get("test"):

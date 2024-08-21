@@ -7,7 +7,6 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
     file_type = kwargs.get("file_type")
     files = kwargs.get("files")
     data_files={file: os.path.join(path, file)+"."+file_type for file in files}
-    
     dataset = load_dataset(file_type, data_files=data_files,)
     if kwargs.get('input_label') and kwargs.get('output_label'):
         dataset = dataset.rename_column(kwargs.get('input_label'), "input").rename_column(kwargs.get('output_label'), "output")

@@ -376,14 +376,15 @@ class BaseControlTokenWrapper(PreTrainedModel):
         """
         raise NotImplementedError("Define the execution function for your control tokens here")
     
-    def get_id_in_ctrl_tok_clf(self, token_id: Union[torch.LongTensor,int]):
+    def get_id_in_ctrl_tok_clf(self, token_id: Union[torch.Tensor,int]):
         """ Get the control token id in the control token classifier
         
         :param token_name: The name of the control token
         :type token_name: int
         """
+ 
         og_vocab_size = self.get_original_vocab_size()
-        if isinstance(token_id, torch.LongTensor):
+        if isinstance(token_id, torch.Tensor):
             return torch.where(
                 token_id < og_vocab_size,
                 self.lm_head_ctrl_token_id - og_vocab_size,
@@ -394,6 +395,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
                 return self.lm_head_ctrl_token_id - og_vocab_size 
             else:
                 return token_id - og_vocab_size
+
  
     def get_ctrl_tok_labels(self, og_labels: torch.LongTensor):
         
@@ -485,6 +487,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         num_active_elements = mask_lm.numel() - (mask_lm & mask_ctrl_tok).count_nonzero()
         loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
         return loss
+    
     def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
         
         if "return_dict" not in kwargs or kwargs["return_dict"] is None:
@@ -493,12 +496,16 @@ class BaseControlTokenWrapper(PreTrainedModel):
         assert kwargs["return_dict"], "return_dict should be set to True"
         kwargs["output_hidden_states"] = True 
         
+        labels = kwargs.pop("labels", None)
+        
         outputs = self.language_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             *args,
             **kwargs
         )
+        
+        kwargs["labels"] = labels
                 
         ctrl_tok_hidden_state = \
             outputs.hidden_states[-1].clone().detach() \
@@ -509,9 +516,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
         lm_logits = outputs.logits
        
         #set logit of control tokens to -inf
-        for token_id in self.control_token_to_id.values():
-            lm_logits[..., token_id] = torch.finfo(outputs.logits.dtype).min
-        
+        og_vocab_size = self.get_original_vocab_size()
+        lm_logits[..., og_vocab_size:] = torch.finfo(lm_logits.dtype).min
         
         return lm_logits, ctrl_tok_logits, outputs.past_key_values, outputs.hidden_states, outputs.attentions 
         
@@ -522,34 +528,36 @@ class BaseControlTokenWrapper(PreTrainedModel):
         :type lm_logits: torch.FloatTensor
         :param ctrl_tok_logits: The logits of the control token classifier
         :type ctrl_tok_logits: torch.FloatTensor
+        :returns: logprobs of the combined logits
         """
-        ctrl_tok_probs = torch.nn.functional.softmax(ctrl_tok_logits/self.ctrl_tokens_temperature, dim=-1)
-        probs = torch.nn.functional.softmax(lm_logits, dim=-1).clone()
-        
-        use_lm_head_id = self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id)
-        mask = torch.ones_like(probs, dtype=torch.bool)
-        
-        for token_id in self.control_token_to_id.values():
-            id_in_ctrl_tok_clf = self.get_id_in_ctrl_tok_clf(token_id)
-            probs[..., token_id] = ctrl_tok_probs[..., id_in_ctrl_tok_clf]
-            mask[..., token_id] = False
-        use_lm_head_probs = ctrl_tok_probs[..., use_lm_head_id].unsqueeze(-1)
-        probs = torch.where(mask, probs * use_lm_head_probs, probs)        
+        ctrl_tok_lprobs = torch.nn.functional.log_softmax(ctrl_tok_logits/self.ctrl_tokens_temperature, dim=-1)
+        lm_lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1).clone()
 
-        assert torch.allclose(probs.sum(dim=-1), torch.ones_like(probs.sum(dim=-1))), "The logits should be normalized"
+        use_lm_head_id = self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id)
+        use_lm_head_lprobs = ctrl_tok_lprobs[..., use_lm_head_id].unsqueeze(-1)
         
-        return torch.log(probs)
+        #use lm_head_id is actually always the last token of the control token classifier
+        use_ctrl_tok_lprobs = ctrl_tok_lprobs[..., :-1] 
+
+        og_vocab_size = self.get_original_vocab_size()
+        #concatenate combined log prob vector
+        lprobs = torch.cat([lm_lprobs[...,:og_vocab_size] + use_lm_head_lprobs, use_ctrl_tok_lprobs], dim=-1)
+        
+        return lprobs
         
     def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
         
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids, attention_mask, *args, **kwargs)
         
-        loss = self.compute_loss(
-            labels=kwargs.get("labels", None),
-            lm_logits=lm_logits,
-            ctrl_tok_logits=ctrl_tok_logits,
-        )
+        if "labels" in kwargs:
+            loss = self.compute_loss(
+                labels=kwargs["labels"],
+                lm_logits=lm_logits,
+                ctrl_tok_logits=ctrl_tok_logits,
+            )
+        else:
+            loss = None
         
         logits = self.make_combined_logits(lm_logits, ctrl_tok_logits)
         

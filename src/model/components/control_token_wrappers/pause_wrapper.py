@@ -90,6 +90,7 @@ def test_save_load_peft():
     from peft import LoraConfig, TaskType, get_peft_model
     from transformers import AutoTokenizer
     model, tokenizer = load_model()
+    breakpoint()
     model.save_pretrained("pre_lora")
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM, 

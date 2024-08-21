@@ -1,23 +1,28 @@
 # @package _global_
 defaults:
-  - override /rl_algorithm/policy/model/language_model: gpt2
-  - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: gpt2
+  - override /rl_algorithm/policy/model/language_model: pause_model
+  - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: mistral_pause
   - override /metrics: gsm8k
 
+rl_algorithm:
+  policy:
+    model:
+      tokenizer:
+        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1/
+
+run_name: "sft_pause_gsm8k_mistral"
+
+data:
+  debug_n: null
 
 trainer:
   max_seq_length: 600
-
-
   formatting_func:
     _target_: functools.partial
     _args_: 
       - ${get_method:src.utils.trainer_utils.sft_formating_function}
     eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
   
-data:
-  debug_n: 32
-
   args:
     do_eval: true
     evaluation_strategy: "steps"
@@ -31,6 +36,7 @@ data:
     save_steps: 500
     report_to: "wandb"
 
+save_before_train: true
 test: true
 test_batch_size: 8
 test_formatting_func:
