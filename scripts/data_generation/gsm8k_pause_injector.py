@@ -104,16 +104,20 @@ def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_rando
         else:
             tokenizer.add_tokens([pause_token], special_tokens=True)
             splited_augm_str = tokenizer(augmented_string)["input_ids"]
-            pause_token = tokenizer(pause_token)["input_ids"][1]
+            if tokenizer.bos_token_id is not None and splited_augm_str[0] == tokenizer.bos_token_id:
+                splited_augm_str = splited_augm_str[1:]
+                
+            pause_token = tokenizer.convert_tokens_to_ids(pause_token)
+
         random_indices = [random.randint(0, len(splited_augm_str)) for _ in range(num_pauses)]
         random_indices.sort(reverse=True)
         for idx in random_indices:
             splited_augm_str.insert(idx, pause_token)
         if tokenizer is None:
             augmented_string = " ".join(splited_augm_str)
-        else:
+        else:    
             augmented_string = tokenizer.decode(splited_augm_str)
-            
+    
     return augmented_string
 
 
