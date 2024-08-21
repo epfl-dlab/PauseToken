@@ -214,8 +214,10 @@ def test_model(
         
         for metric_name, metric_func in evaluation_metrics.items():
             for j in range(len(tmp_res)):
-                tmp_res[j][metric_name] = metric_func(tmp_res[j]["generated_text"], ground_truths[j])
+                gen_text_no_special_tokens = strip_special_tokens(tmp_res[j]["tokenized_text"], tokenizer)
+                tmp_res[j][metric_name] = metric_func(gen_text_no_special_tokens, ground_truths[j])
         res.extend(tmp_res)
+    
     log.info(f"Saving test results to {os.path.join(output_dir, 'test_results.json')}")
     save_json(res, output_dir, "test_results.json")
     
