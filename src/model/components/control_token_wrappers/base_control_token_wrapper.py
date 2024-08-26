@@ -125,38 +125,35 @@ class BaseControlTokenWrapper(PreTrainedModel):
                     num_embeddings=self.config.num_control_tokens,
                     embedding_dim=self.language_model.config.hidden_size,
                     dtype=embeddings.weight.dtype,
-                    device=embeddings.weight.device
+                    device=embeddings.weight.device,
                 ) 
             )
         )
         
     @classmethod
-    def from_pretrained(cls,*args, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
         """ Personalized from_pretrained method to load the model from a pretrained model or a pretrained model folder
         
         :param args: Arguments to pass to the from_pretrained method (same as the from_pretrained method of the parent class)
         :param kwargs: Keyword arguments to pass to the from_pretrained method (same as the from_pretrained method of the parent class)
         """
         
-        # check if there is "adapter_config.json" in pretrained_model_name_or_path folder
-        pretrained_model_name_or_path = None if len(args) == 0 else args[0]
+        if pretrained_model_name_or_path is None:
+            raise ValueError("pretrained_model_name_or_path should be provided")
         
         has_adapter_config = os.path.exists(os.path.join(pretrained_model_name_or_path, "adapter_config.json"))
-
+        
         ## Check If the model has a PeftConfig
         if pretrained_model_name_or_path is not None and has_adapter_config:
-            peft_config = PeftConfig.from_pretrained(pretrained_model_name_or_path)
+            peft_config = PeftConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
             pause_clf_path = peft_config.base_model_name_or_path
-            
-            if len(args) > 1:
-                ctrl_tok_clf = cls.from_pretrained(pause_clf_path, *args[1:], **kwargs)
-            else:
-                ctrl_tok_clf = cls.from_pretrained(pause_clf_path, **kwargs)
+        
+            ctrl_tok_clf = cls.from_pretrained(pause_clf_path, *args, **kwargs)
           
-            return PeftModel.from_pretrained(ctrl_tok_clf, model_id = pretrained_model_name_or_path, **kwargs)
+            return PeftModel.from_pretrained(ctrl_tok_clf, pretrained_model_name_or_path, *args, **kwargs)
         # else load the model as usual
         else:
-            return super().from_pretrained(*args, **kwargs)
+            return super().from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
     
     def save_pretrained(self, save_directory: str, *args, **kwargs):
         """ Save the model to a directory
@@ -550,7 +547,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids, attention_mask, *args, **kwargs)
         
-        if "labels" in kwargs:
+        if kwargs.get("labels", None) is not None:
             loss = self.compute_loss(
                 labels=kwargs["labels"],
                 lm_logits=lm_logits,

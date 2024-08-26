@@ -11,6 +11,7 @@ from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
 from src.utils.trainer_utils import test_model
+import os
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -55,7 +56,9 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
-        
+    
+    # Not great but I don't thing there's a work around for this for HFTrainers
+    os.environ["WANDB_PROJECT"] = cfg.name
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         seed_everything(cfg.seed, workers=True)

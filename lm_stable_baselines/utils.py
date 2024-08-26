@@ -50,7 +50,7 @@ def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, f
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
     
-    if array.shape[-1] >= max_tokens:
+    if array.shape[-1] > max_tokens:
         warnings.warn(
             f"Array is already longer than max_tokens (max_tokens: {max_tokens}, your array length: {array.shape[-1]}). \
                 Array will be truncated. If this is not the desired behavior, consider increasing the max_tokens parameter")

@@ -93,7 +93,7 @@ args:
   dataloader_num_workers: 0
   dataloader_prefetch_factor: null
   past_index: -1
-  run_name: null
+  run_name: ${run_name}
   disable_tqdm: null
   remove_unused_columns: True
   label_names: null
