@@ -57,7 +57,7 @@ python scripts/data_generation/gsm8k_pause_injector.py --dataset_location data/g
 
 ### Fine-tuning Step
 
-**Note**: in my directory I have already trained a model at `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-21_11-29-10/final`. So, you can also use this model to skip the fine-tuning step and directly go to the RL training step.
+**Note**: in my directory I have already trained a model at `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-21_12-48-15/final`. So, you can also use this model to skip the fine-tuning step and directly go to the RL training step.
 
 In order to start your RL training with a decent policy, you need to fine-tune your model to randomly insert your control token. Here is an example of how to fine-tune a model on GSM8K dataset with the pause token "<|pause|>":
 
