@@ -173,9 +173,7 @@ class LLMBasePolicy(BasePolicy):
             warnings.warn("Attention mask not provided, the padding mask will be automatically computed")
             obs_to_pass = obs if isinstance(obs, torch.Tensor) else obs["input_ids"]
             device = obs_to_pass.device
-            filler_token_locations = [torch.where(obs==self.filler_token)[0] for obs in obs_to_pass]
-            filler_token_locations = [loc[0].item() if len(loc) > 0 else None for loc in filler_token_locations]
-            obs_to_pass = [obs[:idx] for idx,obs in zip(filler_token_locations,obs_to_pass)]
+            obs_to_pass = [ obs[obs != self.filler_token] for obs in obs_to_pass]
             feature = self.tokenizer.pad({"input_ids": obs_to_pass}, return_tensors="pt", padding=True).to(device)
         elif isinstance(obs, dict) and "input_ids" in obs and "attention_mask" in obs:
             feature = obs
@@ -184,23 +182,24 @@ class LLMBasePolicy(BasePolicy):
         return feature
             
             
-    def forward(self, obs: PyTorchObs, action = None) -> torch.Tensor:
+    def forward(self, obs: PyTorchObs, labels = None) -> torch.Tensor:
         feature = self.extract_features(obs)
         feature = {k: v.to(self.device) for k, v in feature.items()}
+        feature["labels"] = labels.to(self.device) if labels is not None else None
         return self.lm(**feature)
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
         #remove the input tokens from the output
         actions = outputs[:, inputs.shape[-1]:]
-        
         #replace all pad tokens with filler tokens
         actions[actions == self.tokenizer.pad_token_id] = self.filler_token
         
         action_space_dim = self.action_space.shape[0]
         actions = add_filler_tokens(actions, action_space_dim, self.filler_token)
+        
         return actions
     
-    def pre_predict(self, observation: PyTorchObs) -> PyTorchObs:
+    def pre_predict(self, feature: PyTorchObs) -> PyTorchObs:
         pass
     
     def _predict(self, observation: PyTorchObs, deterministic: bool = False):
@@ -220,11 +219,11 @@ class LLMBasePolicy(BasePolicy):
         self.tokenizer.padding_side = "left"
         feature = self.extract_features(observation)
         inputs = feature["input_ids"]
-        self.pre_predict(inputs)
-    
+        self.pre_predict(feature)
+
         with torch.no_grad():
             outputs = self.lm.generate(
-                inputs = feature["input_ids"],
+                inputs = inputs,
                 attention_mask = feature["attention_mask"],
                 generation_config=self.generation_config,
                 logit_processor = self.logit_processor,
@@ -236,7 +235,6 @@ class LLMBasePolicy(BasePolicy):
                 negative_prompt_ids= self.negative_prompt_ids,
                 **self.generation_kwargs
             )
-        
         outputs =  self.post_predict(inputs, outputs)
         if was_in_training:
             self.lm.train()

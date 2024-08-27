@@ -27,17 +27,3 @@ class LMCallback(BaseCallback):
                         filler_token,
                     )
         return True
-
-
-
-#   for i, done in enumerate(dones):
-#             if done and infos[i].get("terminal_observation") is not None:
-#                 print("before", infos[i]["terminal_observation"].shape)
-#                 infos[i]["terminal_observation"] = \
-#                     add_filler_tokens(
-#                         infos[i]["terminal_observation"],
-#                         len(self.observation_space),
-#                         self.policy.filler_token
-#                     )
-#                 print("after", infos[i]["terminal_observation"].shape)
-#                 breakpoint()

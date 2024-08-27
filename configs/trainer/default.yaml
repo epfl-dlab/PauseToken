@@ -9,4 +9,8 @@ log_interval: 100
 tb_log_name: "run"
 progress_bar: True
 num_val_samples: null
-
+output_dir: ${paths.output_dir}
+save_top_k: 3
+metric_for_best_model: "val/accuracy"
+#whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
+metric_for_best_model_mode_is_min: false

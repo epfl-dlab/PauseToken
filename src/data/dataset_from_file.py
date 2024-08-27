@@ -1,7 +1,7 @@
 
 from datasets import Dataset, load_dataset
 import os
-
+import hydra
 def DatasetFromFile(path, **kwargs) -> Dataset:
 
     file_type = kwargs.get("file_type")
@@ -10,6 +10,13 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
     dataset = load_dataset(file_type, data_files=data_files,)
     if kwargs.get('input_label') and kwargs.get('output_label'):
         dataset = dataset.rename_column(kwargs.get('input_label'), "input").rename_column(kwargs.get('output_label'), "output")
+
+    #additional_transformations
+    additional_transformation = kwargs.get("additional_transformation", None)
+    if additional_transformation:
+        if not callable(additional_transformation):
+            additional_transformation = hydra.utils.instantiate(additional_transformation)
+        dataset = dataset.map(additional_transformation, batched=True)
 
     if not 'val' in dataset.keys():
         val_size = kwargs.get('train_val_test_split', [-1, 0.1])[1]

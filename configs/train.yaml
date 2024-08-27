@@ -14,6 +14,9 @@ defaults:
   - trainer: default
   - rl_algorithm: off_policy
   - hydra: default
+
+  - metrics: default
+
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
   - experiment: null
@@ -28,12 +31,15 @@ defaults:
   # debugging config (enable through command line, e.g. `python train.py debug=default)
   - debug: null
 
+  
+
 # determines the log directory's identifier
 name: "Control Tokens" # ???
 run_name: "debug" # ???
 logger:
   name: ${..run_name}
   project: ${..name}
+  folder: ${paths.output_dir}
 
 # task name, determines output directory path
 task_name: "train"

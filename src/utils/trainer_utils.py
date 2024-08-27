@@ -40,6 +40,10 @@ def sft_formating_function(example, eos_token):
         data.append(text)
     return data
 
+
+def strip_pad_tokens(output: List[List[int]], pad_token_id: int) -> List[List[int]]:
+    return [list(filter(lambda x: x != pad_token_id,seq))for seq in output]
+
 def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
     """ Decode and strip pad tokens from a list of sequences
     
@@ -52,7 +56,7 @@ def decode_and_strip_pad_tokens(output,pad_token_id, tokenizer):
     :return: List of decoded sequences without pad tokens
     :rtype: List[str]
     """
-    return tokenizer.batch_decode([list(filter(lambda x: x != pad_token_id,seq))for seq in output])
+    return tokenizer.batch_decode(strip_pad_tokens(output, pad_token_id))
 
 
 def extract_answer(completion: str) -> str:
@@ -71,7 +75,7 @@ def extract_answer(completion: str) -> str:
     else:
         return INVALID_ANS
 
-def strip_special_tokens(input_ids: Union[int, List[int], np.ndarray, torch.Tensor], tokenizer: PreTrainedTokenizer) -> str:
+def decode_and_strip_special_tokens(input_ids: Union[int, List[int], np.ndarray, torch.Tensor], tokenizer: PreTrainedTokenizer) -> str:
     """ Strip special tokens from a text
     
     :param input_ids: Input ids
@@ -97,7 +101,7 @@ def save_json(data: List[Dict[str, Any]], output_folder: str, file_name: str):
         os.makedirs(output_folder)
     #write results as json
     with open(path_to_output, 'w') as f:
-        json.dump(data, f, indent=4)
+        json.dump(data, f, indent=2)
 
 
 def get_mean_and_std(values: List[Union[int, float]]) -> Dict[str, Union[float, int]]:
@@ -214,7 +218,7 @@ def test_model(
         
         for metric_name, metric_func in evaluation_metrics.items():
             for j in range(len(tmp_res)):
-                gen_text_no_special_tokens = strip_special_tokens(tmp_res[j]["tokenized_text"], tokenizer)
+                gen_text_no_special_tokens = decode_and_strip_special_tokens(tmp_res[j]["tokenized_text"], tokenizer)
                 tmp_res[j][metric_name] = metric_func(gen_text_no_special_tokens, ground_truths[j])
         res.extend(tmp_res)
     

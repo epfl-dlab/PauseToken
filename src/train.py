@@ -126,7 +126,18 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
-    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg)
+    metrics = cfg.get("metrics", {"test": {}, "val": {}})
+    metrics_dict = {}
+    metrics_dict["test"] = {
+        f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
+        for name in metrics["test"].keys()
+    }
+    metrics_dict["val"] = {
+        f"val/{name}": hydra.utils.get_method(cfg.metrics["val"][name]["_target_"])
+        for name in metrics["val"].keys()
+    }
+    
+    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
     
     object_dict = {
         "cfg": cfg,

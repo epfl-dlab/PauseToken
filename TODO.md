@@ -1,18 +1,17 @@
 TODO:
 
-- Add script for doing SFT on models on a specific dataset (as a warmup for the model) DONE
-    - in test function, save test predictions DONE
-    - evaluation metrics DONE
-- Peft Option for stable basline algorithms  (probaly can mostly be done in the config) DONE
-- Saving and Loading models:
-    - Do we want to save in SB3's format?
-    - Do we want to just save the LM via HF ?
-    - Both ?
+
 - Test pipeline on mistral using STaR
     - Don't forget to set reward_threshold to -1 in the config of the buffer
-- Retake a look at the pause token model and how it fits in this framework
-    - CHECK COMPUTE_LOSS FUNCTION AGAIN
 - Test pipeline on pause token model
+
+
+- PRETRAINING:
+    - STEP 1: Train LM on GSM8K (w/out pauses)
+    - STEP 2: Add Pause Wrapper to LM and only train pause embedding and pause token classifier on random pause insertions
+    - STEP 3 (OPTIONALLY IF THINGS DON'T WORK): Train both together on GSM8K with pause token
 
 - Get PPO to work in this framework
     - means rewriting the policy 
+
+

@@ -11,7 +11,7 @@ from lm_stable_baselines.utils import add_filler_tokens
 
 class STaR(OffPolicyAlgorithm):
     
-    def __init__(self,*args,**kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass ,**kwargs):
         kwargs["support_multi_env"] = True
         super().__init__(*args, **kwargs)
         self._setup_model()
@@ -21,6 +21,7 @@ class STaR(OffPolicyAlgorithm):
         self.policy.filler_token = all_filler_token[0]
         self.replay_buffer.set_filler_token(all_filler_token[0])
         self.env.set_filler_token(all_filler_token[0])
+        self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
         
     def collect_rollouts(
         self,
@@ -85,9 +86,14 @@ class STaR(OffPolicyAlgorithm):
             
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
-            output = self.policy(replay_data.observations)
+            labels = replay_data.next_observations["input_ids"] if self.loss_computed_in_forward_pass else None
             
-            nll_loss = self.policy.compute_nll_loss(output.logits, replay_data.observations)
+            output = self.policy(replay_data.next_observations, labels=labels)
+            
+            if self.loss_computed_in_forward_pass:
+                nll_loss = output.loss
+            else:
+                nll_loss = self.policy.compute_nll_loss(output.logits, replay_data.next_observations)
             
             nll_losses.append(nll_loss.item())
             

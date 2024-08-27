@@ -1,7 +1,7 @@
 from lm_stable_baselines.rewards import AbstractReward
 import torch
 from transformers import PreTrainedTokenizer
-from src.utils.trainer_utils import strip_special_tokens, extract_answer, INVALID_ANS 
+from src.utils.trainer_utils import decode_and_strip_special_tokens, extract_answer, INVALID_ANS 
 
 class GSM8KCorrectnessReward(AbstractReward):
     """Reward function for the GSM8K dataset. This reward function checks if the model output is correct given the ground truth answer. The ground truth answer must be in the GSM8K dataset format
@@ -25,10 +25,10 @@ class GSM8KCorrectnessReward(AbstractReward):
         #an adaptation of thirdparty.openai.grade_school_math.dataset.is_correct
         
         #extract the answer of gt
-        gt_answer = extract_answer(strip_special_tokens(ground_truth,self.tokenizer))
+        gt_answer = extract_answer(decode_and_strip_special_tokens(ground_truth,self.tokenizer))
         assert gt_answer != INVALID_ANS, f"Ground truth answer is invalid, your ground truth answer is {ground_truth}"
         #extract the answer of the model output
-        pred_answer = extract_answer(strip_special_tokens(model_output,self.tokenizer))
+        pred_answer = extract_answer(decode_and_strip_special_tokens(model_output,self.tokenizer))
         
         #if the model output is invalid, return -1.0
         if pred_answer == INVALID_ANS:

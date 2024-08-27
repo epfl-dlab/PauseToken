@@ -87,6 +87,7 @@ class LMReplayBuffer(ReplayBuffer):
             
             finished_next_obs = double_indexing(next_obs, done_indices, above_thrsh_rewards)
             finished_done = double_indexing(done, done_indices, above_thrsh_rewards)
+
             if len(finished_rewards) == 1:
                 super().add(finished_obs, finished_next_obs, finished_actions, finished_rewards, finished_done, finished_infos)
             elif len(finished_rewards) > 1:
@@ -104,7 +105,7 @@ class LMReplayBuffer(ReplayBuffer):
 
         next_obs = self.tokenizer(
             self.tokenizer.batch_decode(
-                remove_filler_tokens(next_obs, self.filler_token)
+                remove_filler_tokens(next_obs[...,1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
             ),
             return_tensors="pt", padding=True, truncation=True
         )
@@ -113,17 +114,17 @@ class LMReplayBuffer(ReplayBuffer):
         
         obs = self.tokenizer(
             self.tokenizer.batch_decode(
-                remove_filler_tokens(self.observations[batch_inds, env_indices, :], self.filler_token)
+                remove_filler_tokens(obs[..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
             ),
             return_tensors="pt", padding=True, truncation=True
         )
 
         actions = self.tokenizer(
             self.tokenizer.batch_decode(
-                remove_filler_tokens(self.actions[batch_inds, env_indices, :], self.filler_token)
+                remove_filler_tokens(self.actions[batch_inds, env_indices, :], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
             ),
              return_tensors="pt", padding=True, truncation=True
-        )["input_ids"]
+        )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
 
         data = (
             obs,

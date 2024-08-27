@@ -33,12 +33,14 @@ class LMDummyVecEnv(DummyVecEnv):
             if key is None:
                 #get the length of the observation and save it in the buffer
                 len_obs = obs.shape[-1]
-                self.buf_obs[key][env_idx][:len_obs] = obs
+                
             else:
                 #get the length of the observation and save it in the buffer
                 len_obs = obs[key].shape[-1]
-                self.buf_obs[key][env_idx][:len_obs] = obs  # type: ignore[call-overload]
-                
+
+            self.buf_obs[key][env_idx][:len_obs] = obs
+            self.buf_obs[key][env_idx][len_obs:] = self.filler_token
+            
     def set_stage(self, stage: str, **kwargs):
         """ Set the stage of the environment
         
@@ -46,6 +48,4 @@ class LMDummyVecEnv(DummyVecEnv):
         :type stage: str
         """
         for env in self.envs:
-            env.set_stage(stage, **kwargs)
-        
-        
+            env.set_stage(stage, **kwargs)        

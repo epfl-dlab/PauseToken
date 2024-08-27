@@ -27,7 +27,7 @@ class LanguageModelEnv(Env):
     # class variable pointer to dataset - it should be done only once
     dataset: Dataset = None
     stage: str = "train"
-    last_idx: int = 0
+    next_idx: int = 0
     read_sequentially: bool = False
     
     
@@ -59,22 +59,27 @@ class LanguageModelEnv(Env):
             if dataset is None:
                 raise ValueError("dataset must be provided")
             LanguageModelEnv.dataset = dataset
-            self.reprermute_dataset_id_list()
+            LanguageModelEnv.reprermute_dataset_id_list()
 
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
 
-    def reprermute_dataset_id_list(self):
-        if LanguageModelEnv.read_sequentially:
-            LanguageModelEnv.dataset_id_list = list(range(len(LanguageModelEnv.dataset["train"])))
+    @classmethod
+    def reprermute_dataset_id_list(cls):
+        if cls.read_sequentially:
+            cls.dataset_id_list = list(range(len(LanguageModelEnv.dataset[cls.stage])))
         else:
-            LanguageModelEnv.dataset_id_list = np.random.permutation(len(LanguageModelEnv.dataset["train"]))
-        
-        if LanguageModelEnv.n_envs != -1:
-            self.dataset_id_list = LanguageModelEnv.dataset_id_list[self.env_idx::LanguageModelEnv.n_envs]
-        else:
-            self.dataset_id_list = LanguageModelEnv.dataset_id_list
+            cls.dataset_id_list = np.random.permutation(len(LanguageModelEnv.dataset[cls.stage]))
+        cls.next_idx = 0
+        # TODO: check if this is necessary
+        # NICKY: 
+        #   I don't think we nee this. We want dataset_id_list to be a static variable that is shared across all instances of the class
+        #   We know which sample to take thanks to LanguageModelEnv.next_idx
+        # if LanguageModelEnv.n_envs != -1:
+        #     self.dataset_id_list = LanguageModelEnv.dataset_id_list[self.env_idx::LanguageModelEnv.n_envs]
+        # else:
+        #     self.dataset_id_list = LanguageModelEnv.dataset_id_list
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """ Apply an action to the environment. For a language model it's simply adding the action to the current state
@@ -86,9 +91,9 @@ class LanguageModelEnv(Env):
         """
         
         clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
-
         self.current_state.extend(clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
+
         return observation, reward, terminated, truncated, info
 
     def is_terminated(self, state: List[int]):
@@ -110,18 +115,35 @@ class LanguageModelEnv(Env):
         :return: True if the state is truncated, False otherwise
         :rtype: bool
         """
-          
-        if not self.is_terminated(state) and len(state) >= self.max_tokens:
+        #I'm just assuming that if the state is not terminated then it is truncated
+        #(len(state) > self.max_tokens) is not a good condition because the state can be terminated and still be shorter than max_tokens 
+        # (due to pad tokens on the left of the sequence during generation)
+        if not self.is_terminated(state):
             return True
         return False
     
-    def set_stage(self, stage: str, read_sequentially: bool = False):
+    @classmethod
+    def set_stage(cls, stage: str, read_sequentially: bool = False):
         valid_stages = ["train", "val", "test"]
         assert stage in valid_stages, f"stage must be one of {valid_stages}"
         assert stage in LanguageModelEnv.dataset, f"stage {stage} not found in dataset"
-        LanguageModelEnv.stage = stage
-        LanguageModelEnv.last_idx = 0
-        LanguageModelEnv.read_sequentially = read_sequentially
+        cls.stage = stage
+        cls.next_idx = 0
+        cls.read_sequentially = read_sequentially
+        cls.reprermute_dataset_id_list()
+        
+    @classmethod
+    def get_ground_truths(cls, stage: str, idxs: List[int]):
+        """ Get the ground truths for the given stage and indices
+        
+        :param stage: Stage
+        :type stage: str
+        :param idxs: Indices
+        :type idxs: List[int]
+        :return: Ground truths
+        :rtype: List[str]
+        """
+        return [cls.dataset[stage]["output"][idx] for idx in idxs]
         
     def reset(
         self,
@@ -144,18 +166,25 @@ class LanguageModelEnv(Env):
         super().reset(seed=seed)
         #sample a new example
         if self.require_dataset:
-            idx = LanguageModelEnv.last_idx
-            LanguageModelEnv.last_idx += 1
-            if LanguageModelEnv.last_idx >= len(self.dataset_id_list):
-                LanguageModelEnv.last_idx = 0
-                self.reprermute_dataset_id_list()
+            #if we reached the end of the dataset, repermute the dataset
+            if LanguageModelEnv.next_idx >= len(self.dataset_id_list):
+                LanguageModelEnv.reprermute_dataset_id_list()
+            
+            #sample the next example (safe because if its the last one, we will have repermuted the dataset)
+            idx = LanguageModelEnv.next_idx
+                
             id = int(self.dataset_id_list[idx])
+            
+            LanguageModelEnv.next_idx = idx + 1
+            
         else:
             raise ValueError("not implemented without dataset yet")
 
-                
-        input_sample = LanguageModelEnv.dataset[self.stage][id]
+        
+            
+        input_sample = LanguageModelEnv.dataset[LanguageModelEnv.stage][id]
         input_text = input_sample["input"]
+        
         #save the output text (ground truth)
         self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
         batch_encoding = self.tokenizer(input_text, return_tensors="np", padding=True, truncation=True)
@@ -170,6 +199,7 @@ class LanguageModelEnv(Env):
         self.terminated = False
         self.truncated = False
         self.done = False
+        
         return np.array(self.current_state), {} # return observation and info=None
     
     def _get_obs(self):

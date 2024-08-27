@@ -3,6 +3,13 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from lm_stable_baselines.buffers import LMReplayBuffer
 import warnings
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
+from copy import deepcopy
+import numpy as np
+from typing import Dict
+from src.utils.trainer_utils import decode_and_strip_special_tokens, get_aggregated_metrics, decode_and_strip_pad_tokens, save_json, strip_pad_tokens
+import shutil
+import os
+import math
 class LMSBTrainer:
     def __init__(
         self,
@@ -14,6 +21,11 @@ class LMSBTrainer:
         tb_log_name: str = "run",
         progress_bar: bool = False,
         num_val_samples: int = None,
+        metrics: Dict = {"test": {}, "val": {}},
+        output_dir: str = "output",
+        save_top_k: int = 3,
+        metric_for_best_model: str = "val/accuracy",
+        metric_for_best_model_mode_is_min: bool = False
     ):
         self.learn_kwargs = {
             "total_timesteps": inner_loop_timesteps,
@@ -26,6 +38,23 @@ class LMSBTrainer:
         self.n_outer_loops = n_outer_loops
         self.num_val_samples = num_val_samples
         self.logger = self.rl_algorithm.logger
+        
+        self.current_outer_loop = 0
+        self.metrics = metrics
+        
+        self._train_last_obs = None
+        self._val_last_obs = None
+        self._train_last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
+        self._val_last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
+        
+        self.output_dir = output_dir
+        
+        self.save_top_k = save_top_k
+        self.metric_for_best_model = metric_for_best_model
+        
+        self.metric_for_best_model_curr_val = None
+        self.metric_for_best_model_mode_is_min = metric_for_best_model_mode_is_min
+        self.curr_best_models = []
     
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
@@ -40,30 +69,35 @@ class LMSBTrainer:
             self.rl_algorithm.policy.eval()
         
         self.rl_algorithm.env.set_stage(stage, read_sequentially = read_sequentially)
+        
+        # Reset env for new stage
+        self.rl_algorithm._last_obs = self.rl_algorithm.env.reset()  # type: ignore[assignment]
+        self._last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
+        # Retrieve unnormalized observation for saving into the buffer
+        if self.rl_algorithm._vec_normalize_env is not None:
+            self._last_original_obs = self._vec_normalize_env.get_original_obs()
     
     def evaluation(self, stage: str):
-        # Run evaluation on validation set
-        #Probably I need to call predict on the model and collect samples
-        if self.num_val_samples is None:
-            if "val" in self.rl_algorithm.env.envs[0].dataset:
-                warnings.warn("num_val_samples was not provided (None), inferring from dataset")
-                num_val_samples = len(self.rl_algorithm.env.envs[0].dataset["val"])
-                self.num_val_samples = num_val_samples
-            else:
-                raise ValueError(f"num_val_samples was not provided (None) and no validation samples were found in the dataset so it could not be inferred")
+        # Run evaluation on validation set 
         
+        ################# PART 1: set arguments necessary for performing rollout ################# 
+        n_steps = int(math.ceil(self.num_val_samples/self.rl_algorithm.n_envs))
+        kwargs = deepcopy(self.rl_algorithm.replay_buffer_kwargs)
+        kwargs["reward_threshold"] = None
+        buffer_size = n_steps * self.rl_algorithm.n_envs + 1 # avoids weird behavior of sb3 when buffer is full (make it easier for sampling, see below)
         validation_replay_buffer = LMReplayBuffer(
-            num_val_samples,
+            buffer_size, 
             self.rl_algorithm.observation_space,
             self.rl_algorithm.action_space,
             device = self.rl_algorithm.device,
             n_envs = 1,
-            optimize_memory_usage = True,
-            **self.rl_algorithm.replay_buffer_kwargs
+            optimize_memory_usage = False,
+            **kwargs
         )
+        train_freq = TrainFreq(frequency= n_steps, unit = TrainFrequencyUnit.STEP)
         
-        train_freq = TrainFreq(frequency= num_val_samples, unit = TrainFrequencyUnit.STEP)
-        
+        ################# PART 2: perform rollout #################
+        #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
         rollout = self.rl_algorithm.collect_rollouts(
             self.rl_algorithm.env,
             train_freq= train_freq,
@@ -73,33 +107,172 @@ class LMSBTrainer:
             log_interval=self.learn_kwargs["log_interval"],
             callback=self.learn_kwargs["callback"]
         )
-        # breakpoint()
+        
+        #safety check
+        if rollout.n_episodes < self.num_val_samples:
+            raise ValueError(
+                f"Expected {self.num_val_samples} samples, but got {rollout.n_episodes} samples, this may be due to the environment not being terminated"
+            )
+
+        ################# PART 3: Collect rollouts from Replay Buffer #################
+        #Not sure why sb3 distiguishes theses cases but it's necessary to do so to read the samples correctly in the proper order
+        # I could have done just one case (since i set optimize_memory_usage to True above), but I wanted to show the logic of sb3
+        samps_order = np.arange(self.num_val_samples) - 1 if validation_replay_buffer.optimize_memory_usage else np.arange(self.num_val_samples)
+        val_samps = validation_replay_buffer._get_samples(samps_order)
+        
+        gts = self.rl_algorithm.env.envs[0].get_ground_truths(
+            stage=stage,
+            idxs = list(range(self.num_val_samples))
+        )
+        
+        reses = []
+        
+        texts = decode_and_strip_pad_tokens(
+            val_samps.next_observations["input_ids"],
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
+        
+        input_texts = decode_and_strip_pad_tokens(
+            val_samps.observations["input_ids"],
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
+        
+        predicted_outputs = decode_and_strip_pad_tokens(
+            val_samps.actions,
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
+        
+        ################# PART 4: Compute metrics #################
+        
         #TODO: Compute or extract metrics (e.g. reward)
+        for i,val_samp in enumerate(val_samps.next_observations["input_ids"]):
+            
+            text = texts[i]
+            input_text = input_texts[i]
+            predicted_output = predicted_outputs[i]
+            
+            gt = gts[i]
+            tmp_reses = {
+                "generated_text": text,
+                "tokenized_text": strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0],
+                "input": input_text,
+                "predicted_output": predicted_output,
+                "ground_truth": gt,
+            }
+            
+            for metric_name, metric_fn in self.metrics[stage].items():
+                str_input = decode_and_strip_special_tokens(val_samp, self.rl_algorithm.policy.tokenizer)        
+                tmp_reses[metric_name] = metric_fn(str_input, gt)
+                
+            reses.append(tmp_reses)
+
+        aggregated_metrics = get_aggregated_metrics(reses, list(self.metrics[stage].keys()))
         
+        if self.metric_for_best_model is not None:
+            self.metric_for_best_model_curr_val = aggregated_metrics[f"{self.metric_for_best_model}_mean"]
+                        
+        ################# PART 5: Save results #################
         #TODO: Save validation metrics
-        
+        for metric_name, metric_value in aggregated_metrics.items():
+            self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
+
         #TODO: Save rollouts to file
-    def run_validation(self):
-        self.set_stage("val")
+        save_json(reses, self.output_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+        
+    def run_validation(self):    
         self.evaluation("val")
-    
     
     def run_test(self):
         # Run evaluation on test set
         self.eval_dataset.set_stage("test")
         self.evaluation("test")
     
-    def save_model(self, save_type = "lm"):
-        # Save model
+    def _save_model(self, output_dir, save_type = "lm"):
         save_types = ["lm", "rl_alg"]
         assert save_type in save_types, f"Invalid save_type: {save_type}, valid save_types are: {save_types}"
         
         if save_type == "lm":
-            self.rl_algorithm.policy.lm.save_pretrained(self.output_dir)
+            self._lm_save(output_dir)
+        else:
+            self.rl_algorithm.save(output_dir)
+    
+    def _lm_save(self, output_dir):
+        self.rl_algorithm.policy.lm.save_pretrained(output_dir)
+        self.rl_algorithm.policy.lm.save_pretrained(output_dir)
+    
+    def _remove_save(self, output_dir):
+        try:
+            shutil.rmtree(output_dir)
+        except:
+            warnings.warn(f"Could not remove directory: {output_dir}")
+            
+    def save_model(self, save_dir = None, save_type = "lm", use_save_top_k = True):
         
+        save_types = ["lm", "rl_alg"]
+        assert save_type in save_types, f"Invalid save_type: {save_type}, valid save_types are: {save_types}"
         
+        passed_invalids_arg_for_save_top_k = False if use_save_top_k and (self.save_top_k is None) else True  
+        
+        error_message = \
+            f"Invalid arguments. If use_save_top_k is True, then self.save_top_k" \
+            + f"must be set (and can't be None)." \
+            + f" Currently: use_save_top_k: {use_save_top_k}, save_top_k: {self.save_top_k}, "
+        
+        assert passed_invalids_arg_for_save_top_k, error_message
+        
+        #if save_dir is None, then we infer the save_dir from the current outer loop (usually it's None if called from fit)
+        # save_dir is only not None if the user wants to save the model in a specific directory
+        if save_dir is None:
+            #number of timesteps taken so far (from learn)
+            n_timesteps_taken = self.learn_kwargs["total_timesteps"] * (self.current_outer_loop + 1)
+            save_dir = os.path.join(self.output_dir, f"ckpt-{n_timesteps_taken}")
+            #append metric to save_dir if it's not None and we want to save the top k models
+            save_dir += \
+                "" if not use_save_top_k or self.metric_for_best_model is None\
+                    else f"-{round(self.metric_for_best_model_curr_val, 3)}" 
+        
+        #if we only want to save the top k models, then we need to check if the current model is better than the worst model
+        if use_save_top_k:
+            
+            #if metric_for_best_model is None, then we use the total timesteps taken so far as the metric value
+            if self.metric_for_best_model is None:
+                self.metric_for_best_model_curr_val = self.learn_kwargs["total_timesteps"] * (self.current_outer_loop + 1)
+                self.metric_for_best_model_mode_is_min = False
+                
+            #append model to list of best models
+            self.curr_best_models.append({ "dir": save_dir, "metric_val": self.metric_for_best_model_curr_val})
+            #sort models by metric value
+            reverse = not self.metric_for_best_model_mode_is_min
+            self.curr_best_models = sorted(self.curr_best_models, key = lambda x: x["metric_val"], reverse = reverse)
+            
+            #If less than save_top_k models, then save the model
+            if len(self.curr_best_models) < self.save_top_k:    
+                self._save_model(save_dir, save_type)
+            else:
+                #get the worst model
+                worst_model_path, _ = self.curr_best_models.pop()
+                #if the worst model is not the same as the current model, then remove the worst model and save the current model
+                if worst_model_path != save_dir:
+                    self._remove_save(worst_model_path)
+                    self._save_model(save_dir, save_type)
+        #else, just save the model
+        else:
+            self._save_model(save_dir, save_type)
+            
     def on_validation_start(self):
-        pass
+        self.set_stage("val")
+        
+         #Probably I need to call predict on the model and collect samples
+        if self.num_val_samples is None:
+            if "val" in self.rl_algorithm.env.envs[0].dataset:
+                warnings.warn("num_val_samples was not provided (None), inferring from dataset")
+                num_val_samples = len(self.rl_algorithm.env.envs[0].dataset["val"])
+                self.num_val_samples = num_val_samples
+            else:
+                raise ValueError(f"num_val_samples was not provided (None) and no validation samples were found in the dataset so it could not be inferred")
         
     def on_validation_end(self):
         self.set_stage("val")
@@ -114,8 +287,9 @@ class LMSBTrainer:
         pass
      
     def fit(self):
-       
-        for _ in range(self.n_outer_loops):
+        
+        for i in range(self.n_outer_loops):
+            self.current_outer_loop = i
             self.on_outer_loop_start()
             # Learn
             self.on_learn_start()

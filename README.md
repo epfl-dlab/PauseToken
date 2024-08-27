@@ -61,6 +61,8 @@ python scripts/data_generation/gsm8k_pause_injector.py --dataset_location data/g
 
 In order to start your RL training with a decent policy, you need to fine-tune your model to randomly insert your control token. Here is an example of how to fine-tune a model on GSM8K dataset with the pause token "<|pause|>":
 
+
+
 - 1. **Augment GSM8K on random pause insertions** (see Data Generation section for more details). Here we will augment the GSM8K dataset's ground truth answers with random pauses (ranging from 0 to 100 pauses):
     ```bash
     python scripts/data_generation/gsm8k_pause_injector.py --dataset_location data/gsm8k_jsonl/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location data/gsm8k_json/gsm8k_variable_random_pauses --pause_augm_col_name "answer" --verbose --n_random_pauses 100 --tokenizer_hf_name "/dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1/" --variable_number_of_pauses --n_generated_samples_per_datapoint 1 --verbose --seed 42
@@ -70,5 +72,5 @@ In order to start your RL training with a decent policy, you need to fine-tune y
     python src/trl_train.py experiment=trl_train/sft_pause
     ```
 
-
 ### RL Training Step
+
