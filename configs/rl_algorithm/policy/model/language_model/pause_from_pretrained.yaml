@@ -4,3 +4,5 @@ pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/
 torch_dtype: 
   _target_: src.utils.hydra_custom_resolvers.get_module_attr
   module_and_attr: torch.bfloat16
+
+post_instanciation_method_calls: []

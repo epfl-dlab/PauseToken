@@ -10,10 +10,44 @@ from omegaconf import DictConfig,OmegaConf
 
 from src.utils import pylogger
 from omegaconf import open_dict
+from functools import partial
+from peft import get_peft_model
 
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
+
+def instantiate_model(cfg, peft_config=None):
+    if not isinstance(cfg, dict):
+        model_cfg = OmegaConf.to_container(cfg, resolve=True)
+    else:
+        model_cfg = copy.deepcopy(cfg)
+    
+    target_exists = "_target_" in model_cfg 
+    method_calls = model_cfg.pop("post_instanciation_method_calls", [])
+    
+    for key in model_cfg.keys():
+        if isinstance(model_cfg[key], dict):
+            model_cfg[key] = instantiate_model(model_cfg[key])
+    
+    if target_exists:     
+        model = hydra.utils.instantiate(model_cfg)
+        
+        if peft_config is not None:
+            peft_config = hydra.utils.instantiate(peft_config)
+            model = get_peft_model(model, peft_config)
+            
+        post_instantiation_method_calls(model, method_calls)
+        return model
+    return cfg    
+            
+def post_instantiation_method_calls(obj: Any, method_calls: List[Dict[str,Any]]):
+    for method_call in method_calls:
+        assert "method" in method_call, "Method call must have a 'method' key"
+        method = getattr(obj, method_call["method"])
+        method = partial(method, *method_call["args"]) if method_call.get("args") else method
+        method = partial(method, **method_call["kwargs"]) if method_call.get("kwargs") else method
+        method()
 
 def instantiate_callbacks(callbacks_cfg: DictConfig):
     """Instantiates callbacks from config.

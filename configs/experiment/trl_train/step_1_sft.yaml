@@ -1,13 +1,23 @@
 # @package _global_
 defaults:
-  - override /rl_algorithm/policy/model/language_model: gpt2
-  - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: gpt2
+  - override /rl_algorithm/policy/model/language_model: mistral
+  - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: mistral
   - override /metrics: gsm8k
 
+run_name: "step1_sft_gsm8k_mistral"
+
+data:
+  debug_n: null
+  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k"
 
 trainer:
-  max_seq_length: 600
+  data_collator:
+    _target_: trl.DataCollatorForCompletionOnlyLM
+    response_template:
+      _target_: src.utils.hydra_custom_resolvers.get_module_attr
+      module_and_attr: src.utils.constants.ANSWER_TEMPLATE
 
+  max_seq_length: 600
 
   formatting_func:
     _target_: functools.partial
@@ -15,22 +25,21 @@ trainer:
       - ${get_method:src.utils.trainer_utils.sft_formating_function}
     eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
   
-data:
-  debug_n: 32
-
   args:
     do_eval: true
     evaluation_strategy: "steps"
     save_strategy: "steps"
-    eval_steps: 500
+    eval_steps: 100
     load_best_model_at_end: true
-    save_total_limit: 10
-    num_train_epochs: 3.0
+    save_total_limit: 3
+    num_train_epochs: 1.0
     per_device_train_batch_size: 8
     per_device_eval_batch_size: 8
-    save_steps: 500
+    save_steps: 100
     report_to: "wandb"
 
+save_before_train: false
+merge_peft_after_train: true
 test: true
 test_batch_size: 8
 test_formatting_func:

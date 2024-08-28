@@ -229,6 +229,16 @@ class BaseControlTokenWrapper(PreTrainedModel):
         """ Prepare the inputs for generation"""
         return self.language_model.prepare_inputs_for_generation(*args, **kwargs)
     
+    def freeze_all(self):
+        """ Freeze all the parameters of the model """
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def unfreeze_all(self):
+        """ Unfreeze all the parameters of the model """
+        for param in self.parameters():
+            param.requires_grad = True
+    
     def freeze_ctrl_embeddings(self):
         """ Freeze the control token embeddings """
         for name, param in self.named_parameters():
@@ -485,7 +495,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
         return loss
     
-    def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
+    def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None ,*args, **kwargs):
         
         if "return_dict" not in kwargs or kwargs["return_dict"] is None:
             kwargs["return_dict"] = True
@@ -542,14 +552,14 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         return lprobs
         
-    def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, *args, **kwargs):
+    def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, *args, **kwargs):
         
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids, attention_mask, *args, **kwargs)
         
-        if kwargs.get("labels", None) is not None:
+        if labels is not None:
             loss = self.compute_loss(
-                labels=kwargs["labels"],
+                labels=labels,
                 lm_logits=lm_logits,
                 ctrl_tok_logits=ctrl_tok_logits,
             )

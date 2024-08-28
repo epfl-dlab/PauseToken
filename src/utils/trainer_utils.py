@@ -36,6 +36,7 @@ def sft_formating_function(example, eos_token):
     for i in range(len(example["input"])):
         prompt = example["input"][i]
         completion = example["output"][i]
+        #add eos token to completion
         text = f"{QUESTION_TEMPLATE}{prompt}\n\n{ANSWER_TEMPLATE}{completion}{eos_token}"
         data.append(text)
     return data

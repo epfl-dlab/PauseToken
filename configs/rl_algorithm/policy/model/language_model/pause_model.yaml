@@ -9,3 +9,5 @@ config:
   pause_token_name: <|pause|> 
   ctrl_token_head_temperature: 1.0
   detach_ctrl_tok_clf: false
+
+post_instanciation_method_calls: []

@@ -62,6 +62,7 @@ tags: ["dev"]
 # set False to skip model training
 train: True
 save_before_train: False
+merge_peft_after_train: False
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
 test: True

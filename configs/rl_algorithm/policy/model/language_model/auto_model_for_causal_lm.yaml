@@ -3,3 +3,4 @@ _target_: transformers.AutoModelForCausalLM.from_pretrained
 pretrained_model_name_or_path: ???
 device_map: "auto"
 
+post_instanciation_method_calls: []

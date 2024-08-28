@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from omegaconf import DictConfig
 
 from src.utils import pylogger, rich_utils
+from prettytable import PrettyTable
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -117,3 +118,15 @@ def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) ->
     log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
 
     return metric_value
+
+
+def make_trainable_params_summary(model: Any):
+    """Returns a summary string of trainable parameters in the model.
+
+    :param model: The model to summarize.
+    :return: A summary string of trainable parameters.
+    """
+    t = PrettyTable(["Name", "num params", "Trainable"])
+    for name, param in model.named_parameters():
+        t.add_row([name, param.numel(), param.requires_grad])
+    return str(t)

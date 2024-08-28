@@ -1,12 +1,10 @@
-
 from typing import Any, Dict, List, Optional, Tuple
-
 import hydra
 import rootutils
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import seed_everything
 from datasets import Dataset
-from src.utils.instantiators import instantiate_generation_params
+from src.utils.instantiators import instantiate_generation_params,instantiate_model
 from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
@@ -38,7 +36,8 @@ from src.utils import (
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
-    hydra_custom_resolvers
+    hydra_custom_resolvers,
+    make_trainable_params_summary,
 )
 from trl import SFTTrainer
 
@@ -65,7 +64,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
-    
+
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
@@ -74,8 +73,11 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         tokenizer.pad_token = tokenizer.unk_token
         
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
-    model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
     
+    model = instantiate_model(cfg.rl_algorithm.policy.model.language_model)
+
+    log.info(f"Summary of model params: \n{make_trainable_params_summary(model)}")
+        
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(model, BaseControlTokenWrapper):
         # Add new tokens to tokenizer
@@ -96,26 +98,35 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         for token_name, token_id in model.config.control_token_to_id.items():
             assert token_id == tokenizer.convert_tokens_to_ids(token_name), \
                 f"Token id mismatch for token {token_name}! Expected {token_id} but tokenizer tokenized it as {tokenizer.convert_tokens_to_ids(token_name)}"
-    
+    tokenizer.padding_side = "right"
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )
-    
+
     if cfg.get("save_before_train"):
         model.save_pretrained(cfg.paths.output_dir + "/raw")
         tokenizer.save_pretrained(cfg.paths.output_dir + "/raw")
         log.info(f"Saved model and tokenizer before training to {cfg.paths.output_dir + '/raw'}")
     
+    trainer_cfg = OmegaConf.to_container(cfg.trainer,resolve=True)
+    if "data_collator" in trainer_cfg:
+        trainer_cfg["data_collator"]["tokenizer"] = tokenizer
+        #SUPER UGLY BUT I DON'T KNOW HOW TO DO THIS BETTER
+        if "response_template" in trainer_cfg["data_collator"]:
+            reponse_template = hydra.utils.instantiate(trainer_cfg["data_collator"]["response_template"])
+            response_template_ids = tokenizer.encode(reponse_template, add_special_tokens=False)[1:]
+            trainer_cfg["data_collator"]["response_template"] = response_template_ids
     #I have to covert to a container because some of the types canno be save in json (e.g., ListConfig)
     trainer = hydra.utils.instantiate(
-        cfg.trainer,
+        trainer_cfg,
         model=model,
         train_dataset=dataset["train"],
         tokenizer=tokenizer,
         eval_dataset=dataset["val"],
         _convert_="partial",
+        # label_names=["labels"],
     )
 
     object_dict = {
@@ -131,6 +142,9 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Starting training!")
         trainer.train()
         train_metrics = trainer.state.__dict__
+        if cfg.get("merge_peft_after_train") and cfg.trainer.peft_config is not None:
+            log.info("Merging PEFT weights with trained weights")
+            trainer.model = trainer.model.merge_and_unload()
         trainer.save_model(cfg.paths.output_dir + "/final")
         log.info(f"Saved final model to {cfg.paths.output_dir + '/final'}")
         

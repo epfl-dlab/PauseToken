@@ -1,12 +1,11 @@
 from typing import Any, Dict, List, Optional, Tuple
-from peft import get_peft_model
 import hydra
 import rootutils
 import torch
 from omegaconf import DictConfig
 from pytorch_lightning import seed_everything
 from datasets import Dataset
-from src.utils.instantiators import instantiate_rl_algorithm
+from src.utils.instantiators import instantiate_rl_algorithm, post_instantiation_method_calls, instantiate_model
 from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
@@ -36,7 +35,8 @@ from src.utils import (
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
-    hydra_custom_resolvers
+    hydra_custom_resolvers,
+    instantiate_model,
 )
 
 
@@ -77,7 +77,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         
 
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
-    language_model = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.language_model)
+    
+    language_model = instantiate_model(
+        cfg.rl_algorithm.policy.model.language_model,
+        cfg.rl_algorithm.policy.model.peft_config
+    )
     
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(language_model, BaseControlTokenWrapper):
@@ -100,9 +104,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             assert token_id == tokenizer.convert_tokens_to_ids(token_name), \
                 f"Token id mismatch for token {token_name}! Expected {token_id} but tokenizer tokenized it as {tokenizer.convert_tokens_to_ids(token_name)}"
     
-    if cfg.rl_algorithm.policy.model.get("peft_config", None) is not None:
-        peft_config = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.peft_config)
-        language_model = get_peft_model(language_model, peft_config)
+    
     
     log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)

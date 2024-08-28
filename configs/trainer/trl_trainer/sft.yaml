@@ -5,7 +5,7 @@ callbacks: null
 preprocess_logits_for_metrics: null
 formatting_func: null
 infinite: null
-peft_config: ${rl_algorithm.policy.model.language_model.peft_config}
+peft_config: null
   #Example of peft_config
   # _target_: peft.LoraConfig
   #     task_type: CAUSAL_LM
