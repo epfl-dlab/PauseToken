@@ -8,6 +8,6 @@ config:
   pause_token_id: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},['vocab_size']}
   pause_token_name: <|pause|> 
   ctrl_token_head_temperature: 1.0
-  detach_ctrl_tok_clf: false
+  detach_ctrl_tok_clf: true
 
 post_instanciation_method_calls: []

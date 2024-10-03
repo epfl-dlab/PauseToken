@@ -1,5 +1,5 @@
 _target_: src.model.components.control_token_wrappers.PauseClassifierWrapper.from_pretrained
-pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-21_12-48-15/final
+pretrained_model_name_or_path: ???
 
 torch_dtype: 
   _target_: src.utils.hydra_custom_resolvers.get_module_attr

@@ -12,13 +12,15 @@ from typing import Dict, Union, Any, List, Optional
 import importlib
 from datasets import concatenate_datasets, Dataset
 from typing import Callable, Dict,Tuple
-from samplers import BatchSubsetsSampler
+# from samplers import BatchSubsetsSampler
 from transformers import TrainingArguments, PreTrainedTokenizerBase, EvalPrediction, TrainerCallback
 from transformers.data.data_collator import DataCollator
 from torch import nn
 import torch
 import copy
 from transformers.utils import is_torch_xla_available
+if is_torch_xla_available():
+    import torch_xla.core.xla_model as xm
 
 def pack_in_data_field(example):
     #check for fields of type torch.Tensor (use filter function)
@@ -56,35 +58,106 @@ def make_ds_compatible( datasets: List[Dataset]):
         datasets[i] = dataset.map(lambda x: fill_missing_cols(x, missing_cols, in_data_field=False))
     return datasets
 
-class SFTIgnoreTokensInLossTrainer(SFTTrainer):
-    """ Trainer typically used to pretrain Pause Tokens model. It ignores the loss for the tokens specified in ignore_tokens.
-    
-    :param ignore_tokens: List of tokens to ignore in the loss computation
-    :type ignore_tokens: List[int]
-    """
-    def __init__(self, ignore_tokens, *args, **kwargs):
-        self.ignore_tokens = ignore_tokens
+
+class SFTTrainerForCtrlTokLogging(SFTTrainer):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.losses = {}
     
     def compute_loss(self, model, inputs, return_outputs=False):
         """
-        How the loss is computed by SFTTrainerMaskedPauseTokens. By default, all models return the loss in the first element.
+        How the loss is computed by Trainer. By default, all models return the loss in the first element.
 
         Subclass and override for custom behavior.
-        """   
-        # Ignore tokens in the loss
-        # torch.nn.CrossEntropyLoss ignores tokens with labels -100    
-        if "labels" in inputs:
+        """
+        if self.label_smoother is not None and "labels" in inputs:
             labels = inputs.pop("labels")
-            mask = torch.zeros_like(labels, dtype=torch.bool)
-            for token_id in self.ignore_tokens:
-                token_mask = (labels == token_id)
-                mask[token_mask] = True
-            labels[mask] = -100 #ignore index in CrossEntropyLoss
-            inputs["labels"] = labels
+        else:
+            labels = None
+        outputs = model(**inputs)
+        # Save past state if it exists
+        # TODO: this needs to be fixed and made cleaner later.
+        if self.args.past_index >= 0:
+            self._past = outputs[self.args.past_index]
+
+        if labels is not None:
+            unwrapped_model = unwrap_model(model)
+            if _is_peft_model(unwrapped_model):
+                model_name = unwrapped_model.base_model.model._get_name()
+            else:
+                model_name = unwrapped_model._get_name()
+            if model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
+                loss = self.label_smoother(outputs, labels, shift_labels=True)
+            else:
+                loss = self.label_smoother(outputs, labels)
+        else:
+            if isinstance(outputs, dict) and "loss" not in outputs:
+                raise ValueError(
+                    "The model did not return a loss from the inputs, only the following keys: "
+                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                )
+            # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        if hasattr(outputs, "lm_loss"):
+            if "train/lm_loss" in self.losses:
+                self.losses["train/lm_loss"] += outputs.lm_loss
+            else:
+                self.losses["train/lm_loss"] = outputs.lm_loss
+
+        if hasattr(outputs, "ctrl_tok_loss"):
+            if "train/ctrl_tok_loss" in self.losses:
+                self.losses["train/ctrl_tok_loss"] += outputs.ctrl_tok_loss
+            else:
+                self.losses["train/ctrl_tok_loss"] = outputs.ctrl_tok_loss
         
-        return super().compute_loss(model, inputs, return_outputs)
-       
+        return (loss, outputs) if return_outputs else loss
+    
+        
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            if is_torch_xla_available():
+                xm.mark_step()
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            
+            for ls in self.losses:
+                ls_scalar =  self._nested_gather(self.losses[ls]).mean().item()
+                logs[ls] = round(ls_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+                self.losses[ls] -= self.losses[ls]
+            
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+            logs["learning_rate"] = self._get_learning_rate()
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+            self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+            self._report_to_hp_search(trial, self.state.global_step, metrics)
+
+            # Run delayed LR scheduler now that metrics are populated
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                metric_to_check = self.args.metric_for_best_model
+                if not metric_to_check.startswith("eval_"):
+                    metric_to_check = f"eval_{metric_to_check}"
+                self.lr_scheduler.step(metrics[metric_to_check])
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial, metrics=metrics)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
         
 
 
@@ -246,284 +319,284 @@ class WeightedSFTTrainer(SFTTrainer):
     #This might come with some issues since trainers weren't designed to be switched in the middle of the training loop
     # Idea 3: change trainer/optimizer in a callback (e.g, on_step_end) (similar code to idea 2 but in a callback)
 
-class InvariantModelingTrainer(Trainer):
+# class InvariantModelingTrainer(Trainer):
     
-    ## LEFT TO DO:
-    # - Include collator (creatted in collators.py)
-    # - Test it all out
-        # - check sampler
-        # - check collator
-        # - check trainer
-        # - check trainer switch
-        # - check prepare_dataset
+#     ## LEFT TO DO:
+#     # - Include collator (creatted in collators.py)
+#     # - Test it all out
+#         # - check sampler
+#         # - check collator
+#         # - check trainer
+#         # - check trainer switch
+#         # - check prepare_dataset
 
-    def __init__(
-        self,
-        num_to_trainer_config: Dict[str,Dict],
-        name_to_formatting_func: Dict[str,Callable],
-        trainer_name_col: str,
-        columns_to_keep: List[str],
-        num_to_train_method: Dict[int,str] = None,
-        model: Union[PreTrainedModel, nn.Module] = None,
-        args: TrainingArguments = None,
-        data_collator: Optional[DataCollator] = None,
-        train_dataset: Optional[Dataset] = None,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
-        model_init: Optional[Callable[[], PreTrainedModel]] = None,
-        compute_metrics: Optional[Callable[[EvalPrediction], Dict]] = None,
-        callbacks: Optional[List[TrainerCallback]] = None,
-        optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-        preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-    ):
-        self.num_to_train_method = num_to_train_method
-        self.train_method_to_num = {v:k for k,v in num_to_train_method.items()}
-        self.trainer_name_col = trainer_name_col
-        self.name_to_formatting_func = name_to_formatting_func
-        self.columns_to_keep = columns_to_keep
-        train_dataset = train_dataset.select_columns(columns_to_keep)
-        if eval_dataset is not None:
-            eval_dataset = eval_dataset.select_columns(columns_to_keep)
-        trainers, train_dataset, eval_dataset,train_data_subset_samplers, eval_data_subset_samplers = \
-            self.prepare_dataset(
-                train_dataset,
-                eval_dataset,
-                num_to_trainer_config,
-                train_batch_size = args.train_batch_size,
-                eval_batch_size = args.eval_batch_size,
-                remove_unused_columns = args.remove_unused_columns
-            )
-        self.trainers = trainers
-        self.train_dataset = train_dataset
-        self.eval_dataset = eval_dataset
-        self.train_dataset_subset_samplers = train_data_subset_samplers
-        self.eval_dataset_subset_samplers = eval_data_subset_samplers
-        super().__init__(
-            model = model,
-            args = args,
-            data_collator = data_collator,
-            train_dataset = train_dataset,
-            eval_dataset = eval_dataset,
-            tokenizer = tokenizer,
-            model_init = model_init,
-            compute_metrics = compute_metrics,
-            callbacks = callbacks,
-            optimizers = optimizers,
-            preprocess_logits_for_metrics = preprocess_logits_for_metrics
-        )
-        self._signature_columns = ["data", self.trainer_name_col]
-        self.losses = {}
+#     def __init__(
+#         self,
+#         num_to_trainer_config: Dict[str,Dict],
+#         name_to_formatting_func: Dict[str,Callable],
+#         trainer_name_col: str,
+#         columns_to_keep: List[str],
+#         num_to_train_method: Dict[int,str] = None,
+#         model: Union[PreTrainedModel, nn.Module] = None,
+#         args: TrainingArguments = None,
+#         data_collator: Optional[DataCollator] = None,
+#         train_dataset: Optional[Dataset] = None,
+#         eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
+#         tokenizer: Optional[PreTrainedTokenizerBase] = None,
+#         model_init: Optional[Callable[[], PreTrainedModel]] = None,
+#         compute_metrics: Optional[Callable[[EvalPrediction], Dict]] = None,
+#         callbacks: Optional[List[TrainerCallback]] = None,
+#         optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+#         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+#     ):
+#         self.num_to_train_method = num_to_train_method
+#         self.train_method_to_num = {v:k for k,v in num_to_train_method.items()}
+#         self.trainer_name_col = trainer_name_col
+#         self.name_to_formatting_func = name_to_formatting_func
+#         self.columns_to_keep = columns_to_keep
+#         train_dataset = train_dataset.select_columns(columns_to_keep)
+#         if eval_dataset is not None:
+#             eval_dataset = eval_dataset.select_columns(columns_to_keep)
+#         trainers, train_dataset, eval_dataset,train_data_subset_samplers, eval_data_subset_samplers = \
+#             self.prepare_dataset(
+#                 train_dataset,
+#                 eval_dataset,
+#                 num_to_trainer_config,
+#                 train_batch_size = args.train_batch_size,
+#                 eval_batch_size = args.eval_batch_size,
+#                 remove_unused_columns = args.remove_unused_columns
+#             )
+#         self.trainers = trainers
+#         self.train_dataset = train_dataset
+#         self.eval_dataset = eval_dataset
+#         self.train_dataset_subset_samplers = train_data_subset_samplers
+#         self.eval_dataset_subset_samplers = eval_data_subset_samplers
+#         super().__init__(
+#             model = model,
+#             args = args,
+#             data_collator = data_collator,
+#             train_dataset = train_dataset,
+#             eval_dataset = eval_dataset,
+#             tokenizer = tokenizer,
+#             model_init = model_init,
+#             compute_metrics = compute_metrics,
+#             callbacks = callbacks,
+#             optimizers = optimizers,
+#             preprocess_logits_for_metrics = preprocess_logits_for_metrics
+#         )
+#         self._signature_columns = ["data", self.trainer_name_col]
+#         self.losses = {}
     
-    def create_optimizer_and_scheduler(self, num_training_steps: int):
-        super().create_optimizer_and_scheduler(num_training_steps)
-        # num_training_steps = num_training_steps // len(self.trainers)
-        # for trainer in self.trainers.values():
-        #     trainer.create_optimizer_and_scheduler(num_training_steps)
+#     def create_optimizer_and_scheduler(self, num_training_steps: int):
+#         super().create_optimizer_and_scheduler(num_training_steps)
+#         # num_training_steps = num_training_steps // len(self.trainers)
+#         # for trainer in self.trainers.values():
+#         #     trainer.create_optimizer_and_scheduler(num_training_steps)
     
     
     
-    def prepare_dataset(self, train_dataset, eval_dataset, num_to_trainer_config,train_batch_size, eval_batch_size,remove_unused_columns):
-        #assert that the dataset has the column trainer_name_col, "rewards" and "text"
-        num_to_trainer_config = copy.deepcopy(num_to_trainer_config)
-        train_data_subset_samplers = {}
-        eval_data_subset_samplers = {}
-        train_data = []
-        eval_data = []
-        trainers = {}
-        last_idx_train = 0
-        last_idx_eval = 0
+#     def prepare_dataset(self, train_dataset, eval_dataset, num_to_trainer_config,train_batch_size, eval_batch_size,remove_unused_columns):
+#         #assert that the dataset has the column trainer_name_col, "rewards" and "text"
+#         num_to_trainer_config = copy.deepcopy(num_to_trainer_config)
+#         train_data_subset_samplers = {}
+#         eval_data_subset_samplers = {}
+#         train_data = []
+#         eval_data = []
+#         trainers = {}
+#         last_idx_train = 0
+#         last_idx_eval = 0
 
-        for name in num_to_trainer_config.keys():
-            #Fetch Train Data Related to the Trainer and format it
-            str_name = self.num_to_train_method[name]
+#         for name in num_to_trainer_config.keys():
+#             #Fetch Train Data Related to the Trainer and format it
+#             str_name = self.num_to_train_method[name]
             
-            trainer_train_data = train_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
-            if self.name_to_formatting_func.get(str_name) is not None:
-                trainer_train_data = trainer_train_data.map(self.name_to_formatting_func[str_name],batched=True, remove_columns=train_dataset.column_names)
-            #fetch trainer config
-            trainer_config = num_to_trainer_config[name]
-            trainer_config["train_dataset"] = trainer_train_data
-            if eval_dataset is not None:
-                trainer_eval_data = eval_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
-                trainer_eval_data = trainer_eval_data.map(self.name_to_formatting_func[str_name], batched=True, remove_columns=eval_dataset.column_names)
-                trainer_eval_data = trainer_eval_data.map(lambda x: add_train_method_name(x, col_name = self.trainer_name_col , method_name = name))
-                trainer_config["eval_dataset"] = trainer_eval_data
-            # before_instantiation_cols = set(trainer_train_data.features)
-            cls = trainer_config.pop("trainer_class")
-            trainer = cls(**trainer_config)
-            train_data.append(
-                trainer.train_dataset
-                .map(lambda x: pack_in_data_field(x))
-                .map(lambda x: add_train_method_name(x, col_name=self.trainer_name_col, method_name=name))
-            )
-            train_data_subset_samplers[name] = range(last_idx_train, last_idx_train + len(trainer.train_dataset))
-            last_idx_train += len(trainer.train_dataset)
-            trainer.train_dataset = None
+#             trainer_train_data = train_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
+#             if self.name_to_formatting_func.get(str_name) is not None:
+#                 trainer_train_data = trainer_train_data.map(self.name_to_formatting_func[str_name],batched=True, remove_columns=train_dataset.column_names)
+#             #fetch trainer config
+#             trainer_config = num_to_trainer_config[name]
+#             trainer_config["train_dataset"] = trainer_train_data
+#             if eval_dataset is not None:
+#                 trainer_eval_data = eval_dataset.filter(lambda x: str_name in x[self.trainer_name_col])
+#                 trainer_eval_data = trainer_eval_data.map(self.name_to_formatting_func[str_name], batched=True, remove_columns=eval_dataset.column_names)
+#                 trainer_eval_data = trainer_eval_data.map(lambda x: add_train_method_name(x, col_name = self.trainer_name_col , method_name = name))
+#                 trainer_config["eval_dataset"] = trainer_eval_data
+#             # before_instantiation_cols = set(trainer_train_data.features)
+#             cls = trainer_config.pop("trainer_class")
+#             trainer = cls(**trainer_config)
+#             train_data.append(
+#                 trainer.train_dataset
+#                 .map(lambda x: pack_in_data_field(x))
+#                 .map(lambda x: add_train_method_name(x, col_name=self.trainer_name_col, method_name=name))
+#             )
+#             train_data_subset_samplers[name] = range(last_idx_train, last_idx_train + len(trainer.train_dataset))
+#             last_idx_train += len(trainer.train_dataset)
+#             trainer.train_dataset = None
 
-            if eval_dataset is not None:
-                raise NotImplementedError("Not Tested yet on eval data")
-                eval_data[name] = trainer.eval_dataset
-                eval_data.append(trainer.eval_dataset)
-                eval_data_subset_samplers[name] = range(last_idx_eval, last_idx_eval + len(trainer.eval_dataset))
-                last_idx_eval += len(trainer.eval_dataset)
-                trainer.eval_dataset = None
-            trainers[name] = trainer
+#             if eval_dataset is not None:
+#                 raise NotImplementedError("Not Tested yet on eval data")
+#                 eval_data[name] = trainer.eval_dataset
+#                 eval_data.append(trainer.eval_dataset)
+#                 eval_data_subset_samplers[name] = range(last_idx_eval, last_idx_eval + len(trainer.eval_dataset))
+#                 last_idx_eval += len(trainer.eval_dataset)
+#                 trainer.eval_dataset = None
+#             trainers[name] = trainer
 
-        train_data = make_ds_compatible(train_data)
-        train_data = concatenate_datasets(train_data)
-        train_data_subset_samplers = BatchSubsetsSampler(
-            subset_to_sampler = train_data_subset_samplers,
-            batch_size = train_batch_size,
-            resample_sample_till_all_done = True
-        )
+#         train_data = make_ds_compatible(train_data)
+#         train_data = concatenate_datasets(train_data)
+#         train_data_subset_samplers = BatchSubsetsSampler(
+#             subset_to_sampler = train_data_subset_samplers,
+#             batch_size = train_batch_size,
+#             resample_sample_till_all_done = True
+#         )
         
-        if len(eval_data) > 0:
-            raise NotImplementedError("Not Tested yet on eval data")
-            eval_data = concatenate_datasets(eval_data)
-            eval_data_subset_samplers = BatchSubsetsSampler(
-                subset_to_sampler = eval_data_subset_samplers,
-                batch_size = eval_batch_size,
-                resample_sample_till_all_done = False
-            )
-        else:
-            eval_data = None
-            eval_data_subset_samplers = None
-        #empty non usefule stuff on the GPU
-        torch.cuda.empty_cache()
-        return trainers, train_data, eval_data, train_data_subset_samplers, eval_data_subset_samplers
+#         if len(eval_data) > 0:
+#             raise NotImplementedError("Not Tested yet on eval data")
+#             eval_data = concatenate_datasets(eval_data)
+#             eval_data_subset_samplers = BatchSubsetsSampler(
+#                 subset_to_sampler = eval_data_subset_samplers,
+#                 batch_size = eval_batch_size,
+#                 resample_sample_till_all_done = False
+#             )
+#         else:
+#             eval_data = None
+#             eval_data_subset_samplers = None
+#         #empty non usefule stuff on the GPU
+#         torch.cuda.empty_cache()
+#         return trainers, train_data, eval_data, train_data_subset_samplers, eval_data_subset_samplers
             
-    def set_trainer(self, name: str):
-        self.trainer = self.trainers[name]
-        # self.optimizer = self.trainer.optimizer
-        # self.lr_scheduler = self.trainer.lr_scheduler
+#     def set_trainer(self, name: str):
+#         self.trainer = self.trainers[name]
+#         # self.optimizer = self.trainer.optimizer
+#         # self.lr_scheduler = self.trainer.lr_scheduler
         
-    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+#     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         
-        trainer_name = inputs.pop(self.trainer_name_col)
-        first_train_method = trainer_name[0].item()
-        self.current_train_method = self.num_to_train_method[first_train_method]
-        if not (first_train_method == trainer_name).all():
-            raise ValueError(f"All samples in the batch should have the same trainer,but got {inputs[self.trainer_name_col]}")
-        self.set_trainer(first_train_method)        
-        loss = self.trainer.training_step(model, inputs)
-        loss_name = f'{self.current_train_method}_loss'
-        if loss_name in self.losses:
-            self.losses[loss_name] += loss
-        else:
-            self.losses[loss_name] = loss
-        return loss
+#         trainer_name = inputs.pop(self.trainer_name_col)
+#         first_train_method = trainer_name[0].item()
+#         self.current_train_method = self.num_to_train_method[first_train_method]
+#         if not (first_train_method == trainer_name).all():
+#             raise ValueError(f"All samples in the batch should have the same trainer,but got {inputs[self.trainer_name_col]}")
+#         self.set_trainer(first_train_method)        
+#         loss = self.trainer.training_step(model, inputs)
+#         loss_name = f'{self.current_train_method}_loss'
+#         if loss_name in self.losses:
+#             self.losses[loss_name] += loss
+#         else:
+#             self.losses[loss_name] = loss
+#         return loss
     
         
-    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
-        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
-            if is_torch_xla_available():
-                xm.mark_step()
+#     def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
+#         if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+#             if is_torch_xla_available():
+#                 xm.mark_step()
 
-            logs: Dict[str, float] = {}
+#             logs: Dict[str, float] = {}
 
-            # all_gather + mean() to get average loss over all processes
-            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+#             # all_gather + mean() to get average loss over all processes
+#             tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
 
-            # reset tr_loss to zero
-            tr_loss -= tr_loss
+#             # reset tr_loss to zero
+#             tr_loss -= tr_loss
 
-            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+#             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             
-            for ls in self.losses:
-                ls_scalar =  self._nested_gather(self.losses[ls]).mean().item()
-                logs[ls] = round(ls_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-                self.losses[ls] -= self.losses[ls]
+#             for ls in self.losses:
+#                 ls_scalar =  self._nested_gather(self.losses[ls]).mean().item()
+#                 logs[ls] = round(ls_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+#                 self.losses[ls] -= self.losses[ls]
             
-            if grad_norm is not None:
-                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
-            logs["learning_rate"] = self._get_learning_rate()
+#             if grad_norm is not None:
+#                 logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+#             logs["learning_rate"] = self._get_learning_rate()
 
-            self._total_loss_scalar += tr_loss_scalar
-            self._globalstep_last_logged = self.state.global_step
-            self.store_flos()
-            self.log(logs)
+#             self._total_loss_scalar += tr_loss_scalar
+#             self._globalstep_last_logged = self.state.global_step
+#             self.store_flos()
+#             self.log(logs)
 
-        metrics = None
-        if self.control.should_evaluate:
-            metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
-            self._report_to_hp_search(trial, self.state.global_step, metrics)
+#         metrics = None
+#         if self.control.should_evaluate:
+#             metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+#             self._report_to_hp_search(trial, self.state.global_step, metrics)
 
-            # Run delayed LR scheduler now that metrics are populated
-            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                metric_to_check = self.args.metric_for_best_model
-                if not metric_to_check.startswith("eval_"):
-                    metric_to_check = f"eval_{metric_to_check}"
-                self.lr_scheduler.step(metrics[metric_to_check])
+#             # Run delayed LR scheduler now that metrics are populated
+#             if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+#                 metric_to_check = self.args.metric_for_best_model
+#                 if not metric_to_check.startswith("eval_"):
+#                     metric_to_check = f"eval_{metric_to_check}"
+#                 self.lr_scheduler.step(metrics[metric_to_check])
 
-        if self.control.should_save:
-            self._save_checkpoint(model, trial, metrics=metrics)
-            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+#         if self.control.should_save:
+#             self._save_checkpoint(model, trial, metrics=metrics)
+#             self.control = self.callback_handler.on_save(self.args, self.state, self.control)
 
-    def _get_train_sampler(self):
-        return self.train_dataset_subset_samplers
+#     def _get_train_sampler(self):
+#         return self.train_dataset_subset_samplers
     
-    def _get_eval_sampler(self):
-        return self.eval_dataset_subset_samplers
+#     def _get_eval_sampler(self):
+#         return self.eval_dataset_subset_samplers
         
-    def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None):
-        raise NotImplementedError("Not implemented yet")
+#     def get_eval_dataloader(self, eval_dataset: Optional[Dataset] = None):
+#         raise NotImplementedError("Not implemented yet")
 
-class PauseHeadDPO(DPOTrainer):
+# class PauseHeadDPO(DPOTrainer):
     
-    def __init__(self, pause_token_id ,*args, **kwargs):
-        self.pause_token_id = pause_token_id
-        super().__init__(*args, **kwargs)
-        if self.ref_model is not None:
-            self.ref_model.set_to_pause_logits()
+#     def __init__(self, pause_token_id ,*args, **kwargs):
+#         self.pause_token_id = pause_token_id
+#         super().__init__(*args, **kwargs)
+#         if self.ref_model is not None:
+#             self.ref_model.set_to_pause_logits()
 
     
-    def tokenize_row(self, feature, model: Optional[Union[PreTrainedModel, nn.Module]] = None) -> Dict:
-        batch = super().tokenize_row(feature, model)
-        for key in batch.keys():
-            if "_labels" in key:
-                batch[key] = list(
-                    map(
-                        lambda x: int(x == self.pause_token_id) if x != self.label_pad_token_id else self.label_pad_token_id,
-                        batch[key]))
-        return batch        
-    def compute_loss(self, model, inputs, return_outputs=False):
-        self.model.set_to_pause_logits()
-        model.set_to_pause_logits()
-        return super().compute_loss(model, inputs, return_outputs)
+#     def tokenize_row(self, feature, model: Optional[Union[PreTrainedModel, nn.Module]] = None) -> Dict:
+#         batch = super().tokenize_row(feature, model)
+#         for key in batch.keys():
+#             if "_labels" in key:
+#                 batch[key] = list(
+#                     map(
+#                         lambda x: int(x == self.pause_token_id) if x != self.label_pad_token_id else self.label_pad_token_id,
+#                         batch[key]))
+#         return batch        
+#     def compute_loss(self, model, inputs, return_outputs=False):
+#         self.model.set_to_pause_logits()
+#         model.set_to_pause_logits()
+#         return super().compute_loss(model, inputs, return_outputs)
 
-class WeightedSFTTrainerLMLoss(WeightedSFTTrainer):
-    def __init__(self, pause_token_id ,*args, **kwargs):
-        self.pause_token_id = pause_token_id
-        super().__init__(*args, **kwargs)
+# class WeightedSFTTrainerLMLoss(WeightedSFTTrainer):
+#     def __init__(self, pause_token_id ,*args, **kwargs):
+#         self.pause_token_id = pause_token_id
+#         super().__init__(*args, **kwargs)
         
-    def compute_loss(self, model, inputs, return_outputs=False):
-        self.model.set_to_lm_logits()
-        model.set_to_lm_logits()
-        weights = self.compute_weights(inputs)
-        out = model(inputs['input_ids'][:, :-1])
-        b, s, v = out.logits.shape
-        logits_reshaped = out.logits.reshape(-1,v) #einops.rearrange(out.logits, 'b s v -> (b s) v')
-        targets_reshaped = inputs['input_ids'][:, 1:].reshape(-1) #einops.rearrange(inputs['input_ids'][:, 1:], 'b s -> (b s)')
-        targets_reshaped = torch.where(targets_reshaped == self.pause_token_id, -100, targets_reshaped)
-        losses_reshaped = nn.functional.cross_entropy(logits_reshaped, targets_reshaped, reduce=False, ignore_index=-100)
-        losses = losses_reshaped.reshape(b,s) #einops.rearrange(losses_reshaped, '(b s) -> b s', b=b, s=s)
-        losses = losses.reshape((self.n_samples_per_prefix, -1, s))
-        weighted_losses = weights*losses
-        weighted_losses = weighted_losses.sum(dim=0)
-        return weighted_losses.mean()
+#     def compute_loss(self, model, inputs, return_outputs=False):
+#         self.model.set_to_lm_logits()
+#         model.set_to_lm_logits()
+#         weights = self.compute_weights(inputs)
+#         out = model(inputs['input_ids'][:, :-1])
+#         b, s, v = out.logits.shape
+#         logits_reshaped = out.logits.reshape(-1,v) #einops.rearrange(out.logits, 'b s v -> (b s) v')
+#         targets_reshaped = inputs['input_ids'][:, 1:].reshape(-1) #einops.rearrange(inputs['input_ids'][:, 1:], 'b s -> (b s)')
+#         targets_reshaped = torch.where(targets_reshaped == self.pause_token_id, -100, targets_reshaped)
+#         losses_reshaped = nn.functional.cross_entropy(logits_reshaped, targets_reshaped, reduce=False, ignore_index=-100)
+#         losses = losses_reshaped.reshape(b,s) #einops.rearrange(losses_reshaped, '(b s) -> b s', b=b, s=s)
+#         losses = losses.reshape((self.n_samples_per_prefix, -1, s))
+#         weighted_losses = weights*losses
+#         weighted_losses = weighted_losses.sum(dim=0)
+#         return weighted_losses.mean()
     
-class SFTTrainerLMLoss(SFTTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        self.model.set_to_lm_logits()
-        self.model.set_to_lm_loss()
-        model.set_to_lm_logits()
-        model.set_to_lm_loss()
-        return super().compute_loss(model, inputs, return_outputs)
+# class SFTTrainerLMLoss(SFTTrainer):
+#     def compute_loss(self, model, inputs, return_outputs=False):
+#         self.model.set_to_lm_logits()
+#         self.model.set_to_lm_loss()
+#         model.set_to_lm_logits()
+#         model.set_to_lm_loss()
+#         return super().compute_loss(model, inputs, return_outputs)
     
-class SFTTrainerPauseLoss(SFTTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        self.model.set_to_pause_logits()
-        self.model.set_to_pause_loss()
-        model.set_to_pause_logits()
-        model.set_to_pause_loss()
-        return super().compute_loss(model, inputs, return_outputs)
+# class SFTTrainerPauseLoss(SFTTrainer):
+#     def compute_loss(self, model, inputs, return_outputs=False):
+#         self.model.set_to_pause_logits()
+#         self.model.set_to_pause_loss()
+#         model.set_to_pause_logits()
+#         model.set_to_pause_loss()
+#         return super().compute_loss(model, inputs, return_outputs)

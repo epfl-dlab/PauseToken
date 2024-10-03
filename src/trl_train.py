@@ -75,9 +75,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
     
     model = instantiate_model(cfg.rl_algorithm.policy.model.language_model)
-
     log.info(f"Summary of model params: \n{make_trainable_params_summary(model)}")
-        
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(model, BaseControlTokenWrapper):
         # Add new tokens to tokenizer

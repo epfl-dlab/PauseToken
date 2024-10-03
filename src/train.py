@@ -36,7 +36,7 @@ from src.utils import (
     log_hyperparameters,
     task_wrapper,
     hydra_custom_resolvers,
-    instantiate_model,
+    make_trainable_params_summary
 )
 
 
@@ -77,11 +77,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         
 
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
-    
     language_model = instantiate_model(
         cfg.rl_algorithm.policy.model.language_model,
-        cfg.rl_algorithm.policy.model.peft_config
+        cfg.rl_algorithm.policy.model.get("peft_config")
     )
+    log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
     
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(language_model, BaseControlTokenWrapper):

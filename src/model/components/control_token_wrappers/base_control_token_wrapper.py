@@ -73,6 +73,8 @@ class SequenceClassifierOutputWithPastForCtrlTokens(ModelOutput):
     attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
     control_token_logits: Optional[torch.FloatTensor] = None
     lm_logits: Optional[torch.FloatTensor] = None
+    lm_loss: Optional[torch.FloatTensor] = None
+    ctrl_tok_loss: Optional[torch.FloatTensor] = None
     
     
 class BaseControlTokenWrapper(PreTrainedModel):
@@ -118,15 +120,23 @@ class BaseControlTokenWrapper(PreTrainedModel):
     def _resize_input_embeds(self):
         """ Resize the input embeddings of the language model to account for the new control tokens """
         embeddings =  self.language_model.get_input_embeddings()
+        
+
+        additional_embeds = torch.nn.Embedding(
+            num_embeddings=self.config.num_control_tokens,
+            embedding_dim=self.language_model.config.hidden_size,
+            dtype=embeddings.weight.dtype,
+            device=embeddings.weight.device,
+        )
+        if not embeddings.weight.is_meta:
+            #compute the variance of embeddings
+            variance = embeddings.weight.var().item()
+            #reset the variance of the new embeddings to be the same as the original embeddings
+            additional_embeds.weight.data.normal_(mean=0.0, std=variance**0.5)
         self.language_model.set_input_embeddings(
             ExtendedEmbedding(
                 embeddings,
-                torch.nn.Embedding(
-                    num_embeddings=self.config.num_control_tokens,
-                    embedding_dim=self.language_model.config.hidden_size,
-                    dtype=embeddings.weight.dtype,
-                    device=embeddings.weight.device,
-                ) 
+                additional_embeds
             )
         )
         
@@ -493,7 +503,11 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         num_active_elements = mask_lm.numel() - (mask_lm & mask_ctrl_tok).count_nonzero()
         loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
-        return loss
+        
+        lm_loss = nll_lm.sum()/(mask_lm.numel() - mask_lm.count_nonzero())
+        ctrl_tok_loss = nll_ctrl_tok.sum()/(mask_ctrl_tok.numel() - mask_ctrl_tok.count_nonzero())
+        
+        return loss, lm_loss, ctrl_tok_loss
     
     def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None ,*args, **kwargs):
         
@@ -558,13 +572,15 @@ class BaseControlTokenWrapper(PreTrainedModel):
             self.forward_(input_ids, attention_mask, *args, **kwargs)
         
         if labels is not None:
-            loss = self.compute_loss(
+            loss, lm_loss, ctrl_tok_loss = self.compute_loss(
                 labels=labels,
                 lm_logits=lm_logits,
                 ctrl_tok_logits=ctrl_tok_logits,
             )
         else:
             loss = None
+            lm_loss = None
+            ctrl_tok_loss = None
         
         logits = self.make_combined_logits(lm_logits, ctrl_tok_logits)
         
@@ -576,6 +592,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
             attentions = attentions,
             control_token_logits = ctrl_tok_logits,
             lm_logits = lm_logits,
+            lm_loss = lm_loss,
+            ctrl_tok_loss = ctrl_tok_loss
         )
     
         

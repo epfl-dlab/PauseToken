@@ -41,7 +41,6 @@ def sft_formating_function(example, eos_token):
         data.append(text)
     return data
 
-
 def strip_pad_tokens(output: List[List[int]], pad_token_id: int) -> List[List[int]]:
     return [list(filter(lambda x: x != pad_token_id,seq))for seq in output]
 
