@@ -8,6 +8,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from typing import Optional, Union, Dict, Any, List
 import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens
+from copy import deepcopy
 
 class STaR(OffPolicyAlgorithm):
     
@@ -71,14 +72,53 @@ class STaR(OffPolicyAlgorithm):
         :param infos: List of additional information about the transition.
             It may contain the terminal observations and information about timeout.
         """
-        super()._store_transition(replay_buffer, buffer_action, new_obs, reward, dones, infos)
+        # Store only the unnormalized version
+        if self._vec_normalize_env is not None:
+            new_obs_ = self._vec_normalize_env.get_original_obs()
+            reward_ = self._vec_normalize_env.get_original_reward()
+        else:
+            # Avoid changing the original ones
+            self._last_original_obs, new_obs_, reward_ = self._last_obs, new_obs, reward
+
+        # Avoid modification by reference
+        next_obs = deepcopy(new_obs_)
+        # As the VecEnv resets automatically, new_obs is already the
+        # first observation of the next episode
+        for i, done in enumerate(dones):
+            if done and infos[i].get("terminal_observation") is not None:
+                if isinstance(next_obs, dict):
+                    next_obs_ = infos[i]["terminal_observation"]
+                    # VecNormalize normalizes the terminal observation
+                    if self._vec_normalize_env is not None:
+                        next_obs_ = self._vec_normalize_env.unnormalize_obs(next_obs_)
+                    # Replace next obs for the correct envs
+                    for key in next_obs.keys():
+                        next_obs[key][i] = add_filler_tokens(next_obs_[key], next_obs[key].shape[1], self.policy.filler_token)
+                else:
+                    next_obs[i] = add_filler_tokens(infos[i]["terminal_observation"], next_obs.shape[1], self.policy.filler_token)
+                    # VecNormalize normalizes the terminal observation
+                    if self._vec_normalize_env is not None:
+                        next_obs[i] = self._vec_normalize_env.unnormalize_obs(next_obs[i, :])
+
+        replay_buffer.add(
+            self._last_original_obs,  # type: ignore[arg-type]
+            next_obs,  # type: ignore[arg-type]
+            buffer_action,
+            reward_,
+            dones,
+            infos,
+        )
+
+        self._last_obs = new_obs
+        # Save the unnormalized observation
+        if self._vec_normalize_env is not None:
+            self._last_original_obs = new_obs_
                         
     
     def train(self, gradient_steps: int, batch_size: int) -> None:
         self.policy.train()
         
         self._update_learning_rate(self.policy.optimizer)
-                
         nll_losses = []
         
         for _ in range(gradient_steps):
@@ -87,7 +127,7 @@ class STaR(OffPolicyAlgorithm):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
             labels = replay_data.next_observations["input_ids"] if self.loss_computed_in_forward_pass else None
-            
+
             output = self.policy(replay_data.next_observations, labels=labels)
             
             if self.loss_computed_in_forward_pass:

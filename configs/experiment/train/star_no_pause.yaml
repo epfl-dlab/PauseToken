@@ -3,7 +3,7 @@
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: star
-  - override /rl_algorithm/policy/model/language_model: pause_from_pretrained
+  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null #peft is already there
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
@@ -25,7 +25,9 @@ data:
 trainer:
   inner_loop_timesteps: 10
   n_outer_loops: 5
-  progress_bar: false
+  progress_bar: False
+  learn_callbacks:
+    _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
   num_val_samples: 10
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
@@ -45,7 +47,6 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-29_10-23-33/final
-        post_instanciation_method_calls:
-          - method: unfreeze_all
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+
       
