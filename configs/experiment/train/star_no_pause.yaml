@@ -4,7 +4,7 @@ defaults:
   - override /data: gsm8k
   - override /rl_algorithm: star
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
-  - override /rl_algorithm/policy/model/peft_config: null #peft is already there
+  - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
