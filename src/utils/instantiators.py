@@ -34,6 +34,7 @@ def instantiate_model(cfg, peft_config=None):
         model = hydra.utils.instantiate(model_cfg)
         post_instantiation_method_calls(model, method_calls)
         if peft_config is not None:
+            peft_config = OmegaConf.to_container(peft_config, resolve=True)
             peft_config = hydra.utils.instantiate(peft_config)
             model = get_peft_model(model, peft_config)
             
