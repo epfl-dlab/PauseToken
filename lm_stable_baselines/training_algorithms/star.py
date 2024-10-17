@@ -126,7 +126,13 @@ class STaR(OffPolicyAlgorithm):
             
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
-            labels = replay_data.next_observations["input_ids"] if self.loss_computed_in_forward_pass else None
+            if self.loss_computed_in_forward_pass:
+                labels = replay_data.next_observations["input_ids"]
+                labels_list = list(labels.cpu())
+                collated_labels = self.data_collator(labels_list)
+                labels = collated_labels["labels"] # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
+            else:
+                labels = None
 
             output = self.policy(replay_data.next_observations, labels=labels)
             

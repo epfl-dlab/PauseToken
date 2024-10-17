@@ -119,6 +119,16 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     cp["policy_kwargs"]["lm"] = lm
     cp["policy_kwargs"]["tokenizer"] = tokenizer
     cp["env"] = environment
+
+    if "data_collator" in cp:
+        data_collator = cp.pop("data_collator")
+        data_collator["tokenizer"] = tokenizer
+        #SUPER UGLY BUT I DON'T KNOW HOW TO DO THIS BETTER ##masani: man it's not so bad!
+        if "response_template" in data_collator:
+            reponse_template = hydra.utils.instantiate(data_collator["response_template"])
+            response_template_ids = tokenizer.encode(reponse_template, add_special_tokens=False)[1:]
+            data_collator["response_template"] = response_template_ids
+        data_collator = hydra.utils.instantiate(data_collator)
     
     cp["policy_kwargs"] = {**cp["policy_kwargs"],**instantiate_generation_params(cp["policy_kwargs"]["generation"])}
     
@@ -127,4 +137,6 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
         rl_alg._setup_model()
     if logger is not None:
         rl_alg.set_logger(logger)
+    rl_alg.data_collator = data_collator
+
     return rl_alg
