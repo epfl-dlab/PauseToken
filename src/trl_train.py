@@ -111,7 +111,7 @@ def trl_train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     trainer_cfg = OmegaConf.to_container(cfg.trainer,resolve=True)
     if "data_collator" in trainer_cfg:
         trainer_cfg["data_collator"]["tokenizer"] = tokenizer
-        #SUPER UGLY BUT I DON'T KNOW HOW TO DO THIS BETTER
+        #SUPER UGLY BUT I DON'T KNOW HOW TO DO THIS BETTER ##masani: man it's not so bad!
         if "response_template" in trainer_cfg["data_collator"]:
             reponse_template = hydra.utils.instantiate(trainer_cfg["data_collator"]["response_template"])
             response_template_ids = tokenizer.encode(reponse_template, add_special_tokens=False)[1:]
