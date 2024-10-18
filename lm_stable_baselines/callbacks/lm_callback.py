@@ -46,7 +46,6 @@ class StarProgressBarCallback(BaseCallback):
                 "It is included if you install stable-baselines with the extra packages: "
                 "`pip install stable-baselines3[extra]`"
             )
-        self.prev_num_steps = 0
         
     def _on_training_start(self) -> None:
         # Initialize progress bar
@@ -55,10 +54,19 @@ class StarProgressBarCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         # Update progress bar, we do num_envs steps per call to `env.step()`
-        if self.prev_num_steps != self.locals["num_collected_episodes"]:
-            num_steps = self.locals["num_collected_steps"]
-            self.pbar.update(num_steps - self.prev_num_steps)
-            self.prev_num_steps = num_steps
+        num_collected_episodes = 0
+        rew_thrsh = self.locals["replay_buffer"].reward_threshold
+        for idx, done in enumerate(self.locals["dones"]):
+            if done:
+                if rew_thrsh is not None:
+                    above_thrsh = self.locals["rewards"][idx] > rew_thrsh
+                    num_collected_episodes += int(above_thrsh)
+                else:
+                    # Update stats
+                    num_collected_episodes += 1
+
+        if num_collected_episodes > 0:
+            self.pbar.update(num_collected_episodes)
         return True
 
     def _on_training_end(self) -> None:

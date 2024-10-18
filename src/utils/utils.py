@@ -130,3 +130,15 @@ def make_trainable_params_summary(model: Any):
     for name, param in model.named_parameters():
         t.add_row([name, param.numel(), param.requires_grad])
     return str(t)
+
+
+def make_summary_table(summary_dict: Dict[str, Any]) -> str:
+    """Creates a summary table from a dictionary.
+
+    :param summary_dict: A dictionary containing the summary.
+    :return: A string containing the summary table.
+    """
+    t = PrettyTable(["Name", "Value"])
+    for name, value in summary_dict.items():
+        t.add_row([name, value])
+    return str(t)

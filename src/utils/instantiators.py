@@ -13,7 +13,6 @@ from omegaconf import open_dict
 from functools import partial
 from peft import get_peft_model
 
-
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
@@ -35,9 +34,8 @@ def instantiate_model(cfg, peft_config=None):
         post_instantiation_method_calls(model, method_calls)
         if peft_config is not None:
             peft_config = OmegaConf.to_container(peft_config, resolve=True)
-            peft_config = hydra.utils.instantiate(peft_config)
+            peft_config = hydra.utils.instantiate(peft_config, _convert_="partial")
             model = get_peft_model(model, peft_config)
-            
         return model
     return cfg    
             

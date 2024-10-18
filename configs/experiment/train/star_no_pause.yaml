@@ -23,12 +23,12 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 10
-  n_outer_loops: 5
+  inner_loop_timesteps: 100
+  n_outer_loops: 20
   progress_bar: False
   learn_callbacks:
     _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
-  num_val_samples: 10
+  num_val_samples: 100
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
@@ -40,6 +40,7 @@ rl_algorithm:
   n_envs: 4
   batch_size: 4
   train_freq: 10
+  gradient_steps: ${rl_algorithm.train_freq}
   loss_computed_in_forward_pass: true
   buffer:
     reward_threshold: 0

@@ -38,6 +38,7 @@ rl_algorithm:
   n_envs: 4
   batch_size: 4
   train_freq: 10
+  gradient_steps: ${rl_algorithm.train_freq}
   loss_computed_in_forward_pass: true
   buffer:
     reward_threshold: 0
