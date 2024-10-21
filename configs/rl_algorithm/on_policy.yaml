@@ -1,0 +1,50 @@
+defaults:
+  - environment: language_model_env
+  - reward: default
+  - policy: llm_base_policy
+  - buffer: lm_rollout_buffer
+
+
+data_collator:
+  _target_: trl.DataCollatorForCompletionOnlyLM
+  response_template:
+    _target_: src.utils.hydra_custom_resolvers.get_module_attr
+    module_and_attr: src.utils.constants.ANSWER_TEMPLATE
+
+_target_: stable_baselines3.common.on_policy_algorithm.OnPolicyAlgorithm
+n_envs: 1
+## TODO: What to do here ? Should I just put this in another config file ?
+policy_class: ${.policy._target_}
+policy_kwargs: ${get_dict_except:${.policy},"_target_"}
+
+buffer_class_keyword: 'rollout_buffer'
+
+# env: 
+learning_rate: 1e-5
+n_steps: 10
+gamma: 0.99
+gae_lambda: 0.999
+ent_coef: 0.5
+vf_coef: 0.5
+max_grad_norm: 0.5
+use_sde: false
+sde_sample_freq: -1
+rollout_buffer_class: ${.buffer._target_} # #fetch _target_ argument from buffer
+rollout_buffer_kwargs: ${get_dict_except:${.buffer},"_target_"} # #fetch all arguments from buffer except _target_
+stats_window_size: ${.n_steps}
+tensorboard_log: null
+monitor_wrapper: true
+
+verbose: 0
+seed: 42
+device: "auto"
+_init_setup_model: true
+supported_action_spaces: null
+
+
+
+
+
+
+
+

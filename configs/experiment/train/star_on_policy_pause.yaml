@@ -36,11 +36,9 @@ trainer:
 
 rl_algorithm:
   n_envs: 4
-  batch_size: 4
-  train_freq: 10
   loss_computed_in_forward_pass: true
   buffer:
-    reward_threshold: 0
+    advantage_threshold: 0
 
   policy:
     model:
