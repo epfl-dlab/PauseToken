@@ -11,9 +11,10 @@ class ExtendedEmbedding(torch.nn.Module):
         super(ExtendedEmbedding, self).__init__()
         self.original_embedding = original_embedding
         self.new_embedding = new_embedding
+        self.num_og_embeddings = original_embedding.num_embeddings
 
     def forward(self, input_ids):
-        is_new_token = input_ids >= self.original_embedding.num_embeddings
+        is_new_token = input_ids >= self.num_og_embeddings
         original_tokens = input_ids[~is_new_token]
         original_embeddings = self.original_embedding(original_tokens)
 
@@ -24,7 +25,7 @@ class ExtendedEmbedding(torch.nn.Module):
         )
         combined_embeddings[~is_new_token] = original_embeddings
 
-        new_tokens = input_ids[is_new_token] - self.original_embedding.num_embeddings
+        new_tokens = input_ids[is_new_token] - self.num_og_embeddings
         if len(new_tokens) > 0:
             combined_embeddings[is_new_token] = self.new_embedding(new_tokens).to(
                 original_embeddings.device

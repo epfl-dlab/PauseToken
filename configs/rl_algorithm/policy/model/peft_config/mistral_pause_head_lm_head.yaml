@@ -1,0 +1,4 @@
+defaults:
+  - mistral
+
+modules_to_save: ["ctrl_tok_clf", "lm_head"]

@@ -72,7 +72,7 @@ python src/trl_train.py experiment=trl_train/step_1_sft
 #### STEP 2 - Augment GSM8K with random pause insertions and train a the pause classifier and pause embedding:
 1. **Augment GSM8K on random pause insertions** (see Data Generation section for more details). Here we will augment the GSM8K dataset's ground truth answers with random pauses (ranging from 0 to 100 pauses):
     ```bash
-    python scripts/data_generation/gsm8k_pause_injector.py --dataset_location data/gsm8k_jsonl/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location data/gsm8k_json/gsm8k_variable_random_pauses --pause_augm_col_name "answer" --verbose --n_random_pauses 20 --tokenizer_hf_name "/dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1/" --variable_number_of_pauses --n_generated_samples_per_datapoint 5 --verbose --seed 42
+    python scripts/data_generation/gsm8k_pause_injector.py --dataset_location data/gsm8k_jsonl/gsm8k --pause_token "<|pause|>" --n_pauses_per_patterns '{}' --augm_dataset_save_location data/gsm8k_json/gsm8k_variable_random_pauses --pause_augm_col_name "answer" --verbose --n_random_pauses 10 --tokenizer_hf_name "/dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1/" --variable_number_of_pauses --n_generated_samples_per_datapoint 5 --verbose --seed 42
     ```
 2. **Fine-tune the model the pause classifier and the pause embedding on GSM8K with the pause token "<|pause|>"**:
 2.1. 
@@ -86,3 +86,7 @@ python src/trl_train.py experiment=trl_train/step_1_sft
 
 ### RL Training Step
 
+
+## Experiments
+
+[Click here to see the experiments](./experiments.md)

@@ -101,7 +101,7 @@ class LMSBTrainer:
         #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
         rollout = self.rl_algorithm.collect_rollouts(
             self.rl_algorithm.env,
-            train_freq= self.num_val_samples,
+            train_freq= train_freq,
             action_noise=self.rl_algorithm.action_noise,
             learning_starts=0,
             replay_buffer=validation_replay_buffer,
