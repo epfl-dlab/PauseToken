@@ -16,7 +16,10 @@ rl_algorithm:
           - method: freeze_all
           - method: unfreeze_ctrl_embeddings
           - method: unfreeze_ctrl_tok_clf
-run_name: "step2_sft_gsm8k_mistral"
+          - method: unfreeze_lm_head
+          - method: unfreeze_lm_embeddings
+
+run_name: "step2exp_sft_unfr_lm_head_embed"
 
 data:
   debug_n: null
@@ -51,7 +54,7 @@ trainer:
     report_to: "wandb"
 
 save_before_train: false
-merge_peft_after_train: false
+merge_peft_after_train: True
 test: true
 test_batch_size: 8
 test_formatting_func:

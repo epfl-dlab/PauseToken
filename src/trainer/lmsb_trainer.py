@@ -10,6 +10,7 @@ from src.utils.trainer_utils import decode_and_strip_special_tokens, get_aggrega
 import shutil
 import os
 import math
+from src.utils.utils import make_summary_table
 class LMSBTrainer:
     def __init__(
         self,
@@ -170,11 +171,12 @@ class LMSBTrainer:
             reses.append(tmp_reses)
 
         aggregated_metrics = get_aggregated_metrics(reses, list(self.metrics[stage].keys()))
-        
+        print(f"Summary Statistics of val:\n {make_summary_table(aggregated_metrics)}")
         if self.metric_for_best_model is not None:
             self.metric_for_best_model_curr_val = aggregated_metrics[f"{self.metric_for_best_model}_mean"]
                         
         ################# PART 5: Save results #################
+        
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)

@@ -1,0 +1,64 @@
+# @package _global_
+defaults:
+  - override /rl_algorithm/policy/model/language_model: pause_model
+  - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: mistral_pause_lm_head_embed
+  - override /metrics: gsm8k
+
+rl_algorithm:
+  policy:
+    model:
+      tokenizer:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+      language_model:
+        language_model:
+          pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+        post_instanciation_method_calls: 
+          - method: freeze_all
+          - method: unfreeze_ctrl_embeddings
+          - method: unfreeze_ctrl_tok_clf
+          - method: unfreeze_lm_head
+          - method: unfreeze_lm_embeddings
+
+run_name: "step2exp_sft_unfr_lm_head_embed_peft"
+
+data:
+  debug_n: null
+  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses"
+
+trainer:
+  _target_: src.trainer.trl_trainers.trainers.SFTTrainerForCtrlTokLogging
+  data_collator:
+    _target_: trl.DataCollatorForCompletionOnlyLM
+    response_template:
+      _target_: src.utils.hydra_custom_resolvers.get_module_attr
+      module_and_attr: src.utils.constants.ANSWER_TEMPLATE
+
+  max_seq_length: 600
+  formatting_func:
+    _target_: functools.partial
+    _args_: 
+      - ${get_method:src.utils.trainer_utils.sft_formating_function}
+    eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
+  
+  args:
+    do_eval: true
+    evaluation_strategy: "steps"
+    save_strategy: "steps"
+    eval_steps: 500
+    load_best_model_at_end: true
+    save_total_limit: 10
+    num_train_epochs: 1.0
+    per_device_train_batch_size: 8
+    per_device_eval_batch_size: 8
+    save_steps: 500
+    report_to: "wandb"
+
+save_before_train: false
+merge_peft_after_train: True
+test: true
+test_batch_size: 8
+test_formatting_func:
+  _target_: functools.partial
+  _args_: 
+    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+  eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}

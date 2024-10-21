@@ -443,12 +443,18 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         lm_head_labels = torch.where(label_occs, og_labels, IGNORE_LABEL)
         ctrl_tok_labels = self.get_id_in_ctrl_tok_clf(lm_head_labels)
+        ctrl_tok_labels = torch.where(
+            og_labels == IGNORE_LABEL,
+            IGNORE_LABEL,
+            ctrl_tok_labels
+        )
+        
         lm_head_labels = torch.where(
             ctrl_tok_labels == self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id),
             lm_head_labels,
             IGNORE_LABEL
         )
-        
+
         return lm_head_labels, ctrl_tok_labels
         
     def compute_loss(
