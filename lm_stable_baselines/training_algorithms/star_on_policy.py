@@ -52,6 +52,15 @@ class STaR(OnPolicyAlgorithm):
         # return -1 for all values
         return torch.ones(obs.shape[0]) * 0
 
+    def process_rollouts(self, data):
+        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations[:,1:], data.actions)
+        #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
+        next_observation = self.policy.tokenizer.pad( 
+            {'input_ids': next_obs},
+            return_tensors="pt",
+            padding=True,
+        )
+        return next_observation
 
     def train(self) -> None:
         self.policy.train()
@@ -61,27 +70,32 @@ class STaR(OnPolicyAlgorithm):
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size
-
+        
+        self.policy.tokenizer.padding_side = "right"
         for _ in range(n_batches):
 
             self._n_updates += 1
-            
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
-
+            next_observation = self.process_rollouts(data)
             if self.loss_computed_in_forward_pass:
-                labels = data.next_observations["input_ids"]
+                labels = next_observation["input_ids"]
                 labels_list = list(labels.cpu())
                 collated_labels = self.data_collator(labels_list)
                 labels = collated_labels["labels"] # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
             else:
                 labels = None
 
-            output = self.policy(data.next_observations, labels=labels)
+            output = self.policy.lm(input_ids=next_observation['input_ids'].to(self.device), 
+                                    attention_mask=next_observation['attention_mask'].to(self.device),
+                                    labels=labels.to(self.device))
             
             if self.loss_computed_in_forward_pass:
                 nll_loss = output.loss
+                #if control token model you can also get these losses:
+                #control_token_loss = output.ctrl_tok_loss
+                #lm_loss = output.lm_loss
             else:
-                nll_loss = self.policy.compute_nll_loss(output.logits, data.next_observations)
+                nll_loss = self.policy.compute_nll_loss(output.logits, labels)
             
             nll_losses.append(nll_loss.item())
             

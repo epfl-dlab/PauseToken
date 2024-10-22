@@ -2,6 +2,7 @@ from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
 from lm_stable_baselines.buffers import LMReplayBuffer
 import warnings
+from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
 from copy import deepcopy
 import numpy as np
@@ -83,44 +84,101 @@ class LMSBTrainer:
         
         ################# PART 1: set arguments necessary for performing rollout ################# 
         n_steps = int(math.ceil(self.num_val_samples/self.rl_algorithm.n_envs))
-        kwargs = deepcopy(self.rl_algorithm.replay_buffer_kwargs)
-        kwargs["reward_threshold"] = None
-        buffer_size = n_steps * self.rl_algorithm.n_envs + 1 # avoids weird behavior of sb3 when buffer is full (make it easier for sampling, see below)
-        validation_replay_buffer = LMReplayBuffer(
+        buffer_name = self.rl_algorithm.buffer_class_keyword
+        buffer_name_kwargs = buffer_name + "_kwargs"
+        buffer_class = getattr(self.rl_algorithm, buffer_name).__class__
+        kwargs = deepcopy(getattr(self.rl_algorithm, buffer_name_kwargs))
+        kwargs["advantage_threshold"] = None
+
+        buffer_size = n_steps+ 1 # avoids weird behavior of sb3 when buffer is full (make it easier for sampling, see below)
+
+        validation_buffer = buffer_class(
             buffer_size, 
             self.rl_algorithm.observation_space,
             self.rl_algorithm.action_space,
             device = self.rl_algorithm.device,
-            n_envs = 1,
-            optimize_memory_usage = False,
+            n_envs = self.rl_algorithm.n_envs,
             **kwargs
         )
-        train_freq = TrainFreq(frequency= n_steps, unit = TrainFrequencyUnit.STEP)
         
         ################# PART 2: perform rollout #################
         #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
-        rollout = self.rl_algorithm.collect_rollouts(
-            self.rl_algorithm.env,
-            train_freq= train_freq,
-            action_noise=self.rl_algorithm.action_noise,
-            learning_starts=0,
-            replay_buffer=validation_replay_buffer,
-            log_interval=self.learn_kwargs["log_interval"],
-            callback=self.learn_kwargs["callback"]
-        )
-        
-        #safety check
-        if rollout.n_episodes < self.num_val_samples:
-            raise ValueError(
-                f"Expected {self.num_val_samples} samples, but got {rollout.n_episodes} samples, this may be due to the environment not being terminated"
+        if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
+            train_freq = TrainFreq(frequency= n_steps, unit = TrainFrequencyUnit.STEP)
+
+            rollout = self.rl_algorithm.collect_rollouts(
+                self.rl_algorithm.env,
+                train_freq= train_freq,
+                action_noise=self.rl_algorithm.action_noise,
+                learning_starts=0,
+                replay_buffer=validation_buffer,
+                log_interval=self.learn_kwargs["log_interval"],
+                callback=self.learn_kwargs["callback"]
+            )
+            
+            #safety check
+            if rollout.n_episodes < self.num_val_samples:
+                raise ValueError(
+                    f"Expected {self.num_val_samples} samples, but got {rollout.n_episodes} samples, this may be due to the environment not being terminated"
+                )
+
+            ################# PART 3: Collect rollouts from Replay Buffer #################
+            #Not sure why sb3 distiguishes theses cases but it's necessary to do so to read the samples correctly in the proper order
+            # I could have done just one case (since i set optimize_memory_usage to True above), but I wanted to show the logic of sb3
+            samps_order = np.arange(self.num_val_samples) - 1 if validation_buffer.optimize_memory_usage else np.arange(self.num_val_samples)
+            val_samps = validation_buffer._get_samples(samps_order)
+
+
+
+            texts = decode_and_strip_pad_tokens(
+                val_samps.next_observations["input_ids"],
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
+            )
+            
+            input_texts = decode_and_strip_pad_tokens(
+                val_samps.observations["input_ids"],
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
+            )
+            
+            predicted_outputs = decode_and_strip_pad_tokens(
+                val_samps.actions,
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
             )
 
-        ################# PART 3: Collect rollouts from Replay Buffer #################
-        #Not sure why sb3 distiguishes theses cases but it's necessary to do so to read the samples correctly in the proper order
-        # I could have done just one case (since i set optimize_memory_usage to True above), but I wanted to show the logic of sb3
-        samps_order = np.arange(self.num_val_samples) - 1 if validation_replay_buffer.optimize_memory_usage else np.arange(self.num_val_samples)
-        val_samps = validation_replay_buffer._get_samples(samps_order)
-        
+        else:
+            rollout = self.rl_algorithm.collect_rollouts(
+                self.rl_algorithm.env,
+                callback=self.learn_kwargs["callback"],
+                rollout_buffer=validation_buffer,
+                n_rollout_steps=n_steps+1
+            )
+            samps_ids =  np.where(np.ones((self.rl_algorithm.n_envs, n_steps)) == 1)
+            val_samps = validation_buffer._get_samples(samps_ids)
+            
+            next_obs = self.rl_algorithm.process_rollouts(val_samps)
+            
+            texts = decode_and_strip_pad_tokens(
+                next_obs["input_ids"],
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
+            )
+
+            input_texts = decode_and_strip_pad_tokens(
+                val_samps.observations["input_ids"],
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
+            )
+            
+            predicted_outputs = decode_and_strip_pad_tokens(
+                val_samps.actions,
+                self.rl_algorithm.policy.tokenizer.pad_token_id,
+                self.rl_algorithm.policy.tokenizer
+            )
+
+
         gts = self.rl_algorithm.env.envs[0].get_ground_truths(
             stage=stage,
             idxs = list(range(self.num_val_samples))
@@ -128,23 +186,7 @@ class LMSBTrainer:
         
         reses = []
         
-        texts = decode_and_strip_pad_tokens(
-            val_samps.next_observations["input_ids"],
-            self.rl_algorithm.policy.tokenizer.pad_token_id,
-            self.rl_algorithm.policy.tokenizer
-        )
         
-        input_texts = decode_and_strip_pad_tokens(
-            val_samps.observations["input_ids"],
-            self.rl_algorithm.policy.tokenizer.pad_token_id,
-            self.rl_algorithm.policy.tokenizer
-        )
-        
-        predicted_outputs = decode_and_strip_pad_tokens(
-            val_samps.actions,
-            self.rl_algorithm.policy.tokenizer.pad_token_id,
-            self.rl_algorithm.policy.tokenizer
-        )
         
         ################# PART 4: Compute metrics #################
         

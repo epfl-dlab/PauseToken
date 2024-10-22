@@ -22,6 +22,7 @@ class LMRolloutBuffer(RolloutBuffer):
         filler_token = -100, 
         **kwargs
     ):
+        self.filler_token = filler_token
         super().__init__(*args, **kwargs)
         self.set_filler_token(filler_token)
         self.tokenizer = tokenizer
@@ -34,8 +35,8 @@ class LMRolloutBuffer(RolloutBuffer):
     
     def reset(self) -> None:
         super().reset()
-        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.long)
-        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.long)
+        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.long) + self.filler_token
+        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.long) +self.filler_token
         self.above_threshold_indices = None
         self.data_size = 0
 
@@ -55,42 +56,45 @@ class LMRolloutBuffer(RolloutBuffer):
     
 
     def find_where_advantage_exceeds_threshold(self, advantage: np.ndarray) -> None:
+        if self.advantage_threshold is None:
+            self.advantage_threshold = - np.inf
         self.above_threshold_indices =  np.where(advantage > self.advantage_threshold)
+        self.remaining_indices = None
         self.data_size = len(self.above_threshold_indices[0])
-
-
+    
     def sample_batch(self, batch_size, env: Optional[VecNormalize] = None) -> RolloutBufferSamples:
-        # Get the positions of the allowed indices (where the matrix is 1)
-        allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
+        # Initialize remaining indices if it's the first pass or if we've exhausted the dataset
+        if self.remaining_indices is None or len(self.remaining_indices[0]) == 0:
+            allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
+            # Shuffle the allowed indices
+            shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
+            # Store shuffled indices for further sampling
+            self.remaining_indices = (allowed_indices[0][shuffled_indices], allowed_indices[1][shuffled_indices])
+        
+        # Sample from the remaining indices without replacement
+        num_remaining = len(self.remaining_indices[0])
+        num_to_sample = min(batch_size, num_remaining)
 
-        # Sample randomly from the allowed indices
-        idx = np.random.choice(len(allowed_indices), size=batch_size, replace=True)
-        sampled_positions = (allowed_indices[0][idx], allowed_indices[1][idx])
-        
-        obs = self.observations[sampled_positions]
-        
-        obs = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(obs[..., 1:].long(), self.filler_token)  # remove the first token (the bos token, tokenizer will re-add it)
-            ),
-            return_tensors="pt", padding=True, truncation=True
+        idx = np.arange(num_remaining)[:num_to_sample]
+        sampled_positions = (self.remaining_indices[0][idx], self.remaining_indices[1][idx])
+
+        # Remove the sampled positions from remaining indices
+        self.remaining_indices = (
+            np.delete(self.remaining_indices[0], idx),
+            np.delete(self.remaining_indices[1], idx)
         )
+        
+        return self.sample_indices(sampled_positions)
 
-        actions = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(self.actions[sampled_positions], self.filler_token)  # don't remove the first token (since it's an action, it didn't start with a bos token)
-            ),
-            return_tensors="pt", padding=True, truncation=True
-        )["input_ids"][..., 1:]  # remove the first token (the bos token, actions should not have it)
-
+    def sample_indices(self, idx, padding='right') -> RolloutBufferSamples:
+        assert idx[0].shape == idx[1].shape, "The indices must have the same shape"
         data = (
-            self.observations[sampled_positions],
-            self.actions[sampled_positions],
-            self.values[sampled_positions].flatten(),
-            self.log_probs[sampled_positions].flatten(),
-            self.advantages[sampled_positions].flatten(),
-            self.returns[sampled_positions].flatten(),
+            self.observations[idx],
+            self.actions[idx],
+            self.values[idx].flatten(),
+            self.log_probs[idx].flatten(),
+            self.advantages[idx].flatten(),
+            self.returns[idx].flatten(),
         )
         
         return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
-
