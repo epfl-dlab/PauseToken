@@ -61,7 +61,7 @@ The table below shows for each model the components that are unfrozen. If not sp
 | sft_fr_pembed_unfr_lm_head_embed                 |    0.47        | 0.40834       |  2.06                                |                            1.86                          |  2.24                                                      |
 | sft_fr_pembed_unfr_lm_head_embed_peft            |    0.01        | 2.40071       | 781.04                               |                           43.67                          | 787.81                                                     |
 | baseline (model w/out pause; peft) 1 epoch       |    0.47        |    -          |  0.0                                 |                            0.0                           |  0.0                                                       |
-| baseline (model w/out pause; peft) 2 epoch       |    **0.53**    |    -          |  0.0                                 |                            0.0                           |  0.0                                                       |
+| baseline (model w/out pause; peft) 2 epoch       |    0.53        |    -          |  0.0                                 |                            0.0                           |  0.0                                                       |
 
 
 | experiment-yaml-file                       |                               Path to predictions                                             |             Model Location                                                        |                       WandB Link                                     |
