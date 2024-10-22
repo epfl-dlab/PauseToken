@@ -1,1 +1,2 @@
 from lm_stable_baselines.buffers.lm_replay_buffer import LMReplayBuffer
+from lm_stable_baselines.buffers.lm_rollout_buffer import LMRolloutBuffer

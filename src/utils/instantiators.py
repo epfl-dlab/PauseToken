@@ -111,9 +111,10 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     keys_to_delete = "environment","reward","policy","buffer","n_envs"
     for key in keys_to_delete:
         del cp[key]
+    buffer_class_keyword = cp.pop("buffer_class_keyword")
     
-    cp["replay_buffer_class"] = hydra.utils.get_class(cp["replay_buffer_class"])
-    cp["replay_buffer_kwargs"]["tokenizer"] = tokenizer
+    cp[buffer_class_keyword+"_class"] = hydra.utils.get_class(cp[buffer_class_keyword+"_class"])
+    cp[buffer_class_keyword+"_kwargs"]["tokenizer"] = tokenizer
     cp["policy"] = hydra.utils.get_class(cp.pop("policy_class")) 
     cp["policy_kwargs"]["lm"] = lm
     cp["policy_kwargs"]["tokenizer"] = tokenizer

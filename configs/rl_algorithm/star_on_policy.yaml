@@ -1,0 +1,5 @@
+defaults:
+  - on_policy
+
+_target_: lm_stable_baselines.training_algorithms.star_on_policy.STaR
+batch_size: 3

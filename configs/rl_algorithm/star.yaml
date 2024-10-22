@@ -1,4 +1,4 @@
 defaults:
   - off_policy
 
-_target_: lm_stable_baselines.training_algorithms.STaR
+_target_: lm_stable_baselines.training_algorithms.star.STaR

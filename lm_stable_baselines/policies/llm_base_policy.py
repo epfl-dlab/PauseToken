@@ -183,10 +183,21 @@ class LLMBasePolicy(BasePolicy):
             
             
     def forward(self, obs: PyTorchObs, labels = None) -> torch.Tensor:
-        feature = self.extract_features(obs)
-        feature = {k: v.to(self.device) for k, v in feature.items()}
-        feature["labels"] = labels.to(self.device) if labels is not None else None
-        return self.lm(**feature)
+        # feature = self.extract_features(obs)
+        # feature = {k: v.to(self.device) for k, v in feature.items()}
+        # feature["labels"] = labels.to(self.device) if labels is not None else None
+        actions = self._predict(obs)
+        padded_actions = actions.clone()
+        padded_actions[actions == self.filler_token] = self.tokenizer.pad_token_id
+        logprobs = torch.log_softmax(self.lm(padded_actions).logits, dim = -1)
+        mask = (actions != self.filler_token).float()
+        logprob_actions = torch.gather(logprobs, 2, padded_actions.unsqueeze(-1)).squeeze(-1)
+        logprobs = (logprob_actions * mask).sum(dim = 1)
+        values = self.predict_values(obs)
+        return actions, values, logprobs
+    
+    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
+        raise NotImplementedError
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
         #remove the input tokens from the output
