@@ -90,3 +90,21 @@ python src/trl_train.py experiment=trl_train/step_1_sft
 ## Experiments
 
 [Click here to see the experiments](./experiments.md)
+
+
+## Roadmap
+- Experiments on On-Policy STaR comparing pause models vs. non-pause models on GSM8K
+- Implement sampling of counterfactuals
+    - Implement the sampling
+    - Determine what loss to use (WSFT ?) (DINA ?)
+- Rewards:
+    - Implement likelihood of answer reward
+        - case 1: compare if answer is correct and if correct give likelihood else give minimum likelihood
+        - case 2: manually insert correct answer and give likelihood
+- On policy based methods:
+    - Reward Conditioning (textual reward or numerical reward)
+- Value based methos:
+    - Q-learning ([Souce of inspiration](https://github.com/Sea-Snell/Implicit-Language-Q-Learning))
+- Actor Critic methods
+
+
