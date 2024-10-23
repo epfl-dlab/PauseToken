@@ -186,14 +186,14 @@ class LLMBasePolicy(BasePolicy):
         # feature = self.extract_features(obs)
         # feature = {k: v.to(self.device) for k, v in feature.items()}
         # feature["labels"] = labels.to(self.device) if labels is not None else None
-        actions = self._predict(obs)
-        padded_actions = actions.clone()
-        padded_actions[actions == self.filler_token] = self.tokenizer.pad_token_id
-        logprobs = torch.log_softmax(self.lm(padded_actions).logits, dim = -1)
-        mask = (actions != self.filler_token).float()
-        logprob_actions = torch.gather(logprobs, 2, padded_actions.unsqueeze(-1)).squeeze(-1)
+
+        next_obs, actions, unpadded_actions = self._predict(obs).values()
+
+        logprobs = torch.log_softmax(self.lm(next_obs).logits, dim = -1)[:, (-unpadded_actions.shape[1]-1):-1, ...]
+        mask = (unpadded_actions != self.tokenizer.pad_token_id).float()
+        logprob_actions = torch.gather(logprobs, 2, unpadded_actions.unsqueeze(-1)).squeeze(-1)
         logprobs = (logprob_actions * mask).sum(dim = 1)
-        values = self.predict_values(obs)
+        values = self.predict_values(next_obs)
         return actions, values, logprobs
     
     def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
@@ -201,14 +201,15 @@ class LLMBasePolicy(BasePolicy):
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
         #remove the input tokens from the output
-        actions = outputs[:, inputs.shape[-1]:]
+        actions = outputs[:, inputs.shape[-1]:].clone()
+        padded_actions = actions.clone()
         #replace all pad tokens with filler tokens
-        actions[actions == self.tokenizer.pad_token_id] = self.filler_token
+        padded_actions[actions == self.tokenizer.pad_token_id] = self.filler_token
         
         action_space_dim = self.action_space.shape[0]
-        actions = add_filler_tokens(actions, action_space_dim, self.filler_token)
+        padded_actions = add_filler_tokens(padded_actions, action_space_dim, self.filler_token)
         
-        return actions
+        return {'next_observation':outputs, 'actions': padded_actions, 'unpadded_actions': actions}
     
     def pre_predict(self, feature: PyTorchObs) -> PyTorchObs:
         pass

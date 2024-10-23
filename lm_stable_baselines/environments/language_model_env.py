@@ -7,6 +7,8 @@ from lm_stable_baselines.rewards import AbstractReward
 import numpy as np
 from lm_stable_baselines.utils import remove_filler_tokens
 import warnings
+import torch
+from torch import LongTensor
 class LanguageModelEnv(Env):
     """ Environment for language models. This class is a subclass of gym.Env and is used to handle language model environments. 
     This environment allows to sample from a dataset and compute rewards based on the model output and the ground truth.
@@ -75,11 +77,21 @@ class LanguageModelEnv(Env):
         # TODO: check if this is necessary
         # NICKY: 
         #   I don't think we nee this. We want dataset_id_list to be a static variable that is shared across all instances of the class
-        #   We know which sample to take thanks to LanguageModelEnv.next_idx
+        #   We know which sample to take thanks to LanguageModelEnv.next_idx
         # if LanguageModelEnv.n_envs != -1:
         #     self.dataset_id_list = LanguageModelEnv.dataset_id_list[self.env_idx::LanguageModelEnv.n_envs]
         # else:
         #     self.dataset_id_list = LanguageModelEnv.dataset_id_list
+
+    def _step(self, curr_obs, action):
+        if isinstance(curr_obs, list):
+            curr_obs.extend(action)
+        elif isinstance(curr_obs, torch.Tensor):
+            curr_obs = torch.cat([curr_obs, action], dim = 0)
+        else:
+            raise ValueError("curr_obs should be a list or a tensor")
+        return curr_obs
+
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """ Apply an action to the environment. For a language model it's simply adding the action to the current state
@@ -91,11 +103,21 @@ class LanguageModelEnv(Env):
         """
         
         clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
-        self.current_state.extend(clean_action)
+        self.current_state = self._step(self.current_state, clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
 
         return observation, reward, terminated, truncated, info
+    
+    def next_observation_from_observation_and_action(self, obs: LongTensor, actions: LongTensor) -> List[List[int]]:
+        #assumption: filler tokens have been removed
+        unpadded_obs = remove_filler_tokens(obs, self.filler_token)
+        unpadded_acts = remove_filler_tokens(actions, self.filler_token)
 
+        new_observations = [self._step(observation,action) for observation, action in zip(unpadded_obs,unpadded_acts)]
+
+        return new_observations
+    
+    
     def is_terminated(self, state: List[int]):
         """ Check if the state is terminated
         
@@ -216,6 +238,8 @@ class LanguageModelEnv(Env):
         info = {}
         return np.array(self.current_state) , reward, is_terminated, is_truncated, info
 
+    
+
     def render(self):
         """ Render the current state
         
@@ -231,3 +255,4 @@ class LanguageModelEnv(Env):
         Calling ``close`` on an already closed environment has no effect and won't raise an error.
         """
         pass   
+

@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 10
+  inner_loop_timesteps: 3
   n_outer_loops: 5
   progress_bar: false
   num_val_samples: 10
