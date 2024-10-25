@@ -4,12 +4,12 @@ defaults:
   - override /data: gsm8k
   - override /rl_algorithm: rc_off_policy
   - override /rl_algorithm/policy/model/language_model: pause_from_pretrained
-  - override /rl_algorithm/policy/model/peft_config: mistral_pause #peft is already there
+  - override /rl_algorithm/policy/model/peft_config: mistral #peft is already there
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
 name: "star on gsm8k"
-run_name: "constant_rc_pause"
+run_name: "constant_rc_no_pause"
 task_name: "train"
 
 data:
@@ -49,7 +49,7 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
 
 test: true
 test_batch_size: 8
