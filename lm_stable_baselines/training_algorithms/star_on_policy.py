@@ -13,7 +13,7 @@ import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens
 from copy import deepcopy
 
-class STaR(OnPolicyAlgorithm):
+class STaROnPolicy(OnPolicyAlgorithm):
     
     def __init__(self,*args, loss_computed_in_forward_pass, batch_size ,**kwargs):
         super().__init__(*args, **kwargs)
@@ -52,7 +52,7 @@ class STaR(OnPolicyAlgorithm):
         # return -1 for all values
         return torch.ones(obs.shape[0]) * 0
 
-    def process_rollouts(self, data):
+    def get_next_observation(self, data):
         next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations[:,1:], data.actions)
         #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
         next_observation = self.policy.tokenizer.pad( 
@@ -76,7 +76,7 @@ class STaR(OnPolicyAlgorithm):
 
             self._n_updates += 1
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
-            next_observation = self.process_rollouts(data)
+            next_observation = self.get_next_observation(data)
             if self.loss_computed_in_forward_pass:
                 labels = next_observation["input_ids"]
                 labels_list = list(labels.cpu())

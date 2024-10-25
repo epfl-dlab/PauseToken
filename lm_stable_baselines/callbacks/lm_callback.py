@@ -55,7 +55,7 @@ class StarProgressBarCallback(BaseCallback):
     def _on_step(self) -> bool:
         # Update progress bar, we do num_envs steps per call to `env.step()`
         num_collected_episodes = 0
-        rew_thrsh = self.locals["replay_buffer"].reward_threshold
+        rew_thrsh = self.locals["replay_buffer"].advantage_threshold
         for idx, done in enumerate(self.locals["dones"]):
             if done:
                 if rew_thrsh is not None:

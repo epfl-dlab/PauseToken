@@ -1,6 +1,6 @@
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
-from lm_stable_baselines.buffers import LMReplayBuffer
+from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer
 import warnings
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
@@ -12,6 +12,9 @@ import shutil
 import os
 import math
 from src.utils.utils import make_summary_table
+from transformers.trainer import _is_peft_model
+from transformers.utils import ADAPTER_WEIGHTS_NAME, ADAPTER_SAFE_WEIGHTS_NAME
+
 class LMSBTrainer:
     def __init__(
         self,
@@ -30,7 +33,7 @@ class LMSBTrainer:
         metric_for_best_model_mode_is_min: bool = False
     ):
         self.learn_kwargs = {
-            "total_timesteps": inner_loop_timesteps,
+            "total_timesteps": inner_loop_timesteps * rl_algorithm.env.num_envs,
             "callback": learn_callbacks,
             "log_interval": log_interval,
             "tb_log_name": tb_log_name,
@@ -90,10 +93,15 @@ class LMSBTrainer:
         kwargs = deepcopy(getattr(self.rl_algorithm, buffer_name_kwargs))
         kwargs["advantage_threshold"] = None
 
-        buffer_size = n_steps+ 1 # avoids weird behavior of sb3 when buffer is full (make it easier for sampling, see below)
-
+        if buffer_class == LMRolloutBuffer:
+            buffer_size = n_steps + 1
+        elif buffer_class == LMReplayBuffer:
+            buffer_size = (n_steps + 1) * self.rl_algorithm.n_envs
+        else:
+            raise ValueError(f"Invalid buffer class: {buffer_class}, valid buffer classes are: {LMReplayBuffer}, {LMRolloutBuffer}")
+        
         validation_buffer = buffer_class(
-            buffer_size, 
+            buffer_size,
             self.rl_algorithm.observation_space,
             self.rl_algorithm.action_space,
             device = self.rl_algorithm.device,
@@ -115,38 +123,12 @@ class LMSBTrainer:
                 log_interval=self.learn_kwargs["log_interval"],
                 callback=self.learn_kwargs["callback"]
             )
-            
+
             #safety check
             if rollout.n_episodes < self.num_val_samples:
                 raise ValueError(
                     f"Expected {self.num_val_samples} samples, but got {rollout.n_episodes} samples, this may be due to the environment not being terminated"
                 )
-
-            ################# PART 3: Collect rollouts from Replay Buffer #################
-            #Not sure why sb3 distiguishes theses cases but it's necessary to do so to read the samples correctly in the proper order
-            # I could have done just one case (since i set optimize_memory_usage to True above), but I wanted to show the logic of sb3
-            samps_order = np.arange(self.num_val_samples) - 1 if validation_buffer.optimize_memory_usage else np.arange(self.num_val_samples)
-            val_samps = validation_buffer._get_samples(samps_order)
-
-
-
-            texts = decode_and_strip_pad_tokens(
-                val_samps.next_observations["input_ids"],
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
-            
-            input_texts = decode_and_strip_pad_tokens(
-                val_samps.observations["input_ids"],
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
-            
-            predicted_outputs = decode_and_strip_pad_tokens(
-                val_samps.actions,
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
 
         else:
             rollout = self.rl_algorithm.collect_rollouts(
@@ -155,29 +137,32 @@ class LMSBTrainer:
                 rollout_buffer=validation_buffer,
                 n_rollout_steps=n_steps+1
             )
-            samps_ids =  np.where(np.ones((self.rl_algorithm.n_envs, n_steps)) == 1)
-            val_samps = validation_buffer._get_samples(samps_ids)
             
-            next_obs = self.rl_algorithm.process_rollouts(val_samps)
+        ################# PART 3: Collect rollouts from Replay Buffer #################
             
-            texts = decode_and_strip_pad_tokens(
-                next_obs["input_ids"],
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
+        samps_ids =  np.where(np.ones((self.rl_algorithm.n_envs, n_steps)) == 1)
+        samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
+        val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
+        
+        next_obs = self.rl_algorithm.get_next_observation(val_samps)
+        
+        texts = decode_and_strip_pad_tokens(
+            next_obs["input_ids"],
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
 
-            input_texts = decode_and_strip_pad_tokens(
-                val_samps.observations["input_ids"],
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
-            
-            predicted_outputs = decode_and_strip_pad_tokens(
-                val_samps.actions,
-                self.rl_algorithm.policy.tokenizer.pad_token_id,
-                self.rl_algorithm.policy.tokenizer
-            )
-
+        input_texts = decode_and_strip_pad_tokens(
+            val_samps.observations["input_ids"],
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
+        
+        predicted_outputs = decode_and_strip_pad_tokens(
+            val_samps.actions,
+            self.rl_algorithm.policy.tokenizer.pad_token_id,
+            self.rl_algorithm.policy.tokenizer
+        )
 
         gts = self.rl_algorithm.env.envs[0].get_ground_truths(
             stage=stage,
@@ -185,9 +170,7 @@ class LMSBTrainer:
         )
         
         reses = []
-        
-        
-        
+                
         ################# PART 4: Compute metrics #################
         
         #TODO: Compute or extract metrics (e.g. reward)
@@ -222,7 +205,7 @@ class LMSBTrainer:
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
-
+            
         #TODO: Save rollouts to file
         save_json(reses, self.output_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
         
@@ -245,8 +228,46 @@ class LMSBTrainer:
     
     def _lm_save(self, output_dir):
         self.rl_algorithm.policy.lm.save_pretrained(output_dir)
-        self.rl_algorithm.policy.lm.save_pretrained(output_dir)
-    
+        self.rl_algorithm.policy.tokenizer.save_pretrained(output_dir)
+        
+    def _lm_load(self, output_dir):
+        
+        #get class of lm
+        class_lm = self.rl_algorithm.policy.lm.__class__
+        
+        #Inspired by load best model of HF Trainer
+        best_adapter_model_path = os.path.join(output_dir, ADAPTER_WEIGHTS_NAME)
+        best_safe_adapter_model_path = os.path.join(output_dir, ADAPTER_SAFE_WEIGHTS_NAME)
+        
+        
+        if _is_peft_model(self.rl_algorithm.policy.lm):
+            if (hasattr(self.rl_algorithm.policy.lm, "active_adapter") or hasattr(self.rl_algorithm.policy.lm, "active_adapters")) and hasattr(
+                        self.rl_algorithm.policy.lm, "load_adapter"
+            ):
+                # For BC for older PEFT versions
+                if hasattr(self.rl_algorithm.policy.lm, "active_adapters"):
+                    active_adapter = self.rl_algorithm.policy.lm.active_adapters[0]
+                    if len(self.rl_algorithm.policy.lm.active_adapters) > 1:
+                        warnings.warn("Detected multiple active adapters, will only consider the first one")
+                else:
+                    active_adapter = self.rl_algorithm.policy.lm.active_adapter
+
+                if os.path.exists(best_adapter_model_path) or os.path.exists(best_safe_adapter_model_path):
+                    self.rl_algorithm.policy.lm.load_adapter(output_dir, active_adapter)
+                else:
+                    warnings.warn(
+                        "The intermediate checkpoints of PEFT may not be saved correctly, "
+                        f"consider using a custom callback to save {ADAPTER_WEIGHTS_NAME} in corresponding saving folders. "
+                        "Check some examples here: https://github.com/huggingface/peft/issues/96"
+                    )
+            else:
+                warnings.warn("Could not load adapter model, make sure to have `peft>=0.3.0` installed")
+            
+        else:
+            self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir)
+        
+        self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
+            
     def _remove_save(self, output_dir):
         try:
             shutil.rmtree(output_dir)
@@ -280,7 +301,6 @@ class LMSBTrainer:
         
         #if we only want to save the top k models, then we need to check if the current model is better than the worst model
         if use_save_top_k:
-            
             #if metric_for_best_model is None, then we use the total timesteps taken so far as the metric value
             if self.metric_for_best_model is None:
                 self.metric_for_best_model_curr_val = self.learn_kwargs["total_timesteps"] * (self.current_outer_loop + 1)
@@ -293,11 +313,11 @@ class LMSBTrainer:
             self.curr_best_models = sorted(self.curr_best_models, key = lambda x: x["metric_val"], reverse = reverse)
             
             #If less than save_top_k models, then save the model
-            if len(self.curr_best_models) < self.save_top_k:    
+            if len(self.curr_best_models) <= self.save_top_k:    
                 self._save_model(save_dir, save_type)
             else:
                 #get the worst model
-                worst_model_path, _ = self.curr_best_models.pop()
+                worst_model_path, _ = self.curr_best_models.pop().values()
                 #if the worst model is not the same as the current model, then remove the worst model and save the current model
                 if worst_model_path != save_dir:
                     self._remove_save(worst_model_path)
@@ -318,6 +338,16 @@ class LMSBTrainer:
             else:
                 raise ValueError(f"num_val_samples was not provided (None) and no validation samples were found in the dataset so it could not be inferred")
         
+    
+    def load_best_model(self):
+        if len(self.curr_best_models) == 0:
+            raise ValueError("No models have been saved yet")
+        reverse = not self.metric_for_best_model_mode_is_min
+        self.curr_best_models = sorted(self.curr_best_models, key = lambda x: x["metric_val"], reverse = reverse)
+        best_model_path = self.curr_best_models[0]["dir"]
+        print("Best model path: ", best_model_path)
+        self._lm_load(best_model_path)
+    
     def on_validation_end(self):
         self.set_stage("val")
         
@@ -342,7 +372,6 @@ class LMSBTrainer:
             self.on_learn_end()
             
             # Run evaluation on validation set
-            
             self.on_validation_start()
             print("Running Validation Stage ... ")
             self.run_validation()
@@ -350,7 +379,5 @@ class LMSBTrainer:
             
             print("Saving model")
             # Save model
-            self.save_model()
-            
-        
+            self.save_model()        
             

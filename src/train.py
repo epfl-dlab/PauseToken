@@ -2,13 +2,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import rootutils
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig,OmegaConf
 from pytorch_lightning import seed_everything
 from datasets import Dataset
-from src.utils.instantiators import instantiate_rl_algorithm, post_instantiation_method_calls, instantiate_model
+from src.utils.instantiators import instantiate_rl_algorithm, post_instantiation_method_calls, instantiate_model,instantiate_generation_params
 from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
+from src.utils.trainer_utils import test_model
+import os
+
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -67,7 +70,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
-
+    
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
@@ -81,7 +84,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         cfg.rl_algorithm.policy.model.language_model,
         cfg.rl_algorithm.policy.model.get("peft_config")
     )
-    log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
     
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(language_model, BaseControlTokenWrapper):
@@ -104,8 +106,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             assert token_id == tokenizer.convert_tokens_to_ids(token_name), \
                 f"Token id mismatch for token {token_name}! Expected {token_id} but tokenizer tokenized it as {tokenizer.convert_tokens_to_ids(token_name)}"
     
+    generation = instantiate_generation_params(
+        OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
+    )
     
-    
+    log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
     log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
 
@@ -125,6 +130,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         ]
     )
     log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")
+
     rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
@@ -163,24 +169,48 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("train"):
         log.info("Starting training!")
         trainer.fit()
+        log.info("Training finished! Loading best model...")
+        trainer.load_best_model()
+        path_to_save = os.path.join(cfg.paths.output_dir, "final")
+        trainer.save_model(path_to_save,use_save_top_k=False)
+        log.info(f"Saved final model to {cfg.paths.output_dir + '/final'}")
         # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
         
 
-    train_metrics = trainer.callback_metrics
 
-    # if cfg.get("test"):
-    #     log.info("Starting testing!")
-    #     ckpt_path = trainer.checkpoint_callback.best_model_path
-    #     if ckpt_path == "":
-    #         log.warning("Best ckpt not found! Using current weights for testing...")
-    #         ckpt_path = None
-    #     trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-    #     log.info(f"Best ckpt path: {ckpt_path}")
+    test_metrics = {}
+    if cfg.get("test"):
+        log.info("Starting testing!")
+        
+        if cfg.get("test_formatting_func"):
+            dataset["test"] = dataset["test"].map(
+                hydra.utils.instantiate(cfg.test_formatting_func),
+                batched=True
+            )
+        
+        test_metric_fns = {
+            f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
+            for name in cfg.metrics["test"].keys()
+        }
+        
+        test_summary_metrics = test_model(
+            model=trainer.rl_algorithm.policy.lm,
+            tokenizer=trainer.rl_algorithm.policy.tokenizer,
+            dataset=dataset["test"],
+            batch_size=cfg.test_batch_size,
+            output_dir=cfg.paths.output_dir,
+            prompt_field="input",
+            ground_truth_field="output",
+            evaluation_metrics=test_metric_fns,
+            **generation
+        )
+        
+        log.info(f"Test metrics: {test_summary_metrics}")
+        test_metrics = test_summary_metrics
 
-    test_metrics = trainer.callback_metrics
 
     # merge train and test metrics
-    metric_dict = {**train_metrics, **test_metrics}
+    metric_dict = { **test_metrics}
 
     return metric_dict, object_dict
 

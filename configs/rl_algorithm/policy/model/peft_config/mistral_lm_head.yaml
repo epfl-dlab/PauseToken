@@ -1,0 +1,5 @@
+defaults:
+  - default
+
+target_modules: ["q_proj", "v_proj"]
+modules_to_save: ["lm_head"]

@@ -187,7 +187,7 @@ class LLMBasePolicy(BasePolicy):
         # feature = {k: v.to(self.device) for k, v in feature.items()}
         # feature["labels"] = labels.to(self.device) if labels is not None else None
 
-        next_obs, actions, unpadded_actions = self._predict(obs).values()
+        next_obs, actions, unpadded_actions = self._predict(obs, return_dict= True).values()
 
         logprobs = torch.log_softmax(self.lm(next_obs).logits, dim = -1)[:, (-unpadded_actions.shape[1]-1):-1, ...]
         mask = (unpadded_actions != self.tokenizer.pad_token_id).float()
@@ -196,10 +196,12 @@ class LLMBasePolicy(BasePolicy):
         values = self.predict_values(next_obs)
         return actions, values, logprobs
     
+    
+    
     def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
         raise NotImplementedError
     
-    def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
+    def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor, return_dict = False) -> torch.Tensor:
         #remove the input tokens from the output
         actions = outputs[:, inputs.shape[-1]:].clone()
         padded_actions = actions.clone()
@@ -209,12 +211,15 @@ class LLMBasePolicy(BasePolicy):
         action_space_dim = self.action_space.shape[0]
         padded_actions = add_filler_tokens(padded_actions, action_space_dim, self.filler_token)
         
-        return {'next_observation':outputs, 'actions': padded_actions, 'unpadded_actions': actions}
+        if return_dict:
+            return {'next_observation':outputs, 'actions': padded_actions, 'unpadded_actions': actions}
+        else:
+            return padded_actions
     
     def pre_predict(self, feature: PyTorchObs) -> PyTorchObs:
         pass
     
-    def _predict(self, observation: PyTorchObs, deterministic: bool = False):
+    def _predict(self, observation: PyTorchObs, deterministic: bool = False, return_dict: bool = False):
         """
         Get the action according to the policy for a given observation.
 
@@ -247,7 +252,7 @@ class LLMBasePolicy(BasePolicy):
                 negative_prompt_ids= self.negative_prompt_ids,
                 **self.generation_kwargs
             )
-        outputs =  self.post_predict(inputs, outputs)
+        outputs =  self.post_predict(inputs, outputs, return_dict = return_dict)
         if was_in_training:
             self.lm.train()
         self.tokenizer.padding_side = og_padding_side  

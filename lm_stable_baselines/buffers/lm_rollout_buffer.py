@@ -35,8 +35,8 @@ class LMRolloutBuffer(RolloutBuffer):
     
     def reset(self) -> None:
         super().reset()
-        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.long) + self.filler_token
-        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.long) +self.filler_token
+        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.int64) + self.filler_token
+        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.int64) +self.filler_token
         self.above_threshold_indices = None
         self.data_size = 0
 
@@ -84,17 +84,4 @@ class LMRolloutBuffer(RolloutBuffer):
             np.delete(self.remaining_indices[1], idx)
         )
         
-        return self.sample_indices(sampled_positions)
-
-    def sample_indices(self, idx, padding='right') -> RolloutBufferSamples:
-        assert idx[0].shape == idx[1].shape, "The indices must have the same shape"
-        data = (
-            self.observations[idx],
-            self.actions[idx],
-            self.values[idx].flatten(),
-            self.log_probs[idx].flatten(),
-            self.advantages[idx].flatten(),
-            self.returns[idx].flatten(),
-        )
-        
-        return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
+        return self._get_samples(sampled_positions, env)

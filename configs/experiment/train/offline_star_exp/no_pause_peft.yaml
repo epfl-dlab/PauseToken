@@ -2,14 +2,14 @@
 
 defaults:
   - override /data: gsm8k
-  - override /rl_algorithm: star
+  - override /rl_algorithm: star_off_policy
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
 name: "star on gsm8k"
-run_name: "debug"
+run_name: "offline_star_no_pause_peft"
 task_name: "train"
 
 
@@ -23,8 +23,8 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 100
-  n_outer_loops: 20
+  inner_loop_timesteps: 1580
+  n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
@@ -39,15 +39,21 @@ trainer:
 rl_algorithm:
   n_envs: 4
   batch_size: 4
-  train_freq: 10
-  gradient_steps: 20
+  buffer_size: 6320
+  train_freq: ${trainer.inner_loop_timesteps}
   loss_computed_in_forward_pass: true
   buffer:
-    reward_threshold: 0
+    advantage_threshold: 0
 
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
 
-      
+test: true
+test_batch_size: 8
+test_formatting_func:
+  _target_: functools.partial
+  _args_: 
+    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+  eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
