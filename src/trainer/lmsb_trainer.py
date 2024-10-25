@@ -30,7 +30,8 @@ class LMSBTrainer:
         output_dir: str = "output",
         save_top_k: int = 3,
         metric_for_best_model: str = "val/accuracy",
-        metric_for_best_model_mode_is_min: bool = False
+        metric_for_best_model_mode_is_min: bool = False,
+        disable_peft_first_inference: bool = False
     ):
         self.learn_kwargs = {
             "total_timesteps": inner_loop_timesteps * rl_algorithm.env.num_envs,
@@ -39,6 +40,7 @@ class LMSBTrainer:
             "tb_log_name": tb_log_name,
             "progress_bar": progress_bar
         }
+      
         self.rl_algorithm = rl_algorithm
         self.n_outer_loops = n_outer_loops
         self.num_val_samples = num_val_samples
@@ -60,6 +62,8 @@ class LMSBTrainer:
         self.metric_for_best_model_curr_val = None
         self.metric_for_best_model_mode_is_min = metric_for_best_model_mode_is_min
         self.curr_best_models = []
+        
+        self.disable_peft_first_inference = disable_peft_first_inference
     
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
@@ -353,6 +357,13 @@ class LMSBTrainer:
         
     def on_learn_start(self):
         self.set_stage("train")
+        is_peft_model = _is_peft_model(self.rl_algorithm.policy.lm)
+        # in the first outer loop, option to disable PEFT at inference (Lora is not necessarily trained yet)
+        if self.disable_peft_first_inference and is_peft_model and self.current_outer_loop == 0:
+            self.rl_algorithm.policy.disable_peft_at_inference()
+        else:
+            self.rl_algorithm.policy.enable_peft_at_inference()
+                
         
     def on_learn_end(self):
         pass

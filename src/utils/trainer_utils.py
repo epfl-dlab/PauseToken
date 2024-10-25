@@ -31,6 +31,17 @@ def inference_formatting_function(example, eos_token):
         outputs.append(output)
     return {"input": inputs, "output": outputs}
 
+def reward_conditioning_inference_formatting_function(example, eos_token, correct_answer_feedback):
+    inputs = []
+    outputs = []
+    for i in range(len(example["input"])):
+        prompt = example["input"][i]
+        input = f"{QUESTION_TEMPLATE}{prompt}\n\n{correct_answer_feedback}\n\n{ANSWER_TEMPLATE}"
+        output = f"{example['output'][i]}{eos_token}"
+        inputs.append(input)
+        outputs.append(output)
+    return {"input": inputs, "output": outputs}
+
 def sft_formating_function(example, eos_token):
     data = []
     for i in range(len(example["input"])):

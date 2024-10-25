@@ -119,6 +119,7 @@ class LLMBasePolicy(BasePolicy):
         self.generation_kwargs = generation_kwargs
         self.kwargs = kwargs
         self._build(lr_schedule)
+        self.use_peft_at_inference = False
         
         
         
@@ -219,6 +220,12 @@ class LLMBasePolicy(BasePolicy):
     def pre_predict(self, feature: PyTorchObs) -> PyTorchObs:
         pass
     
+    def disable_peft_at_inference(self):
+        self.use_peft_at_inference = False
+        
+    def enable_peft_at_inference(self):  
+        self.use_peft_at_inference = True  
+    
     def _predict(self, observation: PyTorchObs, deterministic: bool = False, return_dict: bool = False):
         """
         Get the action according to the policy for a given observation.
@@ -238,6 +245,9 @@ class LLMBasePolicy(BasePolicy):
         inputs = feature["input_ids"]
         self.pre_predict(feature)
 
+        if not self.use_peft_at_inference:
+            self.lm.disable_adapter_layers()
+        
         with torch.no_grad():
             outputs = self.lm.generate(
                 inputs = inputs,
@@ -252,6 +262,9 @@ class LLMBasePolicy(BasePolicy):
                 negative_prompt_ids= self.negative_prompt_ids,
                 **self.generation_kwargs
             )
+        if not self.use_peft_at_inference:
+            self.lm.enable_adapter_layers()
+            
         outputs =  self.post_predict(inputs, outputs, return_dict = return_dict)
         if was_in_training:
             self.lm.train()

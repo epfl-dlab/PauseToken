@@ -52,10 +52,18 @@ class LMReplayBuffer(ReplayBuffer):
             return array.to(self.device)
         return super().to_torch(array, copy)
     
-    def find_where_advantage_exceeds_threshold(self, advantage: np.ndarray) -> None:
-        if self.advantage_threshold is None:
+    def find_where_advantage_exceeds_threshold(self, advantage: np.ndarray, override_advantage_threshold = None) -> None:
+        if override_advantage_threshold is not None:
+            advantage_threshold = override_advantage_threshold
+        
+        elif self.advantage_threshold is None:
             self.advantage_threshold = - np.inf
-        self.above_threshold_indices =  np.where(advantage > self.advantage_threshold)
+            advantage_threshold = self.advantage_threshold
+            
+        self.above_threshold_indices =  np.where(advantage > advantage_threshold)
+        if not self.full:
+            filled_positions = np.where(self.above_threshold_indices[0] < self.pos)
+            self.above_threshold_indices = (self.above_threshold_indices[0][filled_positions], self.above_threshold_indices[1][filled_positions])         
         self.remaining_indices = None
         self.data_size = len(self.above_threshold_indices[0])
         

@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 1580
+  inner_loop_timesteps: 99
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -33,11 +33,12 @@ trainer:
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
   metric_for_best_model_mode_is_min: false
+  disable_peft_first_inference: true
 
 
 
 rl_algorithm:
-  n_envs: 4
+  n_envs: 64
   batch_size: 4
   buffer_size: 6320
   train_freq: ${trainer.inner_loop_timesteps}
