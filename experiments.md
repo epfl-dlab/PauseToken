@@ -93,11 +93,11 @@ The table below shows for each model the components that are unfrozen. If not sp
 It seems like the best way to 'pretrain' the model on random pauses is by unfreezing the Pause Head, and the Pause embedding and using LoRa for updating the base model. Note however that training the pause embedding doesn't have much of an effect on the accuracy. We do notice a generally tendency (in this pretraining phase), that incorrect replies seem to generate more pauses than incorrect ones on average.
 
 
-## STaR experiments
+## RL experiments on pause tokens
 
 In this experiment, we compare the training of models on STaR. More specifically, we'll be varying the following axes:
 - Model: Pause token model (using the best from previous experiments: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final`) vs baseline model (no pause token: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final`). For the pause model we'll be training with the best configuration from the previous experiments: `sft_peft.yaml`.For the baseline model we'll be training with 2 types of configurations (peft vs. peft + unfreezing the LM head).
-- STaR offline vs Online
+- RL algorithm
 
 ### Training Specifications
 
@@ -105,10 +105,12 @@ The table below shows the training specifications for each model.
 
 | experiment-yaml-file                             | Model          | Unfreeze LM Head | STaR alg   | python command                                                                                 |
 |--------------------------------------------------|:-------------: |:----------------:|:----------:|--------------------------------------------------------------------------------------------    |
-| offline_star_exp/no_pause_peft.yaml              |  `baseline`    |                  |  `offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft`                          |
-| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |  `baseline`    |        X         |  `offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft_unfr_lm_head`             |
-| offline_star_exp/pause.yaml                      |  `pause model` |                  |  `offline` | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
-
+| offline_star_exp/no_pause_peft.yaml              |  `baseline`    |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft`                          |
+| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |  `baseline`    |        X         |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft_unfr_lm_head`             |
+| offline_star_exp/pause.yaml                      |  `pause model` |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
+| offline_star_exp/pause.yaml                      |  `pause model` |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
+| reward_conditioning/no_pause_constant_rc.yaml    |  `baseline`    |                  |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc`               |
+| reward_conditioning/pause_constant_rc.yaml       |  `pause model`    |        X         |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc` |
 
 
 

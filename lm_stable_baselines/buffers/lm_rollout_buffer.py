@@ -63,6 +63,9 @@ class LMRolloutBuffer(RolloutBuffer):
             self.advantage_threshold = - np.inf
             advantage_threshold = self.advantage_threshold
             
+        else:
+            advantage_threshold = self.advantage_threshold
+        
         self.above_threshold_indices =  np.where(advantage > advantage_threshold)
         if not self.full:
             filled_positions = np.where(self.above_threshold_indices[0] < self.pos)

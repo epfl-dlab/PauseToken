@@ -143,9 +143,9 @@ class LMSBTrainer:
             )
             
         ################# PART 3: Collect rollouts from Replay Buffer #################
-            
-        samps_ids =  np.where(np.ones((self.rl_algorithm.n_envs, n_steps)) == 1)
+        samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
+
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
         
         next_obs = self.rl_algorithm.get_next_observation(val_samps)
