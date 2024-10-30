@@ -2,28 +2,29 @@
 
 defaults:
   - override /data: gsm8k
-  - override /rl_algorithm: star_off_policy
-  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
-  - override /rl_algorithm/policy/model/peft_config: mistral
+  - override /rl_algorithm: rc_off_policy
+  - override /rl_algorithm/policy/model/language_model: pause_from_pretrained
+  - override /rl_algorithm/policy/model/peft_config: null #peft is already there
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
 name: "star on gsm8k"
-run_name: "offline_star_no_pause_peft"
+run_name: "constant_rc_pause"
 task_name: "train"
-
-
 
 data:
   additional_transformation:
     _target_: functools.partial
     _args_: 
-      - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+      - ${get_method:src.utils.trainer_utils.reward_conditioning_inference_formatting_function}
     eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
+    correct_answer_feedback:
+      _target_: src.utils.hydra_custom_resolvers.get_module_attr
+      module_and_attr: src.utils.constants.CORRECT_ANSWER_FEEDBACK
   
 
 trainer:
-  inner_loop_timesteps: 396
+  inner_loop_timesteps: 99
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -36,9 +37,8 @@ trainer:
   disable_peft_first_inference: true
 
 
-
 rl_algorithm:
-  n_envs: 16
+  n_envs: 64
   batch_size: 4
   buffer_size: 6320
   train_freq: ${trainer.inner_loop_timesteps}
@@ -49,8 +49,9 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
+        pretrained_model_name_or_path: ???
 
+train: false
 test: true
 test_batch_size: 8
 test_formatting_func: null

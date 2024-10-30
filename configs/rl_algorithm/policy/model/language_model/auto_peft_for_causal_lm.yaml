@@ -1,6 +1,7 @@
-_target_: AutoPeftModelForCausalLM.from_pretrained #only when you SAVE a PEFT/LORA model and want to reload it, not first time you want to peftify a model
+_target_: peft.AutoPeftModelForCausalLM.from_pretrained #only when you SAVE a PEFT/LORA model and want to reload it, not first time you want to peftify a model
 
 pretrained_model_name_or_path: ???
 
+is_trainable: true
 #example of peft_config:
 #_target_: peft.LoraConfig

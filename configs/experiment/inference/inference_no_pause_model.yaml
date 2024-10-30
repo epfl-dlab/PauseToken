@@ -4,12 +4,12 @@ defaults:
   - override /data: gsm8k
   - override /rl_algorithm: star_off_policy
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
-  - override /rl_algorithm/policy/model/peft_config: mistral
+  - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
 name: "star on gsm8k"
-run_name: "offline_star_no_pause_peft"
+run_name: "offline_star_no_pause_peft_lm_head"
 task_name: "train"
 
 
@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 396
+  inner_loop_timesteps: 99
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -38,7 +38,7 @@ trainer:
 
 
 rl_algorithm:
-  n_envs: 16
+  n_envs: 64
   batch_size: 4
   buffer_size: 6320
   train_freq: ${trainer.inner_loop_timesteps}
@@ -49,8 +49,9 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
+        pretrained_model_name_or_path: ???
 
+train: false
 test: true
 test_batch_size: 8
 test_formatting_func: null

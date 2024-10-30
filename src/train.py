@@ -109,8 +109,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )
-    
+    language_model.train()
     log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
+
     log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
 

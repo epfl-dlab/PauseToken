@@ -301,10 +301,17 @@ class LMSBTrainer:
             #append metric to save_dir if it's not None and we want to save the top k models
             save_dir += \
                 "" if not use_save_top_k or self.metric_for_best_model is None\
-                    else f"-{round(self.metric_for_best_model_curr_val, 3)}" 
+                    else f"-{round(self.metric_for_best_model_curr_val, 3)}"
+            
         
         #if we only want to save the top k models, then we need to check if the current model is better than the worst model
         if use_save_top_k:
+            last_ckpt = os.path.join(self.output_dir, f"last_ckpt")
+            
+            if os.path.exists(last_ckpt):
+                self._remove_save(last_ckpt)
+            self._save_model(last_ckpt, save_type)
+            
             #if metric_for_best_model is None, then we use the total timesteps taken so far as the metric value
             if self.metric_for_best_model is None:
                 self.metric_for_best_model_curr_val = self.learn_kwargs["total_timesteps"] * (self.current_outer_loop + 1)

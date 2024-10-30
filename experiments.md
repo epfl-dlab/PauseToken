@@ -108,15 +108,25 @@ The table below shows the training specifications for each model.
 | offline_star_exp/no_pause_peft.yaml              |  `baseline`    |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft`                          |
 | offline_star_exp/no_pause_peft_unfr_lm_head.yaml |  `baseline`    |        X         |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/no_pause_peft_unfr_lm_head`             |
 | offline_star_exp/pause.yaml                      |  `pause model` |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
-| offline_star_exp/pause.yaml                      |  `pause model` |                  |  `STaR offline` | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
 | reward_conditioning/no_pause_constant_rc.yaml    |  `baseline`    |                  |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc`               |
-| reward_conditioning/pause_constant_rc.yaml       |  `pause model`    |        X         |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc` |
+| reward_conditioning/pause_constant_rc.yaml       |  `pause model` |        X         |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc` |
 
 
 
 ### Results
 
-| experiment-yaml-file                             |                               Path to predictions                                             |             Model Location                                                        |                       WandB Link                                      |
-|--------------------------------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|:--------------------------------------------------------------------: |
-| offline_star_exp/no_pause_peft.yaml              |                                                                                               |                                                                                   |  |
-| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |                                                                                               |                                                                                   |  |
+
+| experiment-yaml-file                             |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
+|--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
+| reward_conditioning/pause_constant_rc.yaml       |    (0.48)        |  
+| offline_star_exp/pause.yaml                      |    0.55        |
+| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |    0.54        |
+
+
+| experiment-yaml-file                             |                               Path to predictions                                             |             Model Location                                                          |                       WandB Link                                      |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------  |:--------------------------------------------------------------------: |
+| offline_star_exp/no_pause_peft.yaml              |                                                                                               |                                                                                     |                                                                       |
+| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_10-30-30/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-28/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/7um5ztnp) |
+| reward_conditioning/pause_constant_rc.yaml       |                                                                                               | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-44/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/98w65xd5) |
+| offline_star_exp/pause.yaml                      | `dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-29_09-56-35/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-35/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/gigbv2xu) |
+| reward_conditioning/no_pause_constant_rc.yaml   

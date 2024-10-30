@@ -24,7 +24,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 99
+  inner_loop_timesteps: 396
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -38,7 +38,7 @@ trainer:
 
 
 rl_algorithm:
-  n_envs: 64
+  n_envs: 16
   batch_size: 4
   buffer_size: 6320
   train_freq: ${trainer.inner_loop_timesteps}
@@ -53,11 +53,4 @@ rl_algorithm:
 
 test: true
 test_batch_size: 8
-test_formatting_func:
-  _target_: functools.partial
-  _args_:
-    - ${get_method:src.utils.trainer_utils.reward_conditioning_inference_formatting_function}
-  eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
-  correct_answer_feedback:
-    _target_: src.utils.hydra_custom_resolvers.get_module_attr
-    module_and_attr: src.utils.constants.CORRECT_ANSWER_FEEDBACK
+test_formatting_func: null
