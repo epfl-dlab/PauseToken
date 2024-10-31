@@ -22,6 +22,11 @@ TEST_RESULTS_PATHS = [
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_09-50-47/test_results.json",
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-10-53/test_results.json",
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-19/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_10-30-30/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-29_09-56-35/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-40/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-05-49/test_results.json",
 ]
 
 EXP_NAMES = [
@@ -45,6 +50,15 @@ EXP_NAMES = [
     "sft_fr_pembed_unfr_lm_head_embed_peft",
     "baseline (model w/out pause; peft) 1",
     "baseline (model w/out pause; peft) 2 epoch",
+    "offline_star_exp/no_pause_peft",
+    "offline_star_exp/no_pause_peft_unfr_lm_head.yaml",
+    "offline_star_exp/pause.yaml",
+    "reward_conditioning/no_pause_constant_rc.yaml",
+    "reward_conditioning/pause_constant_rc.yaml",
+    # "star pause outer loop 0",
+    # "star pause outer loop 1",
+    # "pause constant reward conditioning outer loop 0",
+    # "pause constant reward conditioning outer loop 1",
 ]
 
 def count_pauses(data, pause_token = "<|pause|>"):    
