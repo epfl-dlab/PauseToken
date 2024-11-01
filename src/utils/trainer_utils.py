@@ -154,7 +154,9 @@ def test_model(
     streamer: Optional[BaseStreamer] = None,
     negative_prompt_ids: Optional[torch.LongTensor] = None,
     generation_kwargs: Optional[Dict[str,Any]] = {},
-    evaluation_metrics: Optional[Dict[str, Callable[[str, str], Union[int, float, bool]]]] = {}
+    evaluation_metrics: Optional[Dict[str, Callable[[str, str], Union[int, float, bool]]]] = {},
+    save_results: Optional[bool] = True,
+    save_file_name: Optional[str] = "test_results.json",
 ):
     """ Perform a "normal" rollout
     
@@ -233,8 +235,9 @@ def test_model(
                 tmp_res[j][metric_name] = metric_func(gen_text_no_special_tokens, ground_truths[j])
         res.extend(tmp_res)
     
-    log.info(f"Saving test results to {os.path.join(output_dir, 'test_results.json')}")
-    save_json(res, output_dir, "test_results.json")
+    if save_results:
+        log.info(f"Saving test results to {os.path.join(output_dir, save_file_name)}")
+        save_json(res, output_dir, save_file_name)
     
     if was_in_training:
         model.train()

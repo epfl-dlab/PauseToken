@@ -176,6 +176,7 @@ configs/local/default.yaml
 .env
 **/.DS_Store
 outputs/*
+*data/
 
 # Aim logging
 .aim

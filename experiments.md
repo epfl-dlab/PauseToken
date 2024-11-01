@@ -96,27 +96,45 @@ It seems like the best way to 'pretrain' the model on random pauses is by unfree
 ## RL experiments on pause tokens
 
 In this experiment, we compare the training of models on STaR. More specifically, we'll be varying the following axes:
-- Model: Pause token model (using the best from previous experiments: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final`) vs baseline model (no pause token: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final`). For the pause model we'll be training with the best configuration from the previous experiments: `sft_peft.yaml`.For the baseline model we'll be training with 2 types of configurations (peft vs. peft + unfreezing the LM head).
+- Model: Pause token model (using the best from previous experiments: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final`) vs baseline model (no pause token: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final`). For the pause model we'll be training with the best configuration from the previous experiments: `sft_peft.yaml`
 - RL algorithm
+- temperature (1.0 vs 1.5; see [sampling_playground.ipynb](./notebooks/model_playgrounds/sampling_playground.ipynb) for why we chose these values (TL;DR: at higher temperatures the accuracy of our warmed up models collapses))
 
 ### Training Specifications
 
 The table below shows the training specifications for each model.
 
-| experiment-yaml-file                             | Model          | Unfreeze LM Head | STaR alg                                                       | python command                                                                                 |
-|--------------------------------------------------|:-------------: |:----------------:|:--------------------------------------------------------------:|--------------------------------------------------------------------------------------------    |
-| offline_star_exp/no_pause_peft.yaml              |  `baseline`    |                  |  `STaR offline`                                                | `python src/train.py experiment=train/offline_star_exp/no_pause_peft`                          |
-| offline_star_exp/no_pause_peft_unfr_lm_head.yaml |  `baseline`    |        X         |  `STaR offline`                                                | `python src/train.py experiment=train/offline_star_exp/no_pause_peft_unfr_lm_head`             |
-| offline_star_exp/pause.yaml                      |  `pause model` |                  |  `STaR offline`                                                | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
-| reward_conditioning/no_pause_constant_rc.yaml    |  `baseline`    |                  |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc`                |
-| reward_conditioning/pause_constant_rc.yaml       |  `pause model` |        X         |  `Textual Reward Conditioning (constant text rewards) offline` | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc`                   |
 
 
+<!-- possibly depr
+
+| experiment name                                  | Model          | Unfreeze LM Head | STaR alg                                                       | tempearture |             python command                                                                     |
+|--------------------------------------------------|:-------------: |:----------------:|:--------------------------------------------------------------:|:-----------:|------------------------------------------------------------------------------------------------|
+| offline_star_exp/no_pause_peft                   |  `baseline`    |                  |  `STaR offline`                                                |     1.0     | `python src/train.py experiment=train/offline_star_exp/no_pause_peft`                          |
+| offline_star_exp/no_pause_peft_unfr_lm_head      |  `baseline`    |        X         |  `STaR offline`                                                |     1.0     | `python src/train.py experiment=train/offline_star_exp/no_pause_peft_unfr_lm_head`             |
+| offline_star_exp/pause                           |  `pause model` |                  |  `STaR offline`                                                |     1.0     | `python src/train.py experiment=train/offline_star_exp/pause`                                  |
+| reward_conditioning/no_pause_constant_rc         |  `baseline`    |                  |  `Textual Reward Conditioning (constant text rewards) offline` |     1.0     | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc`                |
+| reward_conditioning/pause_constant_rc            |  `pause model` |        X         |  `Textual Reward Conditioning (constant text rewards) offline` |     1.0     | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc`                   |
+-->
+
+| experiment name                                  | Model          | STaR alg                                                       | temperature |             python command                                                                                                                                                               |
+|--------------------------------------------------|:-------------: |:--------------------------------------------------------------:|:-----------:|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| offline_star_exp/no_pause_peft_temp_1.0          |  `baseline`    |  `STaR offline`                                                |     1.0     | `python src/train.py experiment=train/offline_star_exp/no_pause_peft run_name=offline_star_no_pause_peft_temp_1.0`                                                                       |
+| offline_star_exp/pause_temp_1.0                  |  `pause model` |  `STaR offline`                                                |     1.0     | `python src/train.py experiment=train/offline_star_exp/pause run_name=star_pause_temp_1.0`                                                                                               |
+| reward_conditioning/no_pause_constant_rc_temp_1.0|  `baseline`    |  `Textual Reward Conditioning (constant text rewards) offline` |     1.0     | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc run_name=constant_rc_no_pause_temp_1.0`                                                                   |
+| reward_conditioning/pause_constant_rc_temp_1.0   |  `pause model` |  `Textual Reward Conditioning (constant text rewards) offline` |     1.0     | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc run_name=constant_rc_pause_temp_1.0`                                                                          |
+| offline_star_exp/no_pause_peft_temp_1.5          |  `baseline`    |  `STaR offline`                                                |     1.5     | `python src/train.py experiment=train/offline_star_exp/no_pause_peft run_name=offline_star_no_pause_peft_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`      |
+| offline_star_exp/pause_temp_1.5                  |  `pause model` |  `STaR offline`                                                |     1.5     | `python src/train.py experiment=train/offline_star_exp/pause run_name=star_pause_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`                              |
+| reward_conditioning/no_pause_constant_rc_temp_1.5|  `baseline`    |  `Textual Reward Conditioning (constant text rewards) offline` |     1.5     | `python src/train.py experiment=train/reward_conditioning/no_pause_constant_rc run_name=constant_rc_no_pause_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`  |
+| reward_conditioning/pause_constant_rc_temp_1.5   |  `pause model` |  `Textual Reward Conditioning (constant text rewards) offline` |     1.5     | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc run_name=constant_rc_pause_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`         |
 
 ### Results
 
 
-| experiment-yaml-file                             |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! IMPORTANT: I MIGHT HAVE TO RERUN INFERENCE OF MY EXPERIMENTS AT TEMPERATURE 1.0 for all models to be fair !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+<!-- Might Depricate -->
+<!-- | experiment name                                  |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
 |--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
 | offline_star_exp/no_pause_peft.yaml              |    0.53        |               0.0                  |                      0.0                                  |                          0.0                               |
 | offline_star_exp/no_pause_peft_unfr_lm_head.yaml |    0.54        |               0.0                  |                      0.0                                  |                          0.0                               |
@@ -127,13 +145,13 @@ The table below shows the training specifications for each model.
 
 
 
-| experiment-yaml-file                             |                               Path to predictions                                             |             Model Location                                                          |                       WandB Link                                      |
+|                                                  |                               Path to predictions                                             |             Model Location                                                          |                       WandB Link                                      |
 |--------------------------------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------  |:--------------------------------------------------------------------: |
 | offline_star_exp/no_pause_peft.yaml              |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-19/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-19/final` | [part 1](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/0yq0dyrp) [part 2](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/cnanm007) (run crashed so 2 parts)|
 | offline_star_exp/no_pause_peft_unfr_lm_head.yaml |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_10-30-30/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-28/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/7um5ztnp) |
 | offline_star_exp/pause.yaml                      |`dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-29_09-56-35/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-35/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/gigbv2xu) |
 | reward_conditioning/no_pause_constant_rc.yaml    |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-40/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-40/final` | [part 1](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/di9g6j6u) [part 2](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/f0zuv4t9) (run crashed so 2 parts)|
-| reward_conditioning/pause_constant_rc.yaml       |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-05-49/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-44/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/98w65xd5) |
+| reward_conditioning/pause_constant_rc.yaml       |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-05-49/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-28_11-26-44/final` | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/98w65xd5) | -->
 
 
 ### Takeaways

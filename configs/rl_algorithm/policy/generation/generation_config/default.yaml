@@ -10,7 +10,7 @@ early_stopping: false
 max_time: null
 
 # Parameters that control the generation strategy used
-do_sample: False
+do_sample: true
 num_beams: 1
 num_beam_groups: 1
 penalty_alpha: null
