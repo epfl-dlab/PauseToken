@@ -122,7 +122,7 @@ class LMSBTrainer:
             prev_do_sample = self.rl_algorithm.policy.generation_config.do_sample
             prev_temperature = self.rl_algorithm.policy.generation_config.temperature
             self.rl_algorithm.policy.generation_config.do_sample = self.do_sample_at_validation
-            self.rl_algorithm.policy.generation_config.temperature = 1.0
+            self.rl_algorithm.policy.generation_config.temperature = 1.0 if not self.do_sample_at_validation else prev_temperature
         
         ################# PART 2: perform rollout #################
         #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
