@@ -189,6 +189,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 batched=True
             )
         
+        change_do_sample = False
+        if cfg["do_sample_at_test"] != trainer.rl_algorithm.policy.generation_config.do_sample:
+            log.info(f"Changing do_sample to {cfg['do_sample_at_test']} for testing")
+            change_do_sample = True
+            prev_do_sample = trainer.rl_algorithm.policy.generation_config.do_sample
+            prev_temperature = trainer.rl_algorithm.policy.generation_config.temperature
+            trainer.rl_algorithm.policy.generation_config.do_sample = cfg["do_sample_at_test"]
+            trainer.rl_algorithm.policy.generation_config.temperature = 1.0 if not cfg["do_sample_at_test"] else prev_temperature
+            
+        
         test_metric_fns = {
             f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
             for name in cfg.metrics["test"].keys()
@@ -208,6 +218,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         
         log.info(f"Test metrics: {test_summary_metrics}")
         test_metrics = test_summary_metrics
+        
+        if change_do_sample:
+            trainer.rl_algorithm.policy.generation_config.do_sample = prev_do_sample
+            trainer.rl_algorithm.policy.generation_config.temperature = prev_temperature
 
 
     # merge train and test metrics

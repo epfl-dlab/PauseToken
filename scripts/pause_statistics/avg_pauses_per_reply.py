@@ -27,6 +27,13 @@ TEST_RESULTS_PATHS = [
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-29_09-56-35/test_results.json",
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-03-40/test_results.json",
     "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-10-30_15-05-49/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_09-59-49/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-00-08/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-10-29/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-00/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-17/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-36/test_results.json",
+    "/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-02-02/test_results.json"
 ]
 
 EXP_NAMES = [
@@ -55,6 +62,13 @@ EXP_NAMES = [
     "offline_star_exp/pause.yaml",
     "reward_conditioning/no_pause_constant_rc.yaml",
     "reward_conditioning/pause_constant_rc.yaml",
+    "offline_star_exp/no_pause_peft_temp_1.0",
+    "offline_star_exp/pause_temp_1.0",
+    "reward_conditioning/no_pause_constant_rc_temp_1.0",
+    "reward_conditioning/pause_constant_rc_temp_1.0",
+    "offline_star_exp/no_pause_peft_temp_1.5",
+    "offline_star_exp/pause_temp_1.5",
+    "reward_conditioning/no_pause_constant_rc_temp_1.5"
     # "star pause outer loop 0",
     # "star pause outer loop 1",
     # "pause constant reward conditioning outer loop 0",

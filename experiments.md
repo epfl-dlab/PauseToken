@@ -83,8 +83,8 @@ The table below shows for each model the components that are unfrozen. If not sp
 |      sft_fr_pembed_unfr_lm_head.yaml       | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-18/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-18/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/tpiqzrl0) |
 |      sft_fr_pembed_unfr_lm_head_peft       | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-26/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-26/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/6com48j8) |
 |      sft_fr_pembed_unfr_lm_head_embed      | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-37/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-40-37/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/xrw3hqo9) |
-|   sft_fr_pembed_unfr_lm_head_embed_peft    | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_09-50-47/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_09-50-47/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/1z1z1z1z) |
-|    baseline (model w/out pause; peft) 1    | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-10-53/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final` | [click here]()                                                       |
+|   sft_fr_pembed_unfr_lm_head_embed_peft    | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_09-50-47/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_09-50-47/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/5j8a3kvy) |
+|    baseline (model w/out pause; peft) 1    | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-10-53/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/opw5k8mh)                                                       |
 | baseline (model w/out pause; peft) 2 epoch | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/w5xt8w0w) |
 
 
@@ -102,7 +102,7 @@ In this experiment, we compare the training of models on STaR. More specifically
 
 ### Training Specifications
 
-The table below shows the training specifications for each model.
+The table below shows the training specifications for each model. They are all trained for 10 outerloops (10 times rollout on whole dataset + SFT on roullouts).
 
 
 
@@ -130,9 +130,58 @@ The table below shows the training specifications for each model.
 
 ### Results
 
+| experiment name                                  |                               Path to predictions                                             |             Model Location                                                                   |                       WandB Link                                      |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|:--------------------------------------------------------------------: |
+| offline_star_exp/no_pause_peft_temp_1.0          |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_09-59-49/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-44-53/final`          | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/kf6quxn2) |
+| offline_star_exp/pause_temp_1.0                  |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-00-08/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-45-20/final`          | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/sbqi92z0) |
+| reward_conditioning/no_pause_constant_rc_temp_1.0|`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-10-29/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-45-36/final`          | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/csjcqeer) |
+| reward_conditioning/pause_constant_rc_temp_1.0   |`dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-00/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-45-52/final`          | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/mouzslj9) |                      
+| offline_star_exp/no_pause_peft_temp_1.5          |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-17/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-46-35/last_ckpt`      | [Click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/0yq0dyrp) |
+| offline_star_exp/pause_temp_1.5                  |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-01-36/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-46-53/last_ckpt`      | [Click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/cnanm007) |
+| reward_conditioning/no_pause_constant_rc_temp_1.5|`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_10-02-02/test_results.json`| `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_17-00-22/last_ckpt`      | [Click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/yc8vizfa) |
+| reward_conditioning/pause_constant_rc_temp_1.5   |                                      -                                                        |                                            -                                                 |                                      -                                |       
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! IMPORTANT: I MIGHT HAVE TO RERUN INFERENCE OF MY EXPERIMENTS AT TEMPERATURE 1.0 for all models to be fair !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
+Collapse of 1.5 temperature models. See their validation predictions for more information because we're sampling from the model at temperature 1.5 (gets better when we resample from argmax): 
+-  **offline_star_exp/no_pause_peft_temp_1.5**: `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-46-35/val_results_outer_loop_6.json`
+-  **offline_star_exp/pause_temp_1.5**: `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-46-53/val_results_outer_loop_9.json`
+
+
+| experiment name                                  |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
+|--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
+| offline_star_exp/no_pause_peft_temp_1.0          |     0.58       |               0.0                  |                      0.0                                  |                          0.0                               |
+| offline_star_exp/pause_temp_1.0                  |     **0.62**   |               2.48                 |                      2.51                                 |                          2.1                               |
+| reward_conditioning/no_pause_constant_rc_temp_1.0|     0.49       |               0.0                  |                      0.0                                  |                          0.0                               |
+| reward_conditioning/pause_constant_rc_temp_1.0   |     0.49       |               1.0                  |                      1.05                                 |                          0.95                              |
+| offline_star_exp/no_pause_peft_temp_1.5          |     0.43       |               0.0                  |                      0.0                                  |                          0.0                               |                                             
+| offline_star_exp/pause_temp_1.5                  |     0.45       |               1.4                  |                      0.55                                 |                          2.1                               |
+| reward_conditioning/no_pause_constant_rc_temp_1.5|     0.0        |               0.0                  |                      0.0                                  |                          0.0                               |
+| reward_conditioning/pause_constant_rc_temp_1.5   |                |
+
+
+
+### Important Note
+ When running inference, I found that continuing on sampling with the same temperature is not that great and it's better to sample from argmax. In the new code, I've added a flag to sample from argmax at validation and test time. But when I ran these experiments it was not the case so it's possible you see differences in the validation and test results. If you don't manage to get the same results rerun inference with you models. Here's how you can do it for each type of model:
+- For non-pause models trained on STaR: 
+    ```shell
+    python src/train.py experiment=inference/inference_no_pause_model rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH_TO_YOUR_MODEL_HERE> rl_algorithm.policy.generation.generation_config.temperature=1.0 rl_algorithm.policy.generation.generation_config.do_sample=false
+    ```
+- For pause models trained on STaR: 
+    ```shell
+    python src/train.py experiment=inference/inference_pause_model rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH_TO_YOUR_MODEL_HERE> rl_algorithm.policy.generation.generation_config.temperature=1.0 rl_algorithm.policy.generation.generation_config.do_sample=false
+    ```
+- For non-pause models trained on Textual Reward Conditioning: 
+    ```shell
+    python src/train.py experiment=inference/inference_no_pause_model rc_model.language_model.pretrained_model_name_or_path=<PATH_TO_YOUR_MODEL_HERE> rc_model.generation.generation_config.temperature=1.0 rc_model.generation.generation_config.do_sample=false
+    ```
+- For non-pause models trained on Constant Textual Reward Conditioning: 
+    ```shell
+    python src/train.py experiment=inference/inference_no_pause_model_rc rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH_TO_YOUR_MODEL_HERE> rl_algorithm.policy.generation.generation_config.temperature=1.0 rl_algorithm.policy.generation.generation_config.do_sample=false
+    ```
+- For pause models trained on Constant Textual Reward Conditioning: 
+    ```shell
+    python src/train.py experiment=inference/inference_pause_model_rc rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH_TO_YOUR_MODEL_HERE> rl_algorithm.policy.generation.generation_config.temperature=1.0 rl_algorithm.policy.generation.generation_config.do_sample=false
+    ```
 <!-- Might Depricate -->
 <!-- | experiment name                                  |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
 |--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
@@ -155,9 +204,31 @@ The table below shows the training specifications for each model.
 
 
 ### Takeaways
-I seem to be learning nothing... I should try probably sampling with a higher temperature.
+STaR seems to be the best. Temperature 1.5 from the start might be too agressive. 
+
+## Training Best STaR trained Models till "convergence"
+
+### Training Specifications
+
+From last experiment, we will train the 2 best models till convergence which are: `offline_star_exp/no_pause_peft_temp_1.0` and `offline_star_exp/pause_temp_1.0`. We will keep on training them for 10 more outerloops (10 times rollout on whole dataset + SFT on roullouts). The last checkpoints of these models are `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-44-53/last_ckpt` and `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-45-20/last_ckpt` respectively so we'll start from there. The training specifications are the same as the previous experiment. To resume training, we'll use the following commands:
+
+| experiment name                                  |        python command|
+|--------------------------------------------------|-----------------------|
+| offline_star_exp/no_pause_peft_temp_1.0_part2    | `python src/train.py experiment=train/offline_star_exp/no_pause_peft rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-44-53/last_ckpt rl_algorithm.policy.model.peft_config=null trainer.n_outer_loops=10 trainer.disable_peft_first_inference=false rl_algorithm/policy/model/language_model=auto_peft_for_causal_lm run_name=offline_star_no_pause_peft_temp_1.0_part2`|
+| offline_star_exp/pause_temp_1.0_part2            | `python src/train.py experiment=train/offline_star_exp/pause rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-45-20/last_ckpt rl_algorithm.policy.model.peft_config=null trainer.n_outer_loops=10 trainer.disable_peft_first_inference=false rl_algorithm/policy/model/language_model=pause_from_pretrained run_name=star_pause_temp_1.0_part2 +rl_algorithm.policy.model.language_model.is_trainable=True`|
 
 
+### Results
+
+Since I'm trying to get the best model and that my validation accuracy (which is how I chose the best model), I'll be running inference on the test set on the 3 best checkpoints of each model according to the validation accuracy as well as the last checkpoint of each model. The table already presents the results with the best checkpoint of each model.
+
+| experiment name                                  |                               Path to predictions                                             |             Model Location                                                                   |                       WandB Link                                      |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|:--------------------------------------------------------------------: |
+|   offline_star_exp/no_pause_peft_temp_1.0_part2  |                                                                                               |                                                                                              | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/9e9bpce2) |
+|   offline_star_exp/pause_temp_1.0_part2          |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-05_08-30-36/test_results.json`|    `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_16-38-59/last_ckpt`   | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/60ptzzku) |
 
 
-Note: We may try these experiments with different temperatures
+| experiment name                                  |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
+|--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
+| offline_star_exp/no_pause_peft_temp_1.0          |                |                0.0                 |                      0.0                                  |                          0.0                               |
+| offline_star_exp/pause_temp_1.0                  |     0.645      |                3.40                |                      3.37                                 |                          3.73                              |

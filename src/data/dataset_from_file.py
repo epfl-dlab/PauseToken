@@ -18,11 +18,14 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
             additional_transformation = hydra.utils.instantiate(additional_transformation)
         dataset = dataset.map(additional_transformation, batched=True)
 
-    if not 'val' in dataset.keys():
+    if not 'val' in dataset.keys() and "train" in dataset.keys():
         val_size = kwargs.get('train_val_test_split', [-1, 0.1])[1]
         data_train = dataset['train'].train_test_split(test_size=val_size)
         dataset['train'] = data_train['train']  
         dataset['val'] = data_train['test']
+    elif "train" not in dataset.keys():
+        dataset['train'] = []
+        dataset['val'] = []
 
     debug_n = kwargs.get('debug_n', None)
     if debug_n is not None:

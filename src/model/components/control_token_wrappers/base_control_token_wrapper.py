@@ -157,9 +157,9 @@ class BaseControlTokenWrapper(PreTrainedModel):
         if pretrained_model_name_or_path is not None and has_adapter_config:
             peft_config = PeftConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
             pause_clf_path = peft_config.base_model_name_or_path
-        
+            is_trainable = kwargs.pop("is_trainable", True)
             ctrl_tok_clf = cls.from_pretrained(pause_clf_path, *args, **kwargs)
-          
+            kwargs["is_trainable"] = is_trainable
             return PeftModel.from_pretrained(ctrl_tok_clf, pretrained_model_name_or_path, *args, **kwargs)
         # else load the model as usual
         else:
@@ -233,6 +233,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         :param temperature: The temperature to set to all control tokens
         :type temperature: float
         """
+        print(f"Setting control token temperature to {temperature}")
         self.ctrl_tokens_temperature = temperature
        
     def prepare_inputs_for_generation(self, *args, **kwargs):

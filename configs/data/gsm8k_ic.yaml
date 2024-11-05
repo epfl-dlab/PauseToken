@@ -1,0 +1,14 @@
+defaults:
+  - dataset_from_file
+
+path: "data/gsm8k_irrelevant_context/"
+    
+files: 
+  - "test"
+
+file_type: "json"
+
+train_val_test_split: [1.0, 0.0, -1]
+
+input_label: "new_question" #or "original_question"
+output_label: "answer"

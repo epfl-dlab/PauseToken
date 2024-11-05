@@ -31,7 +31,8 @@ class LMSBTrainer:
         save_top_k: int = 3,
         metric_for_best_model: str = "val/accuracy",
         metric_for_best_model_mode_is_min: bool = False,
-        disable_peft_first_inference: bool = False
+        disable_peft_first_inference: bool = False,
+        do_sample_at_validation: bool = False
     ):
         self.learn_kwargs = {
             "total_timesteps": inner_loop_timesteps * rl_algorithm.env.num_envs,
@@ -64,6 +65,7 @@ class LMSBTrainer:
         self.curr_best_models = []
         
         self.disable_peft_first_inference = disable_peft_first_inference
+        self.do_sample_at_validation = do_sample_at_validation
     
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
@@ -113,6 +115,15 @@ class LMSBTrainer:
             **kwargs
         )
         
+        ######## Avoids sampling with chosen temperature during validation (use do_sample of HF Generation to get argmax) --> More reliable results ########
+        change_do_sample = False
+        if self.do_sample_at_validation != self.rl_algorithm.policy.generation_config.do_sample:
+            change_do_sample = True
+            prev_do_sample = self.rl_algorithm.policy.generation_config.do_sample
+            prev_temperature = self.rl_algorithm.policy.generation_config.temperature
+            self.rl_algorithm.policy.generation_config.do_sample = self.do_sample_at_validation
+            self.rl_algorithm.policy.generation_config.temperature = 1.0
+        
         ################# PART 2: perform rollout #################
         #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
@@ -141,7 +152,11 @@ class LMSBTrainer:
                 rollout_buffer=validation_buffer,
                 n_rollout_steps=n_steps+1
             )
-            
+        
+        if change_do_sample:
+            self.rl_algorithm.policy.generation_config.do_sample = prev_do_sample
+            self.rl_algorithm.policy.generation_config.temperature = prev_temperature
+
         ################# PART 3: Collect rollouts from Replay Buffer #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
