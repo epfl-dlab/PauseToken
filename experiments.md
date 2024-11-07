@@ -224,11 +224,15 @@ Since I'm trying to get the best model and that my validation accuracy (which is
 
 | experiment name                                  |                               Path to predictions                                             |             Model Location                                                                   |                       WandB Link                                      |
 |--------------------------------------------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|:--------------------------------------------------------------------: |
-|   offline_star_exp/no_pause_peft_temp_1.0_part2  |                                                                                               |                                                                                              | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/9e9bpce2) |
+|   offline_star_exp/no_pause_peft_temp_1.0_part2  |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-05_14-18-49/test_results.json`|    `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_16-16-47/last_ckpt`   | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/9e9bpce2) |
 |   offline_star_exp/pause_temp_1.0_part2          |`/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-05_08-30-36/test_results.json`|    `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-04_16-38-59/last_ckpt`   | [click here](https://wandb.ai/sigmae/star%20on%20gsm8k/runs/60ptzzku) |
 
 
 | experiment name                                  |  Test Accuracy | Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
 |--------------------------------------------------|:--------------:|:----------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------------:|
-| offline_star_exp/no_pause_peft_temp_1.0          |                |                0.0                 |                      0.0                                  |                          0.0                               |
+| offline_star_exp/no_pause_peft_temp_1.0          |     0.644      |                0.0                 |                      0.0                                  |                          0.0                               |
 | offline_star_exp/pause_temp_1.0                  |     0.645      |                3.40                |                      3.37                                 |                          3.73                              |
+
+
+### Predictions
+Download this HTML and open in your browser to see some of the predictions of these models: [click here](https://drive.google.com/file/d/1YapfJerI-dWtzw4a3hWZQ8vUHX8opO2L/view?usp=sharing)
