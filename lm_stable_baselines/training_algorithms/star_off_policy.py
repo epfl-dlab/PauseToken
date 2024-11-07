@@ -124,6 +124,9 @@ class STaROffPolicy(OffPolicyAlgorithm):
     
     def get_next_observation(self, data):
         return data.next_observations
+    
+    def process_sampled_rollouts(self, samples): # off-policy doesn't need to do anything. the output is tokenized, tensor, with a padding mask.
+        return samples
         
     
     def train(self, gradient_steps: int, batch_size: int) -> None:

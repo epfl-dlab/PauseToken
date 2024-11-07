@@ -23,9 +23,9 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 3
-  n_outer_loops: 5
-  progress_bar: false
+  inner_loop_timesteps: 2 # this gets translated into the number of times rollouts are done for each outer loop
+  n_outer_loops: 3 # number of times an outer loop is done, then validation is done and the model is saved.
+  progress_bar: true
   num_val_samples: 10
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
@@ -35,7 +35,9 @@ trainer:
 
 
 rl_algorithm:
-  n_envs: 4
+  n_steps: 5 # used only in collect rollouts. the size of rollouts is n_envs * n_steps
+  n_envs: 4 # inner_loop_timesteps * n_envs is the number of times rollout() is called in each outer loop, 
+  batch_size: 2 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   buffer:
     advantage_threshold: 0

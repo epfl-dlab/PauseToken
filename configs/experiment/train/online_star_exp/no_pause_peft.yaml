@@ -2,14 +2,14 @@
 
 defaults:
   - override /data: gsm8k
-  - override /rl_algorithm: star_off_policy
+  - override /rl_algorithm: star_on_policy
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
-name: "star on gsm8k"
-run_name: "offline_star_no_pause_peft"
+name: "online star on gsm8k"
+run_name: "online_star_no_pause_peft"
 task_name: "train"
 
 
@@ -23,12 +23,12 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 1
-  n_outer_loops: 10
+  inner_loop_timesteps: 2
+  n_outer_loops: 3
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
-  num_val_samples: 7
+  num_val_samples: 3
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
@@ -38,10 +38,9 @@ trainer:
 
 
 rl_algorithm:
-  n_envs: 4
-  batch_size: 2
-  buffer_size: 6320
-  train_freq: ${trainer.inner_loop_timesteps}
+  n_steps: 5 # used only in collect rollouts. the size of rollouts is n_envs * n_steps
+  n_envs: 4 # inner_loop_timesteps * n_envs is the number of times rollout() is called in each outer loop, 
+  batch_size: 2 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   buffer:
     advantage_threshold: 0

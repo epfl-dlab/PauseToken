@@ -34,6 +34,7 @@ rollout_buffer_kwargs: ${get_dict_except:${.buffer},"_target_"} # #fetch all arg
 stats_window_size: ${.n_steps}
 tensorboard_log: null
 monitor_wrapper: true
+batch_size: 2
 
 verbose: 0
 seed: 42

@@ -157,13 +157,16 @@ class LMSBTrainer:
             self.rl_algorithm.policy.generation_config.do_sample = prev_do_sample
             self.rl_algorithm.policy.generation_config.temperature = prev_temperature
 
-        ################# PART 3: Collect rollouts from Replay Buffer #################
+        ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
 
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
-        
-        next_obs = self.rl_algorithm.get_next_observation(val_samps)
+        val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
+        if hasattr(val_samps, "next_observations"):
+            next_obs = val_samps.next_observations
+        else:
+            next_obs = self.rl_algorithm.get_next_observation(val_samps)
         
         texts = decode_and_strip_pad_tokens(
             next_obs["input_ids"],
@@ -193,7 +196,7 @@ class LMSBTrainer:
         ################# PART 4: Compute metrics #################
         
         #TODO: Compute or extract metrics (e.g. reward)
-        for i,val_samp in enumerate(val_samps.next_observations["input_ids"]):
+        for i,val_samp in enumerate(next_obs["input_ids"]):
             
             text = texts[i]
             input_text = input_texts[i]

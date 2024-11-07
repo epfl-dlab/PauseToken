@@ -96,3 +96,41 @@ class LMRolloutBuffer(RolloutBuffer):
         )
         
         return self._get_samples(sampled_positions, env)
+
+    
+    def _get_samples(self, batch_inds, env: Optional[VecNormalize] = None, padding='right') -> RolloutBufferSamples:
+        
+        obs = self.tokenizer(
+            self.tokenizer.batch_decode(
+                remove_filler_tokens(self.observations[batch_inds][..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
+            ),
+            return_tensors="pt", padding=True, truncation=True
+        )
+ 
+        actions = self.tokenizer(
+            self.tokenizer.batch_decode(
+                remove_filler_tokens(self.actions[batch_inds], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
+            ),
+             return_tensors="pt", padding=True, truncation=True
+        )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
+
+        # data = (
+        #     self.observations[batch_inds],
+        #     self.actions[batch_inds],
+        #     self.values[batch_inds].flatten(),
+        #     self.log_probs[batch_inds].flatten(),
+        #     self.advantages[batch_inds].flatten(),
+        #     self.returns[batch_inds].flatten(),
+        # )
+       
+        data = (
+            obs,
+            actions,
+            self.values[batch_inds].flatten(),
+            self.log_probs[batch_inds].flatten(),
+            self.advantages[batch_inds].flatten(),
+            self.returns[batch_inds].flatten(),
+        )
+
+        return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
+        

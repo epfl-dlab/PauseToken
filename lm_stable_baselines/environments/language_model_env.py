@@ -110,8 +110,8 @@ class LanguageModelEnv(Env):
     
     def next_observation_from_observation_and_action(self, obs: LongTensor, actions: LongTensor) -> List[List[int]]:
         #assumption: filler tokens have been removed
-        unpadded_obs = remove_filler_tokens(obs, self.filler_token)
-        unpadded_acts = remove_filler_tokens(actions, self.filler_token)
+        unpadded_obs = remove_filler_tokens(obs, self.tokenizer.pad_token_id)
+        unpadded_acts = remove_filler_tokens(actions, self.tokenizer.pad_token_id)
 
         new_observations = [self._step(observation,action) for observation, action in zip(unpadded_obs,unpadded_acts)]
 

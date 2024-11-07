@@ -87,6 +87,26 @@ python src/trl_train.py experiment=trl_train/step_1_sft
 ### RL Training Step
 
 
+#### Onpolicy algorithms (STaR_on_policy, ppo, a2c, etc.)
+
+```
+The key parameters to be set are:
+
+trainer.n_outer_loops: # is the number of times an outer loop is called. In each outerloop then the policy.learn(), model validation, and model saving is called respectively.
+
+total_timesteps is the argument for policy.learn(). in LMSB trainer it is set to be equal to inner_loop_timesteps * rl_algorithm.env.num_envs
+It defines the number of times we collect rollouts and call policy.train().
+
+trainer.inner_loop_timesteps: # this gets translated into the number of times rollouts are done for each outer loop. 
+
+rl_algorithm:
+  n_steps: # used only in collect rollouts. for each environment we callect n_steps and thus the total size of rollout datapoints is n_envs * n_steps
+  
+  batch_size: # number of rollouts to be sampled and used in each update. has nothing to do with n_envs or anything. 
+```
+
+
+
 ## Experiments
 
 [Click here to see the experiments](./experiments.md)

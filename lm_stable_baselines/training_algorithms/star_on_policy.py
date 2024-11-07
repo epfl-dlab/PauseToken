@@ -10,7 +10,7 @@ from stable_baselines3.common.buffers import RolloutBuffer, DictRolloutBuffer
 from gymnasium import spaces
 from typing import Optional, Union, Dict, Any, List
 import numpy as np
-from lm_stable_baselines.utils import add_filler_tokens
+from lm_stable_baselines.utils import add_filler_tokens, remove_filler_tokens
 from copy import deepcopy
 
 class STaROnPolicy(OnPolicyAlgorithm):
@@ -53,7 +53,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
         return torch.ones(obs.shape[0]) * 0
 
     def get_next_observation(self, data):
-        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations[:,1:], data.actions)
+        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'][:,1:], data.actions)
         #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
         next_observation = self.policy.tokenizer.pad( 
             {'input_ids': next_obs},
@@ -61,6 +61,24 @@ class STaROnPolicy(OnPolicyAlgorithm):
             padding=True,
         )
         return next_observation
+    
+    # def process_sampled_rollouts(self, val_samps): # remove -100 tokens, add 'input_ids' and 'attention_mask' from 'observations' and 'actions' and return the processed samples
+    #     keys = ['observations', 'actions']
+    #     dict = {}
+    #     for key in keys:
+    #         # this doens't work, need to get attribute
+    #         values = remove_filler_tokens(getattr(val_samps, key), self.policy.filler_token)
+    #         values = self.policy.tokenizer.pad(
+    #             {'input_ids': values},
+    #             return_tensors="pt",
+    #             padding=True,
+    #         )
+    #         dict[key] = values
+
+    def process_sampled_rollouts(self, val_samps): 
+        return val_samps
+        
+
 
     def train(self) -> None:
         self.policy.train()
