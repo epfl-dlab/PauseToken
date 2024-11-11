@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  n_rollout_transitions: 6336 
+  n_steps_before_validation: 6336 
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:

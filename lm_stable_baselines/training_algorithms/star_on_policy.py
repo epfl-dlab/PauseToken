@@ -99,13 +99,13 @@ class STaROnPolicy(OnPolicyAlgorithm):
                 labels = next_observation["input_ids"]
                 labels_list = list(labels.cpu())
                 collated_labels = self.data_collator(labels_list)
-                labels = collated_labels["labels"] # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
+                labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
             else:
                 labels = None
 
             output = self.policy.lm(input_ids=next_observation['input_ids'].to(self.device), 
                                     attention_mask=next_observation['attention_mask'].to(self.device),
-                                    labels=labels.to(self.device))
+                                    labels=labels)
             
             if self.loss_computed_in_forward_pass:
                 nll_loss = output.loss
@@ -115,6 +115,20 @@ class STaROnPolicy(OnPolicyAlgorithm):
             else:
                 nll_loss = self.policy.compute_nll_loss(output.logits, labels)
             
+
+            # getting log_probs for importance sampling
+            old_log_probs = data.old_log_prob
+            
+            mask = labels>0 # get the ids of the tokens that are not padding or the question token
+            labels[labels<0] = 0
+            logprobs = torch.log_softmax(output.logits, dim = -1)
+            logprob_actions = torch.gather(logprobs, 2, labels.unsqueeze(-1)).squeeze(-1)
+            logprobs = (logprob_actions * mask).sum(dim = 1)
+
+            ratio = torch.exp(logprobs - old_log_probs).detach() #wrong value at initialization! needs debugging!
+
+
+            # Compute the loss
             nll_losses.append(nll_loss.item())
             
             self.policy.optimizer.zero_grad()

@@ -3,7 +3,7 @@ defaults:
 
 _target_: src.trainer.lmsb_trainer.LMSBTrainer
 
-n_rollout_transitions: 1000
+n_steps_before_validation: 1
 n_outer_loops: 10 
 log_interval: 100
 tb_log_name: "run"
