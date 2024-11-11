@@ -23,12 +23,12 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 2
-  n_outer_loops: 3
+  n_rollout_transitions: 6336
+  n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
-  num_val_samples: 3
+  num_val_samples: 100
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
@@ -38,9 +38,9 @@ trainer:
 
 
 rl_algorithm:
-  n_steps: 5 # used only in collect rollouts. the size of rollouts is n_envs * n_steps
-  n_envs: 4 # inner_loop_timesteps * n_envs is the number of times rollout() is called in each outer loop, 
-  batch_size: 2 # number of rollouts to be used in each training step
+  n_steps: 396 # used only in collect rollouts. the size of rollouts is n_envs * n_steps
+  n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   buffer:
     advantage_threshold: 0

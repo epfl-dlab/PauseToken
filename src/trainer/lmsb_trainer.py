@@ -19,7 +19,7 @@ class LMSBTrainer:
     def __init__(
         self,
         rl_algorithm: BaseAlgorithm,
-        inner_loop_timesteps: int,
+        n_rollout_transitions: int,
         n_outer_loops: int,
         learn_callbacks: MaybeCallback = None,
         log_interval: int = 100,
@@ -35,7 +35,7 @@ class LMSBTrainer:
         do_sample_at_validation: bool = False
     ):
         self.learn_kwargs = {
-            "total_timesteps": inner_loop_timesteps * rl_algorithm.env.num_envs,
+            "total_timesteps": n_rollout_transitions,
             "callback": learn_callbacks,
             "log_interval": log_interval,
             "tb_log_name": tb_log_name,

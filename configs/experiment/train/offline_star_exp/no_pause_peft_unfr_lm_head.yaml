@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 99
+  n_rollout_transitions: 6336 
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
