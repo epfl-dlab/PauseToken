@@ -275,7 +275,14 @@ class LMSBTrainer:
                     active_adapter = self.rl_algorithm.policy.lm.active_adapter
 
                 if os.path.exists(best_adapter_model_path) or os.path.exists(best_safe_adapter_model_path):
-                    self.rl_algorithm.policy.lm.load_adapter(output_dir, active_adapter)
+                    adapter_path = best_adapter_model_path if os.path.exists(best_adapter_model_path) else best_safe_adapter_model_path
+                    if active_adapter is not None:
+                        self.rl_algorithm.policy.lm.delete_adapter(active_adapter)
+                    
+                    # Load the adapter from the path with the name "default"
+                    self.rl_algorithm.policy.lm.load_adapter(adapter_path, load_as="default")
+                                        
+                    self.rl_algorithm.policy.lm.set_active_adapters("default")
                 else:
                     warnings.warn(
                         "The intermediate checkpoints of PEFT may not be saved correctly, "
