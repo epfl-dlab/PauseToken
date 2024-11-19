@@ -1,2 +1,3 @@
 from lm_stable_baselines.training_algorithms.star_off_policy import STaROffPolicy
 from lm_stable_baselines.training_algorithms.star_on_policy import STaROnPolicy
+from lm_stable_baselines.training_algorithms.reinforce_on_policy import ReinforceOnPolicy

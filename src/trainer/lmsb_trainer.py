@@ -22,7 +22,7 @@ class LMSBTrainer:
         n_steps_before_validation: int,
         n_outer_loops: int,
         learn_callbacks: MaybeCallback = None,
-        log_interval: int = 100,
+        log_interval: int = 1,
         tb_log_name: str = "run",
         progress_bar: bool = False,
         num_val_samples: int = None,

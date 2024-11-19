@@ -114,6 +114,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
     reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
+    
+    set_model_method = getattr(reward, "set_model", None)
+    if callable(set_model_method):
+        set_model_method(language_model)
 
     log.info(f"instantiating environment <{cfg.rl_algorithm.environment._target_}>")
     env = LMDummyVecEnv(

@@ -33,7 +33,6 @@ class BaseCtrlTokConfig(PretrainedConfig):
         self.ctrl_token_head_temperature = ctrl_token_head_temperature
         
         
-        
 @dataclass
 class SequenceClassifierOutputWithPastForCtrlTokens(ModelOutput):
     """
@@ -464,6 +463,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         lm_logits: torch.FloatTensor,
         ctrl_tok_logits: Optional[torch.FloatTensor],
         attention_mask: Optional[torch.LongTensor] = None,
+        reduce_mean: bool = True,
     ):
         assert labels is not None, "labels should not be None (labels are required for computing the loss)"
         
@@ -508,11 +508,20 @@ class BaseControlTokenWrapper(PreTrainedModel):
         mask_ctrl_tok = (ctrl_tok_labels == IGNORE_LABEL)
         nll_ctrl_tok.masked_fill_(mask_ctrl_tok, 0.0)    
         
-        num_active_elements = mask_lm.numel() - (mask_lm & mask_ctrl_tok).count_nonzero()
-        loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
         
-        lm_loss = nll_lm.sum()/(mask_lm.numel() - mask_lm.count_nonzero())
-        ctrl_tok_loss = nll_ctrl_tok.sum()/(mask_ctrl_tok.numel() - mask_ctrl_tok.count_nonzero())
+        if reduce_mean:
+            num_active_elements = mask_lm.numel() - (mask_lm & mask_ctrl_tok).count_nonzero()
+            loss = (nll_lm + nll_ctrl_tok).sum()/num_active_elements
+            
+            lm_loss = nll_lm.sum()/(mask_lm.numel() - mask_lm.count_nonzero())
+            ctrl_tok_loss = nll_ctrl_tok.sum()/(mask_ctrl_tok.numel() - mask_ctrl_tok.count_nonzero())
+        
+        else:
+            num_active_elements = mask_lm.shape[-1] - (mask_lm & mask_ctrl_tok).count_nonzero(dim=-1)
+            loss = (nll_lm + nll_ctrl_tok).sum(dim=-1)/num_active_elements
+            
+            lm_loss = nll_lm.sum(dim=-1)/(mask_lm.shape[-1] - mask_lm.count_nonzero(dim=-1))
+            ctrl_tok_loss = nll_ctrl_tok.sum(dim=-1)/(mask_ctrl_tok.shape[-1] - mask_ctrl_tok.count_nonzero(dim=-1))
         
         return loss, lm_loss, ctrl_tok_loss
     
@@ -574,15 +583,17 @@ class BaseControlTokenWrapper(PreTrainedModel):
         return lprobs
         
     def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, *args, **kwargs):
-        
+        reduce_mean = kwargs.pop("reduce_mean",True)
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids, attention_mask, *args, **kwargs)
         
         if labels is not None:
+            
             loss, lm_loss, ctrl_tok_loss = self.compute_loss(
                 labels=labels,
                 lm_logits=lm_logits,
                 ctrl_tok_logits=ctrl_tok_logits,
+                reduce_mean=reduce_mean,
             )
         else:
             loss = None

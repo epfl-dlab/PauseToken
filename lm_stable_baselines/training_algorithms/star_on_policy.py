@@ -12,6 +12,8 @@ from typing import Optional, Union, Dict, Any, List
 import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens, remove_filler_tokens
 from copy import deepcopy
+from src.model.components.control_token_wrappers.base_control_token_wrapper import BaseControlTokenWrapper
+
 
 class STaROnPolicy(OnPolicyAlgorithm):
     
@@ -53,7 +55,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
         return torch.ones(obs.shape[0]) * 0
 
     def get_next_observation(self, data):
-        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'][:,1:], data.actions)
+        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)
         #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
         next_observation = self.policy.tokenizer.pad( 
             {'input_ids': next_obs},
@@ -88,7 +90,6 @@ class STaROnPolicy(OnPolicyAlgorithm):
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size
-        
         self.policy.tokenizer.padding_side = "right"
         for _ in range(n_batches):
 
@@ -102,31 +103,43 @@ class STaROnPolicy(OnPolicyAlgorithm):
                 labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
             else:
                 labels = None
+                
+            kwargs = {}
+            # if isinstance(self.policy.lm, BaseControlTokenWrapper):
+            #     kwargs["reduce_mean"] = False
 
-            output = self.policy.lm(input_ids=next_observation['input_ids'].to(self.device), 
-                                    attention_mask=next_observation['attention_mask'].to(self.device),
-                                    labels=labels)
-            
+            input_ids = next_observation['input_ids'].to(self.device)
+
+            attention_mask=next_observation['attention_mask'].to(self.device)
+
+            output = self.policy.lm(
+                input_ids=input_ids, 
+                attention_mask=attention_mask,
+                labels=labels,
+                **kwargs
+            )
             if self.loss_computed_in_forward_pass:
                 nll_loss = output.loss
                 #if control token model you can also get these losses:
                 #control_token_loss = output.ctrl_tok_loss
                 #lm_loss = output.lm_loss
             else:
-                nll_loss = self.policy.compute_nll_loss(output.logits, labels)
+                raise NotImplementedError("To be implemented")
+                # nll_loss = self.policy.compute_nll_loss(output.logits, labels)
             
 
-            # getting log_probs for importance sampling
-            old_log_probs = data.old_log_prob
+            # # getting log_probs for importance sampling
+            # old_log_probs = data.old_log_prob
             
-            mask = labels>0 # get the ids of the tokens that are not padding or the question token
-            labels[labels<0] = 0
-            logprobs = torch.log_softmax(output.logits, dim = -1)
-            logprob_actions = torch.gather(logprobs, 2, labels.unsqueeze(-1)).squeeze(-1)
-            logprobs = (logprob_actions * mask).sum(dim = 1)
-
-            ratio = torch.exp(logprobs - old_log_probs).detach() #wrong value at initialization! needs debugging!
-
+            # mask = labels>0 # get the ids of the tokens that are not padding or the question token
+            # labels[labels<0] = 0
+            
+            # logprobs = torch.log_softmax(output.logits, dim = -1)[:,:-1,:]
+            # logprob_actions = torch.gather(logprobs, 2, labels[:,1:].unsqueeze(-1)).squeeze(-1)
+            # logprobs = (logprob_actions * mask[:,1:]).sum(dim = 1)
+            # breakpoint()
+            # ratio = torch.exp(logprobs - old_log_probs).detach() #wrong value at initialization! needs debugging!
+            # breakpoint()
 
             # Compute the loss
             nll_losses.append(nll_loss.item())
@@ -134,11 +147,9 @@ class STaROnPolicy(OnPolicyAlgorithm):
             self.policy.optimizer.zero_grad()
             
             nll_loss.backward()
-            
+
             self.policy.optimizer.step()
                     
             
         self.logger.record("train/nll_loss", np.mean(nll_losses))
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-
-

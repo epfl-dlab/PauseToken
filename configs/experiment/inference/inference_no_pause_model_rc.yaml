@@ -24,7 +24,7 @@ data:
   
 
 trainer:
-  inner_loop_timesteps: 99
+  n_steps_before_validation: 99
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -41,7 +41,7 @@ rl_algorithm:
   n_envs: 64
   batch_size: 4
   buffer_size: 6320
-  train_freq: ${trainer.inner_loop_timesteps}
+  train_freq: ${trainer.n_steps_before_validation}
   loss_computed_in_forward_pass: true
   buffer:
     advantage_threshold: 0

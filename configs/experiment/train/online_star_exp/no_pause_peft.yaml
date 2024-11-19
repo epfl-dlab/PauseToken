@@ -23,7 +23,7 @@ data:
   
 
 trainer:
-  n_steps_before_validation: 1
+  n_steps_before_validation: 6336
   n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
@@ -39,8 +39,8 @@ trainer:
 
 rl_algorithm:
   n_steps: 99 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  n_envs: 64 #  is the number of times rollout() is called in each outer loop, 
-  batch_size: 8 # number of rollouts to be used in each training step
+  n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   buffer:
     advantage_threshold: 0

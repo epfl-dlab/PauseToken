@@ -20,7 +20,7 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
 
     if not 'val' in dataset.keys() and "train" in dataset.keys():
         val_size = kwargs.get('train_val_test_split', [-1, 0.1])[1]
-        data_train = dataset['train'].train_test_split(test_size=val_size)
+        data_train = dataset['train'].train_test_split(test_size=val_size, seed=kwargs.get("seed", os.environ["PL_GLOBAL_SEED"]))
         dataset['train'] = data_train['train']  
         dataset['val'] = data_train['test']
     elif "train" not in dataset.keys():
