@@ -253,13 +253,14 @@ class LLMBasePolicy(BasePolicy):
                 inputs = inputs,
                 attention_mask = feature["attention_mask"],
                 generation_config=self.generation_config,
-                logit_processor = self.logit_processor,
+                logits_processor = self.logit_processor,
                 stopping_criteria= self.stopping_criteria,
                 prefix_allowed_tokens_fn= self.prefix_allowed_tokens_fn,
                 synced_gpus= self.synced_gpus,
                 assistant_model= self.assistant_model,
                 streamer= self.streamer,
                 negative_prompt_ids= self.negative_prompt_ids,
+                tokenizer=self.tokenizer,
                 **self.generation_kwargs
             )
         if not self.use_peft_at_inference:

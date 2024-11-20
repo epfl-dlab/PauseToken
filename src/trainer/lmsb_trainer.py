@@ -279,8 +279,8 @@ class LMSBTrainer:
                     if active_adapter is not None:
                         self.rl_algorithm.policy.lm.delete_adapter(active_adapter)
                     
-                    # Load the adapter from the path with the name "default"
-                    self.rl_algorithm.policy.lm.load_adapter(adapter_path, load_as="default")
+                    # Load the adapter from the path with the name "default". TODO: make sure this works
+                    self.rl_algorithm.policy.lm.load_adapter(adapter_path)
                                         
                     self.rl_algorithm.policy.lm.set_active_adapters("default")
                 else:

@@ -137,11 +137,9 @@ class LanguageModelEnv(Env):
         :return: True if the state is truncated, False otherwise
         :rtype: bool
         """
-        #I'm just assuming that if the state is not terminated then it is truncated
-        #(len(state) > self.max_tokens) is not a good condition because the state can be terminated and still be shorter than max_tokens 
-        # (due to pad tokens on the left of the sequence during generation)
+
         if not self.is_terminated(state):
-            return True
+            return len(state) >= self.max_tokens
         return False
     
     @classmethod
@@ -233,7 +231,7 @@ class LanguageModelEnv(Env):
         is_terminated =  self.is_terminated(self.current_state)
         
         is_truncated = self.is_truncated(self.current_state)
-        reward = self.reward(self.current_state, self.output_text) if is_terminated or is_truncated else self.reward.get_min_reward()
+        reward = self.reward(self.current_state, self.output_text)
         
         info = {}
         return np.array(self.current_state) , reward, is_terminated, is_truncated, info
