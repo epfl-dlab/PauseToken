@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 import torch
 from omegaconf import DictConfig,OmegaConf
 from pytorch_lightning import seed_everything
@@ -12,7 +13,7 @@ from lm_stable_baselines.environments.vectorized_environments import LMDummyVecE
 from src.utils.trainer_utils import test_model
 import os
 
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
 # - adding project root dir to PYTHONPATH
@@ -109,6 +110,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )
+
     language_model.train()
     log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
 
@@ -137,6 +139,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")
 
     rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
+ 
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
     metrics = cfg.get("metrics", {"test": {}, "val": {}})
@@ -191,17 +194,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             dataset["test"] = dataset["test"].map(
                 hydra.utils.instantiate(cfg.test_formatting_func),
                 batched=True
-            )
-        
-        change_do_sample = False
-        if cfg["do_sample_at_test"] != trainer.rl_algorithm.policy.generation_config.do_sample:
-            log.info(f"Changing do_sample to {cfg['do_sample_at_test']} for testing")
-            change_do_sample = True
-            prev_do_sample = trainer.rl_algorithm.policy.generation_config.do_sample
-            prev_temperature = trainer.rl_algorithm.policy.generation_config.temperature
-            trainer.rl_algorithm.policy.generation_config.do_sample = cfg["do_sample_at_test"]
-            trainer.rl_algorithm.policy.generation_config.temperature = 1.0 if not cfg["do_sample_at_test"] else prev_temperature
-            
+            )            
         
         test_metric_fns = {
             f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
@@ -217,16 +210,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             prompt_field="input",
             ground_truth_field="output",
             evaluation_metrics=test_metric_fns,
-            **generation
+            **generation["test"]
         )
         
         log.info(f"Test metrics: {test_summary_metrics}")
         test_metrics = test_summary_metrics
         
-        if change_do_sample:
-            trainer.rl_algorithm.policy.generation_config.do_sample = prev_do_sample
-            trainer.rl_algorithm.policy.generation_config.temperature = prev_temperature
-
 
     # merge train and test metrics
     metric_dict = { **test_metrics}

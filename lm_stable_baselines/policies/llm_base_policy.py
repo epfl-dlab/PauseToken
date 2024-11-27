@@ -40,25 +40,8 @@ class LLMBasePolicy(BasePolicy):
     :type squash_output: bool
     :param filler_token: Filler token
     :type filler_token: int
-    :param generation_config: Generation config (Huggingface)
-    :type generation_config: GenerationConfig
-    :param logit_processor: Logit processor (Huggingface generate function argument)
-    :type logit_processor: Any
-    :param stopping_criteria: Stopping criteria (Huggingface generate function argument)
-    :type stopping_criteria: Any
-    :param prefix_allowed_tokens_fn: Prefix allowed tokens function (Huggingface generate function argument)
-    :type prefix_allowed_tokens_fn: Any
-    :param synced_gpus: Synced GPUs (Huggingface generate function argument)
-    :type synced_gpus: Any
-    :param assistant_model: Assistant model (Huggingface generate function argument)
-    :type assistant_model: Any
-    :param streamer: Streamer (Huggingface generate function argument)
-    :type streamer: Any
-    :param negative_prompt_ids: Negative prompt IDs (Huggingface generate function argument)
-    :type negative_prompt_ids: Any
-    :param generation_kwargs: Generation keyword arguments (Huggingface generate function argument)
-    :type generation_kwargs: Dict[str, Any]
-    :param kwargs: Additional keyword arguments
+    :param generation_params: All Generation parameters for the model (used in the generate method of huggingface). This should be a dictionary with both "train" and "test" keys containing the generation parameters for training and testing respectively.
+    :type generation_params: Dict[str, Any]
     :type kwargs: Dict[str, Any]
     """
     
@@ -76,15 +59,7 @@ class LLMBasePolicy(BasePolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         squash_output: bool = False,
         filler_token: int = -100,
-        generation_config: Optional[GenerationConfig] = None,
-        logit_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteria] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        synced_gpus: Optional[bool] = None,
-        assistant_model: Optional[PreTrainedModel] = None,
-        streamer: Optional[BaseStreamer] = None,
-        negative_prompt_ids: Optional[torch.LongTensor] = None,
-        generation_kwargs: Optional[Dict[str,Any]] = {},
+        generation_params: Dict[str, Any] = None,
         **kwargs
     ):
         #check if observation_space and action_space are provided and set them to the default values if they are not
@@ -108,15 +83,7 @@ class LLMBasePolicy(BasePolicy):
         self.filler_token = filler_token
 
         #args for generation
-        self.generation_config = generation_config
-        self.logit_processor = logit_processor
-        self.stopping_criteria = stopping_criteria
-        self.prefix_allowed_tokens_fn = prefix_allowed_tokens_fn
-        self.synced_gpus = synced_gpus
-        self.assistant_model = assistant_model
-        self.streamer = streamer
-        self.negative_prompt_ids = negative_prompt_ids
-        self.generation_kwargs = generation_kwargs
+        self.generation_params = generation_params
         self.kwargs = kwargs
         self._build(lr_schedule)
         self.use_peft_at_inference = False
@@ -224,7 +191,12 @@ class LLMBasePolicy(BasePolicy):
         self.use_peft_at_inference = False
         
     def enable_peft_at_inference(self):  
-        self.use_peft_at_inference = True  
+        self.use_peft_at_inference = True 
+        
+    
+    def set_generation_cfg(self, name: str):
+        assert name in ["train", "test"], "Generation config name must be either 'train' or 'test'"
+        self.generation_params_to_use = name
     
     def _predict(self, observation: PyTorchObs, deterministic: bool = False, return_dict: bool = False):
         """
@@ -238,6 +210,10 @@ class LLMBasePolicy(BasePolicy):
         :return: Taken action according to the policy
         """
         was_in_training = self.lm.training
+        assert self.generation_params_to_use is not None, \
+            "You've never set the generation config to use. Please set it using the set_generation_cfg method. Options are 'train' or 'test'"
+        generation_params = self.generation_params[self.generation_params_to_use]
+
         self.lm.eval()
         og_padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = "left"
@@ -247,22 +223,15 @@ class LLMBasePolicy(BasePolicy):
 
         if not self.use_peft_at_inference:
             self.lm.disable_adapter_layers()
-        
+
         with torch.no_grad():
             outputs = self.lm.generate(
                 inputs = inputs,
                 attention_mask = feature["attention_mask"],
-                generation_config=self.generation_config,
-                logits_processor = self.logit_processor,
-                stopping_criteria= self.stopping_criteria,
-                prefix_allowed_tokens_fn= self.prefix_allowed_tokens_fn,
-                synced_gpus= self.synced_gpus,
-                assistant_model= self.assistant_model,
-                streamer= self.streamer,
-                negative_prompt_ids= self.negative_prompt_ids,
                 tokenizer=self.tokenizer,
-                **self.generation_kwargs
+                **generation_params,
             )
+            
         if not self.use_peft_at_inference:
             self.lm.enable_adapter_layers()
             

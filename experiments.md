@@ -129,6 +129,7 @@ The table below shows the training specifications for each model. They are all t
 | reward_conditioning/pause_constant_rc_temp_1.5    |  `pause model`|  `Textual Reward Conditioning (constant text rewards) offline`        |     1.5     | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc run_name=constant_rc_pause_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`        |
 | online_star_exp/pause_n_steps_1                   |`pause model`  |`STaR online. Train after every n_steps (=1) * batch_size(=64) = 64 rollouts`| 1.0   | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=1 run_name=online_star_pause_n_steps_1`                                                                 |
 | online_star_exp/pause_n_steps_9                   |`pause model`  |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.0  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_n_steps_0`                                                                 |
+| online_star_exp/no_pause_n_steps_9_temp          |`pause model`  |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.5  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_no_pause_n_steps_9`                                                               |
 
 ### Results
 
@@ -144,6 +145,7 @@ The table below shows the training specifications for each model. They are all t
 | reward_conditioning/pause_constant_rc_temp_1.5   |                                      -                                                        |                                            -                                                 |                                      -                                |
 | online_star_exp/pause_n_steps_1                  |`/dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-19/09-57-20/test_results.json`        | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-18_11-11-55/last_ckpt `     | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/g37jka36)     |
 | online_star_exp/pause_n_steps_9                  |`/dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-19/09-58-03/test_results.json`        | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-18_11-12-23/last_ckpt`      | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/p5pp2ehc)     |
+| online_star_exp/no_pause_n_steps_9_temp          |`dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-22/10-29-29/test_results.json`         | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-19_11-02-32/ckpt-44352-0.68` (this is final but there was an error while runnin) | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/e0tqsfvn)     |
 
 
 Collapse of 1.5 temperature models. See their validation predictions for more information because we're sampling from the model at temperature 1.5 (gets better when we resample from argmax): 
@@ -163,7 +165,7 @@ Collapse of 1.5 temperature models. See their validation predictions for more in
 | reward_conditioning/pause_constant_rc_temp_1.5   |                |                                    |                                                           |                                                            |
 | online_star_exp/pause_n_steps_1                  |     0.61       |               2.06                 |                      1.82                                 |                          2.44                              |
 | online_star_exp/pause_n_steps_9                  |     **0.63**   |               2.09                 |                      1.97                                 |                          2.3                               |      
-
+| online_star_exp/no_pause_n_steps_9_temp          |     0.62       |               0.0                  |                      0.0                                  |                          0.0                               |    
 
 
 ### Important Note

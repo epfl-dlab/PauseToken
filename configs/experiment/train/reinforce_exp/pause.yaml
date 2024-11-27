@@ -33,29 +33,28 @@ trainer:
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
   metric_for_best_model_mode_is_min: false
-  disable_peft_first_inference: true
+  disable_peft_first_inference: false
 
 
 
 rl_algorithm:
-  baseline_lr: 0.1 # I've disabled these for the moment, they have no effect
   baseline_init_val: 0.0 # I've disabled these for the moment, they have no effect
-  token_level_actions: false # I've disabled these for the moment, they have no effect if set to true
-  discount_factor: 1.0 # I've disabled these for the moment, they have no effect
-
-  n_steps: 1 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  n_envs: 64 #  is the number of times rollout() is called in each outer loop, 
-  batch_size: 8 # number of rollouts to be used in each training step
+  baseline_lr: 0.01
+  n_steps: 6 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
+  
   buffer:
-    advantage_threshold: null
+    advantage_threshold: -60
 
   policy:
+
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final
     optimizer_kwargs:
-      maximize: true
+      maximize: false
 test: true
 test_batch_size: 8
 test_formatting_func: null

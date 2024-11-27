@@ -88,9 +88,11 @@ def instantiate_loggers(logger_cfg: DictConfig):
     
 def instantiate_generation_params(cfg):
 
-    for key in cfg.keys():
-        cfg[key] = \
-            hydra.utils.instantiate(cfg[key]) if isinstance(cfg[key],dict) and "_target_" in cfg[key] else cfg[key]      
+    if isinstance(cfg, dict):
+        for key in cfg.keys():
+            cfg[key] = instantiate_generation_params(cfg[key])
+            
+    cfg = hydra.utils.instantiate(cfg, _convert_="partial") if isinstance(cfg,dict) and "_target_" in cfg else cfg     
     return cfg
 
 
@@ -130,7 +132,7 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
             data_collator["response_template"] = response_template_ids
         data_collator = hydra.utils.instantiate(data_collator)
     
-    cp["policy_kwargs"] = {**cp["policy_kwargs"],**instantiate_generation_params(cp["policy_kwargs"]["generation"])}
+    cp["policy_kwargs"] = {**cp["policy_kwargs"],**{"generation_params": instantiate_generation_params(cp["policy_kwargs"]["generation"])}}
     
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
     if not hasattr(rl_alg, "policy"):

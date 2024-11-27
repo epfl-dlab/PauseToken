@@ -1,6 +1,6 @@
 defaults:
-  - generation_config: default
-  - logit_processor: null
+  - generation_config: train_default
+  - logits_processor: null
 
 
 prefix_allowed_tokens_fn: null # move this to defaults if we ever use it

@@ -1,0 +1,12 @@
+defaults:
+  - generation_config: test_default
+  - logits_processor: null
+
+
+prefix_allowed_tokens_fn: null # move this to defaults if we ever use it
+stopping_criteria: null # move this to defaults if we ever use it
+synced_gpus: null
+assistant_model: null # move this to defaults if we ever use it
+streamer: null
+negative_prompt_ids: null
+generation_kwargs: {}

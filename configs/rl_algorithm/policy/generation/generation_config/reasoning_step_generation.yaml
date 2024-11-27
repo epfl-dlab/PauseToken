@@ -1,0 +1,7 @@
+defaults:
+  - train_default
+
+
+stop_strings: 
+  - "\n"
+min_new_tokens: 2

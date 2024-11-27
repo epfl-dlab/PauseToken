@@ -146,7 +146,7 @@ def test_model(
     prompt_field: Optional[str] = "input",
     ground_truth_field: Optional[str] = "output",
     generation_config: Optional[GenerationConfig] = None,
-    logit_processor: Optional[LogitsProcessorList] = None,
+    logits_processor: Optional[LogitsProcessorList] = None,
     stopping_criteria: Optional[StoppingCriteria] = None,
     prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
     synced_gpus: Optional[bool] = None,
@@ -157,6 +157,7 @@ def test_model(
     evaluation_metrics: Optional[Dict[str, Callable[[str, str], Union[int, float, bool]]]] = {},
     save_results: Optional[bool] = True,
     save_file_name: Optional[str] = "test_results.json",
+    **kwargs
 ):
     """ Perform a "normal" rollout
     
@@ -206,7 +207,7 @@ def test_model(
                 input_ids=tokenized_prompt.input_ids,
                 attention_mask=tokenized_prompt.attention_mask,
                 generation_config=generation_config,
-                logit_processor = logit_processor,
+                logits_processor = logits_processor,
                 stopping_criteria= stopping_criteria,
                 prefix_allowed_tokens_fn= prefix_allowed_tokens_fn,
                 synced_gpus= synced_gpus,

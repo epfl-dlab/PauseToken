@@ -90,7 +90,7 @@ class LMSBTrainer:
     
     def evaluation(self, stage: str):
         # Run evaluation on validation set 
-        
+        self.set_generation_cfg("test")
         ################# PART 1: set arguments necessary for performing rollout ################# 
         n_steps = int(math.ceil(self.num_val_samples/self.rl_algorithm.n_envs))
         buffer_name = self.rl_algorithm.buffer_class_keyword
@@ -114,15 +114,6 @@ class LMSBTrainer:
             n_envs = self.rl_algorithm.n_envs,
             **kwargs
         )
-        
-        ######## Avoids sampling with chosen temperature during validation (use do_sample of HF Generation to get argmax) --> More reliable results ########
-        change_do_sample = False
-        if self.do_sample_at_validation != self.rl_algorithm.policy.generation_config.do_sample:
-            change_do_sample = True
-            prev_do_sample = self.rl_algorithm.policy.generation_config.do_sample
-            prev_temperature = self.rl_algorithm.policy.generation_config.temperature
-            self.rl_algorithm.policy.generation_config.do_sample = self.do_sample_at_validation
-            self.rl_algorithm.policy.generation_config.temperature = 1.0 if not self.do_sample_at_validation else prev_temperature
         
         ################# PART 2: perform rollout #################
         #TODO: For the moment, this is fine because 1 step = 1 sample, but in the future, we need to change this for the correct number of samples
@@ -152,10 +143,6 @@ class LMSBTrainer:
                 rollout_buffer=validation_buffer,
                 n_rollout_steps=n_steps+1
             )
-        
-        if change_do_sample:
-            self.rl_algorithm.policy.generation_config.do_sample = prev_do_sample
-            self.rl_algorithm.policy.generation_config.temperature = prev_temperature
 
         ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
@@ -385,10 +372,12 @@ class LMSBTrainer:
         self._lm_load(best_model_path)
     
     def on_validation_end(self):
+        self.rl_algorithm.policy.set_generation_cfg("val")
         self.set_stage("val")
         
     def on_learn_start(self):
         self.set_stage("train")
+        self.rl_algorithm.policy.set_generation_cfg("train")
         is_peft_model = _is_peft_model(self.rl_algorithm.policy.lm)
         # in the first outer loop, option to disable PEFT at inference (Lora is not necessarily trained yet)
         if self.disable_peft_first_inference and is_peft_model and self.current_outer_loop == 0:

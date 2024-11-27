@@ -2,7 +2,8 @@ defaults:
   - model/language_model: gpt2
   - model/tokenizer: auto_tokenizer
   - model/peft_config: default
-  - generation: default
+  - generation@generation.train: train_default
+  - generation@generation.test: test_default
 
 _target_: lm_stable_baselines.policies.LLMBasePolicy
 
