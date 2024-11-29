@@ -43,7 +43,8 @@ class LanguageModelEnv(Env):
         require_dataset: bool = False,
         filler_token: int = -100,
         n_envs = -1,
-        env_idx = -1
+        env_idx = -1,
+        enable_delta_reward = False,
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -66,6 +67,7 @@ class LanguageModelEnv(Env):
         self.observation_space =  spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64) 
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
+        self.enable_delta_reward = enable_delta_reward
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -106,6 +108,10 @@ class LanguageModelEnv(Env):
         self.current_state = self._step(self.current_state, clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
 
+        if self.enable_delta_reward:
+            reward = reward - self.last_reward
+            self.last_reward = reward
+        
         return observation, reward, terminated, truncated, info
     
     def next_observation_from_observation_and_action(self, obs: LongTensor, actions: LongTensor) -> List[List[int]]:
@@ -219,6 +225,9 @@ class LanguageModelEnv(Env):
         self.terminated = False
         self.truncated = False
         self.done = False
+        
+        if self.enable_delta_reward:
+            self.last_reward = self.reward(self.current_state, self.output_text)
         
         return np.array(self.current_state), {} # return observation and info=None
     

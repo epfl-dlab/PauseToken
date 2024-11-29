@@ -4,20 +4,18 @@ from stable_baselines3.common.type_aliases import PyTorchObs
 from lm_stable_baselines.environments import LanguageModelEnv
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import VecEnv
-from stable_baselines3.common.noise import ActionNoise
-from stable_baselines3.common.type_aliases import RolloutReturn, TrainFreq
-from stable_baselines3.common.buffers import RolloutBuffer, DictRolloutBuffer
+from stable_baselines3.common.type_aliases import RolloutReturn
+from stable_baselines3.common.buffers import RolloutBuffer
 from gymnasium import spaces
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any, List, Tuple
 import numpy as np
-from lm_stable_baselines.utils import add_filler_tokens, remove_filler_tokens
+from stable_baselines3.common.type_aliases import MaybeCallback 
 from copy import deepcopy
-from src.model.components.control_token_wrappers.base_control_token_wrapper import BaseControlTokenWrapper
 
 
 class STaROnPolicy(OnPolicyAlgorithm):
     
-    def __init__(self,*args, loss_computed_in_forward_pass, batch_size ,**kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
         super().__init__(*args, **kwargs)
         assert all([isinstance(myenv, LanguageModelEnv) for myenv in self.env.envs]), "All environments must be of type LanguageModelEnv"
         all_filler_token = [myenv.filler_token for myenv in self.env.envs]
@@ -28,7 +26,8 @@ class STaROnPolicy(OnPolicyAlgorithm):
         self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
         self.policy.predict_values = self.predict_values
         self.batch_size = batch_size
-
+        self.use_base_model_for_learning = use_base_model_for_learning
+    
     def collect_rollouts(
         self,
         env: VecEnv,
@@ -36,6 +35,9 @@ class STaROnPolicy(OnPolicyAlgorithm):
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
     ) -> RolloutReturn:
+       
+        if self.use_base_model_for_learning:
+            self.policy.lm.set_adapter(self.name_to_adapter["sampler"])
         
         og_padding_side = self.policy.tokenizer.padding_side
         self.policy.tokenizer.padding_side = "left"
@@ -47,7 +49,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
         )
         self.policy.tokenizer.padding_side = og_padding_side
         return res
-    
+
     # set the forward pass of the base policy
     @staticmethod
     def predict_values(obs: PyTorchObs) -> torch.Tensor:
@@ -84,6 +86,9 @@ class STaROnPolicy(OnPolicyAlgorithm):
 
     def train(self) -> None:
         self.policy.train()
+        
+        if self.use_base_model_for_learning:
+            self.policy.lm.set_adapter(self.name_to_adapter["peft_to_train"])
         
         self._update_learning_rate(self.policy.optimizer)
         nll_losses = []

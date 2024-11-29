@@ -147,10 +147,19 @@ class ReinforceOnPolicy(STaROnPolicy):
             num_above_baseline.append(above_baseline_condition.sum().item())
             num_below_baseline.append(below_baseline_condition.sum().item())
             
-            above_baseline_nll.append(sample_nll[above_baseline_condition].mean().item())
-            below_baseline_nll.append(sample_nll[below_baseline_condition].mean().item())
-            above_baseline_rewards.append(data.advantages[above_baseline_condition].mean().item())
-            below_baseline_rewards.append(data.advantages[below_baseline_condition].mean().item())
+            if num_above_baseline[-1] == 0:
+                above_baseline_nll.append(0)
+                above_baseline_rewards.append(0)
+            else:
+                above_baseline_nll.append(sample_nll[above_baseline_condition].mean().item())
+                above_baseline_rewards.append(data.advantages[above_baseline_condition].mean().item())
+                
+            if num_below_baseline[-1] == 0:
+                below_baseline_nll.append(0)
+                below_baseline_rewards.append(0)
+            else:
+                below_baseline_nll.append(sample_nll[below_baseline_condition].mean().item())
+                below_baseline_rewards.append(data.advantages[below_baseline_condition].mean().item())
             
             losses.append(loss.item())
             

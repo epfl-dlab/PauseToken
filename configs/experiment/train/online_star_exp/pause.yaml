@@ -42,6 +42,7 @@ rl_algorithm:
   n_envs: 64 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
+  use_base_model_for_learning: false
   buffer:
     advantage_threshold: 0
 

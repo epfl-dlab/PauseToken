@@ -14,7 +14,7 @@ import math
 from src.utils.utils import make_summary_table
 from transformers.trainer import _is_peft_model
 from transformers.utils import ADAPTER_WEIGHTS_NAME, ADAPTER_SAFE_WEIGHTS_NAME
-
+from peft import PeftModelForCausalLM
 class LMSBTrainer:
     def __init__(
         self,
@@ -66,6 +66,7 @@ class LMSBTrainer:
         
         self.disable_peft_first_inference = disable_peft_first_inference
         self.do_sample_at_validation = do_sample_at_validation
+ 
     
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
@@ -90,7 +91,7 @@ class LMSBTrainer:
     
     def evaluation(self, stage: str):
         # Run evaluation on validation set 
-        self.set_generation_cfg("test")
+        self.rl_algorithm.policy.set_generation_cfg("test")
         ################# PART 1: set arguments necessary for performing rollout ################# 
         n_steps = int(math.ceil(self.num_val_samples/self.rl_algorithm.n_envs))
         buffer_name = self.rl_algorithm.buffer_class_keyword
@@ -239,7 +240,7 @@ class LMSBTrainer:
         self.rl_algorithm.policy.lm.save_pretrained(output_dir)
         self.rl_algorithm.policy.tokenizer.save_pretrained(output_dir)
         
-    def _lm_load(self, output_dir):
+    def _lm_load(self, output_dir, force_from_pretrained = False, **kwargs):
         
         #get class of lm
         class_lm = self.rl_algorithm.policy.lm.__class__
@@ -249,12 +250,12 @@ class LMSBTrainer:
         best_safe_adapter_model_path = os.path.join(output_dir, ADAPTER_SAFE_WEIGHTS_NAME)
         
         
-        if _is_peft_model(self.rl_algorithm.policy.lm):
+        if _is_peft_model(self.rl_algorithm.policy.lm) and not force_from_pretrained:
             if (hasattr(self.rl_algorithm.policy.lm, "active_adapter") or hasattr(self.rl_algorithm.policy.lm, "active_adapters")) and hasattr(
                         self.rl_algorithm.policy.lm, "load_adapter"
             ):
                 # For BC for older PEFT versions
-                if hasattr(self.rl_algorithm.policy.lm, "active_adapters"):
+                if hasattr(self.rl_algorithm.policy.lm, "active_adapters") and len(self.rl_algorithm.policy.lm.active_adapters) > 0:
                     active_adapter = self.rl_algorithm.policy.lm.active_adapters[0]
                     if len(self.rl_algorithm.policy.lm.active_adapters) > 1:
                         warnings.warn("Detected multiple active adapters, will only consider the first one")
@@ -263,11 +264,10 @@ class LMSBTrainer:
 
                 if os.path.exists(best_adapter_model_path) or os.path.exists(best_safe_adapter_model_path):
                     adapter_path = best_adapter_model_path if os.path.exists(best_adapter_model_path) else best_safe_adapter_model_path
-                    if active_adapter is not None:
-                        self.rl_algorithm.policy.lm.delete_adapter(active_adapter)
-                    
-                    # Load the adapter from the path with the name "default". TODO: make sure this works
-                    self.rl_algorithm.policy.lm.load_adapter(adapter_path)
+                        
+                    self.rl_algorithm.policy.lm.unload()
+                    self.rl_algorithm.policy.lm = \
+                        PeftModelForCausalLM.from_pretrained(self.rl_algorithm.policy.lm.model, model_id = output_dir, adapter_name = "default")
                                         
                     self.rl_algorithm.policy.lm.set_active_adapters("default")
                 else:
@@ -280,7 +280,7 @@ class LMSBTrainer:
                 warnings.warn("Could not load adapter model, make sure to have `peft>=0.3.0` installed")
             
         else:
-            self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir)
+            self.rl_algorithm.policy.lm = class_lm.from_pretrained(model_id = output_dir, **kwargs)
         
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
             
@@ -372,8 +372,7 @@ class LMSBTrainer:
         self._lm_load(best_model_path)
     
     def on_validation_end(self):
-        self.rl_algorithm.policy.set_generation_cfg("val")
-        self.set_stage("val")
+        pass
         
     def on_learn_start(self):
         self.set_stage("train")
@@ -384,11 +383,67 @@ class LMSBTrainer:
             self.rl_algorithm.policy.disable_peft_at_inference()
         else:
             self.rl_algorithm.policy.enable_peft_at_inference()
+
+        #check if we want to learn from the initial model as starting point
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        if use_base_model_for_learning:
+            assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
+                "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
                 
-        
+            assert len(self.rl_algorithm.policy.lm.peft_config.keys()) == 1, \
+                "models with only one config is currently supported. if you need more, please implement it"
+
+            #get current config name (which should be our sampler)
+            cfg_name = list(self.rl_algorithm.policy.lm.peft_config.keys())[0]
+            peft_config_cp = deepcopy(self.rl_algorithm.policy.lm.peft_config[cfg_name])
+            
+            self.rl_algorithm.policy.lm.add_adapter(peft_config = peft_config_cp, adapter_name = "peft_to_train")
+            self.rl_algorithm.name_to_adapter = {"peft_to_train": "peft_to_train", "sampler": cfg_name}
+
+    # def _delete_adapter(self, adapter_name):
+    #     self.rl_algorithm.policy.lm.delete_adapter(adapter_name)
+    #     # Nicky since the adapter ModuleToSaveWrapper is not deleted by this stupid function, we need to delete it manually ....
+    #     # If you find a better way, please let me know
+    #     all_modules_to_save_wrappers = \
+    #         list(
+    #             filter(lambda x: isinstance(x, ModulesToSaveWrapper), self.rl_algorithm.policy.lm.modules())
+    #         )
+            
+    #     for module_to_save_wrapper in all_modules_to_save_wrappers:
+    #         if adapter_name in module_to_save_wrapper.modules_to_save:
+    #             breakpoint()
+    #             delattr(module_to_save_wrapper.modules_to_save, adapter_name)
+
     def on_learn_end(self):
-        pass
-        
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        if use_base_model_for_learning:
+            
+            assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
+                "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
+            
+            #delete sampler
+            sampler_name = self.rl_algorithm.name_to_adapter["sampler"]
+            self.rl_algorithm.policy.lm.delete_adapter(sampler_name)
+            
+            #set peft to train as adapter (not sure if necessary)
+            adapter_name = self.rl_algorithm.name_to_adapter["peft_to_train"]
+            self.rl_algorithm.policy.lm.set_adapter(adapter_name)
+                        
+            #temporarily save model
+            tmp_save_dir = os.path.join(self.output_dir, "tmp")
+            self._save_model(tmp_save_dir)
+            self.rl_algorithm.policy.lm.delete_adapter(adapter_name)    
+            #unload all adapters    
+            self.rl_algorithm.policy.lm.unload()
+            
+            # Reload Model with only peft_to_train adapter and call it default (since now it will be our sampler)
+            path_to_load = os.path.join(tmp_save_dir, "peft_to_train")
+            self.rl_algorithm.policy.lm = \
+                PeftModelForCausalLM.from_pretrained(self.rl_algorithm.policy.lm.model, model_id = path_to_load, adapter_name = "default")
+            self._remove_save(tmp_save_dir)
+            
+
+
     def on_outer_loop_start(self):
         pass
      

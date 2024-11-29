@@ -39,6 +39,10 @@ trainer:
 
 
 rl_algorithm:
+
+  environment:
+    enable_delta_reward: true
+
   baseline_init_val: -6.0 # I've disabled these for the moment, they have no effect
   baseline_lr: 0.01
   n_steps: 30 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
@@ -46,7 +50,7 @@ rl_algorithm:
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   buffer:
-    advantage_threshold: -60
+    advantage_threshold: -5
 
   policy:
     model:

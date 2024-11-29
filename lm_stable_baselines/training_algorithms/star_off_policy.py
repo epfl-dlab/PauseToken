@@ -17,7 +17,7 @@ from stable_baselines3.common.utils import should_collect_more_steps
 
 class STaROffPolicy(OffPolicyAlgorithm):
     
-    def __init__(self,*args, loss_computed_in_forward_pass ,**kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass, **kwargs):
         kwargs["support_multi_env"] = True
         super().__init__(*args, **kwargs)
         self._setup_model()
