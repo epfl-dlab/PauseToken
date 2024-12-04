@@ -116,25 +116,69 @@ class BaseControlTokenWrapper(PreTrainedModel):
         self.set_lm_generation_config()
         self.set_ctrl_token_temperature(config.ctrl_token_head_temperature)
         
+    def _validate_ctrl_token_ids(self, embeddings_size: int):
+        """ assert that all control tokens are either larger than the original vocab size or the last tokens of the vocab """
+        ctr_token_ids = list(self.control_token_to_id.values())
+        ctr_token_ids.sort()
+        #check that difference between adjacent control token ids is 1
+        assert \
+            all([j-i == 1 for i,j in zip(ctr_token_ids[:-1], ctr_token_ids[1:])]), \
+            "Control token ids should be contiguous"
+
+        assert \
+            ctr_token_ids[-1] >= embeddings_size - 1, \
+            "Control token ids should be the last tokens of the vocabulary or larger than the original vocab size"
+                
+        
+        
     def _resize_input_embeds(self):
         """ Resize the input embeddings of the language model to account for the new control tokens """
-        embeddings =  self.language_model.get_input_embeddings()
+        og_embeddings =  self.language_model.get_input_embeddings()
+        self._validate_ctrl_token_ids(og_embeddings.weight.shape[0])
         
-
         additional_embeds = torch.nn.Embedding(
             num_embeddings=self.config.num_control_tokens,
             embedding_dim=self.language_model.config.hidden_size,
-            dtype=embeddings.weight.dtype,
-            device=embeddings.weight.device,
+            dtype=og_embeddings.weight.dtype,
+            device=og_embeddings.weight.device,
         )
-        if not embeddings.weight.is_meta:
+        if not og_embeddings.weight.is_meta:
             #compute the variance of embeddings
-            variance = embeddings.weight.var().item()
+            variance = og_embeddings.weight.var().item()
             #reset the variance of the new embeddings to be the same as the original embeddings
             additional_embeds.weight.data.normal_(mean=0.0, std=variance**0.5)
+        
+        n_embeddings_to_remove_from_original_embeddings = 0
+        
+        
+        smallest_ctrl_token_id = min(self.control_token_to_id.values())
+        
+        
+        for ctrl_token, ctrl_token_id in self.control_token_to_id.items():
+            if ctrl_token_id < og_embeddings.weight.shape[0]:
+                warnings.warn(
+                    f"Control token {ctrl_token} has an id of {ctrl_token_id} which is smaller than the original vocabulary size of {og_embeddings.weight.shape[0]}. " + \
+                    "The embedding of this token in the original vocabulary will be used as the embedding of this control token and removed from the original vocabulary" +\
+                        "Make sure this is the intended behavior"
+                )
+                indx_to_insert = ctrl_token_id - smallest_ctrl_token_id
+                additional_embeds.weight.data[indx_to_insert] = og_embeddings.weight.data[ctrl_token_id].clone()    
+                n_embeddings_to_remove_from_original_embeddings += 1
+        
+        additional_embeds.weight = additional_embeds.weight.contiguous()
+
+        index = None if n_embeddings_to_remove_from_original_embeddings == 0 else -n_embeddings_to_remove_from_original_embeddings
+        new_og_embeddings = torch.nn.Embedding(
+            num_embeddings=og_embeddings.weight.shape[0] - n_embeddings_to_remove_from_original_embeddings,
+            embedding_dim=self.language_model.config.hidden_size,
+            dtype=og_embeddings.weight.dtype,
+            device=og_embeddings.weight.device,
+            _weight=og_embeddings.weight.data[:index].clone()
+        )
+        
         self.language_model.set_input_embeddings(
             ExtendedEmbedding(
-                embeddings,
+                new_og_embeddings,
                 additional_embeds
             )
         )
@@ -180,24 +224,6 @@ class BaseControlTokenWrapper(PreTrainedModel):
         """ Set the generation config of the model to be the same as the language model """
         self.generation_config = self.language_model.generation_config
     
-    def _validate_ctrl_token_id(self):
-        """ Validate the control token id
-        
-        :param ctrl_token_id: The control token id to validate
-        :type ctrl_token_id: int
-        """
-        for token, token_id in self.config.control_token_to_id.items():
-            assert \
-                token_id < self.config.vocab_size, \
-                f"Control token id {token_id} of token {token} is out of range, the vocab size is {self.config.vocab_size}." + \
-                f"You must set your control token ids as the last tokens of the vocabulary"
-            og_vocab_size = self.get_original_vocab_size()
-            assert \
-                token_id >= og_vocab_size, \
-                f"Control token id {token_id} of token {token} overlaps with the language model vocabulary." + \
-                f"You must set your control token ids as the last tokens of the vocabulary (i.e. an id >= {og_vocab_size})"
-            \
-            
     def _resize_language_model_head(self):
         """ Resize the language model head to account for the new control tokens """
         if self.language_model.get_output_embeddings() is not None:
@@ -210,21 +236,25 @@ class BaseControlTokenWrapper(PreTrainedModel):
                 self.language_model.config.tie_word_embeddings = False
                            
             old_lm_head = self.language_model.get_output_embeddings()
-            new_size = old_lm_head.weight.shape[0] + self.config.num_control_tokens
-            if isinstance(old_lm_head, torch.nn.Embedding):
-                new_lm_head = self.language_model._get_resized_embeddings(old_lm_head, new_size)
-            else:
-                new_lm_head = self.language_model._get_resized_lm_head(old_lm_head, new_size)
-            if hasattr(old_lm_head, "_hf_hook"):
-                hook = old_lm_head._hf_hook
-                add_hook_to_module(new_lm_head, hook)
-            old_lm_head_requires_grad = old_lm_head.weight.requires_grad
-            new_lm_head.requires_grad_(old_lm_head_requires_grad)
-            self.language_model.set_output_embeddings(new_lm_head)
+            new_size = old_lm_head.weight.shape[0]
+            
+            for ctrl_token, ctrl_token_id in self.control_token_to_id.items():
+                if ctrl_token_id >= old_lm_head.weight.shape[0]:
+                    new_size += 1
+                    
+            if new_size != old_lm_head.weight.shape[0]:
+                if isinstance(old_lm_head, torch.nn.Embedding):
+                    new_lm_head = self.language_model._get_resized_embeddings(old_lm_head, new_size)
+                else:
+                    new_lm_head = self.language_model._get_resized_lm_head(old_lm_head, new_size)
+                if hasattr(old_lm_head, "_hf_hook"):
+                    hook = old_lm_head._hf_hook
+                    add_hook_to_module(new_lm_head, hook)
+                old_lm_head_requires_grad = old_lm_head.weight.requires_grad
+                new_lm_head.requires_grad_(old_lm_head_requires_grad)
+                self.language_model.set_output_embeddings(new_lm_head)
             
         self.config.vocab_size = self.get_original_vocab_size() + self.config.num_control_tokens
-        
-        self._validate_ctrl_token_id()
 
     def set_ctrl_token_temperature(self,temperature: float):
         """ Set the temperature of all control tokens to the same value

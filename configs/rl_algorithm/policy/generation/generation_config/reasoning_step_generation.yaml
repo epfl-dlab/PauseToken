@@ -5,3 +5,4 @@ defaults:
 stop_strings: 
   - "\n"
 min_new_tokens: 2
+max_new_tokens: 50

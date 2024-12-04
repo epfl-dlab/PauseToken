@@ -32,7 +32,9 @@ class LMSBTrainer:
         metric_for_best_model: str = "val/accuracy",
         metric_for_best_model_mode_is_min: bool = False,
         disable_peft_first_inference: bool = False,
-        do_sample_at_validation: bool = False
+        do_sample_at_validation: bool = False,
+        peft_config_name: str = "default",
+        use_previous_policy_as_reward_model: bool = False
     ):
         self.learn_kwargs = {
             "total_timesteps": n_steps_before_validation,
@@ -66,6 +68,9 @@ class LMSBTrainer:
         
         self.disable_peft_first_inference = disable_peft_first_inference
         self.do_sample_at_validation = do_sample_at_validation
+        
+        self.peft_config_name = peft_config_name
+        self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model
  
     
     def set_stage(self, stage: str):
@@ -269,7 +274,7 @@ class LMSBTrainer:
                     self.rl_algorithm.policy.lm = \
                         PeftModelForCausalLM.from_pretrained(self.rl_algorithm.policy.lm.model, model_id = output_dir, adapter_name = "default")
                                         
-                    self.rl_algorithm.policy.lm.set_active_adapters("default")
+                    self.rl_algorithm.policy.lm.set_adapter("default")
                 else:
                     warnings.warn(
                         "The intermediate checkpoints of PEFT may not be saved correctly, "
@@ -372,77 +377,137 @@ class LMSBTrainer:
         self._lm_load(best_model_path)
     
     def on_validation_end(self):
-        pass
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        
+        # ~~~ Due to ModulesToSaveWrapper and to not keep all adapters in memory, we need to temporarily save the modules we need, unload all adapters, and reload the modules we need ~~~
+        # Why ? Because delete_adapter does not delete the modules to save.... smh
+        if use_base_model_for_learning or self.use_previous_policy_as_reward_model:
+            
+            assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
+                "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
+            
+            #delete sampler peft
+            if use_base_model_for_learning:
+                sampler_name = self.sampler_to_delete
+                self.rl_algorithm.policy.lm.delete_adapter(sampler_name)
+            #delete reward peft
+            elif self.use_previous_policy_as_reward_model and self.name_of_reward_peft != "disable peft":
+                reward_name = self.name_of_reward_peft
+                if reward_name in self.rl_algorithm.policy.lm.peft_config.keys():
+                    self.rl_algorithm.policy.lm.delete_adapter(reward_name)
+            
+            #set peft to train as adapter (not sure if necessary)
+            adapter_name = self.rl_algorithm.name_to_adapter["peft_to_train"]
+            self.rl_algorithm.policy.lm.set_adapter(adapter_name)
+                        
+            #temporarily save the peft model we need
+            tmp_save_dir = os.path.join(self.output_dir, "tmp")
+            self._save_model(tmp_save_dir)
+            
+            #delete adapter and unload all adapters
+            self.rl_algorithm.policy.lm.delete_adapter(adapter_name)    
+            #unload all adapters. If you're not convinced, put a breakpoint here and you'll see that the ModulesToSaveWrapper of all the adapters we supposedly deleted are still there...
+            self.rl_algorithm.policy.lm.unload()
+            
+            # Reload Model with only peft_to_train adapter and call it default (since now it will be our sampler)
+            if use_base_model_for_learning:
+                path_to_load = os.path.join(tmp_save_dir, "peft_to_train")
+            else:
+                path_to_load = tmp_save_dir
+            #reload model
+            self.rl_algorithm.policy.lm = \
+                PeftModelForCausalLM.from_pretrained(self.rl_algorithm.policy.lm.model, model_id = path_to_load, adapter_name = self.peft_config_name, is_trainable=True)
+            #remove the temporary save
+            self._remove_save(tmp_save_dir)
         
     def on_learn_start(self):
-        self.set_stage("train")
+        
         self.rl_algorithm.policy.set_generation_cfg("train")
         is_peft_model = _is_peft_model(self.rl_algorithm.policy.lm)
         # in the first outer loop, option to disable PEFT at inference (Lora is not necessarily trained yet)
+        self.rl_algorithm.name_to_adapter = {}
+        
+        # ~~~~ if we want to sample from the base model on the first outer loop , than do so~~~~ 
         if self.disable_peft_first_inference and is_peft_model and self.current_outer_loop == 0:
             self.rl_algorithm.policy.disable_peft_at_inference()
         else:
             self.rl_algorithm.policy.enable_peft_at_inference()
-
+        
+        # ~~~~I we want to always optimize the base model (base model + randomly intialize model with peft), then we need to set the adapter to the base model~~~~
         #check if we want to learn from the initial model as starting point
         use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
         if use_base_model_for_learning:
             assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
                 "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
                 
-            assert len(self.rl_algorithm.policy.lm.peft_config.keys()) == 1, \
-                "models with only one config is currently supported. if you need more, please implement it"
+            assert len(self.rl_algorithm.policy.lm.peft_config.keys()) >= 1, \
+                "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
 
-            #get current config name (which should be our sampler)
-            cfg_name = list(self.rl_algorithm.policy.lm.peft_config.keys())[0]
+            
+            #get current config name (which should be our sampler). (previous policy)
+            cfg_name = self.peft_config_name
             peft_config_cp = deepcopy(self.rl_algorithm.policy.lm.peft_config[cfg_name])
             
+            #randomly initialize the model with the peft config (the one to optimize)
             self.rl_algorithm.policy.lm.add_adapter(peft_config = peft_config_cp, adapter_name = "peft_to_train")
             self.rl_algorithm.name_to_adapter = {"peft_to_train": "peft_to_train", "sampler": cfg_name}
-
-    # def _delete_adapter(self, adapter_name):
-    #     self.rl_algorithm.policy.lm.delete_adapter(adapter_name)
-    #     # Nicky since the adapter ModuleToSaveWrapper is not deleted by this stupid function, we need to delete it manually ....
-    #     # If you find a better way, please let me know
-    #     all_modules_to_save_wrappers = \
-    #         list(
-    #             filter(lambda x: isinstance(x, ModulesToSaveWrapper), self.rl_algorithm.policy.lm.modules())
-    #         )
             
-    #     for module_to_save_wrapper in all_modules_to_save_wrappers:
-    #         if adapter_name in module_to_save_wrapper.modules_to_save:
-    #             breakpoint()
-    #             delattr(module_to_save_wrapper.modules_to_save, adapter_name)
-
-    def on_learn_end(self):
-        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
-        if use_base_model_for_learning:
-            
-            assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
-                "We only support use_base_model_for_learning for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
-            
-            #delete sampler
-            sampler_name = self.rl_algorithm.name_to_adapter["sampler"]
-            self.rl_algorithm.policy.lm.delete_adapter(sampler_name)
-            
-            #set peft to train as adapter (not sure if necessary)
-            adapter_name = self.rl_algorithm.name_to_adapter["peft_to_train"]
-            self.rl_algorithm.policy.lm.set_adapter(adapter_name)
                         
-            #temporarily save model
-            tmp_save_dir = os.path.join(self.output_dir, "tmp")
-            self._save_model(tmp_save_dir)
-            self.rl_algorithm.policy.lm.delete_adapter(adapter_name)    
-            #unload all adapters    
-            self.rl_algorithm.policy.lm.unload()
+        # ~~~~ if we want to use the previous policy as the reward model, then we need to set the reward model to the previous policy~~~~
+        if self.use_previous_policy_as_reward_model:
             
-            # Reload Model with only peft_to_train adapter and call it default (since now it will be our sampler)
-            path_to_load = os.path.join(tmp_save_dir, "peft_to_train")
-            self.rl_algorithm.policy.lm = \
-                PeftModelForCausalLM.from_pretrained(self.rl_algorithm.policy.lm.model, model_id = path_to_load, adapter_name = "default")
-            self._remove_save(tmp_save_dir)
+            #sanity check
+            assert hasattr(self.rl_algorithm.policy.lm, "peft_config"), \
+                "We only support use_previous_policy_as_reward_model for models that are trained with PEFT (due to memory constraints). If you need this for other models, please implement it."
             
-
+            # if we're in the first loop, then we might as well the disable the peft layer for the reward model
+            if self.current_outer_loop == 0:
+                name_of_reward_peft = "disable peft"
+                self.rl_algorithm.name_to_adapter["peft_to_train"] = self.peft_config_name
+            # if we've already loaded the previous policy in use_base_model_for_learning, then we can use the sampler as the reward model (by defintion it's the previous policy)
+            elif use_base_model_for_learning:
+                name_of_reward_peft = self.rl_algorithm.name_to_adapter["sampler"]
+            # otherwise, we need to duplicate the current peft layers and set it as the reward model
+            else:
+                name_of_reward_peft = "reward"
+                
+                #temporarily save previous policy
+                tmp_save_dir = os.path.join(self.output_dir, "tmp")
+                self._save_model(tmp_save_dir)
+                path_to_peft = tmp_save_dir
+                possible_path_to_peft = os.path.join(tmp_save_dir, self.peft_config_name)
+                if os.path.exists(possible_path_to_peft):
+                    path_to_peft = possible_path_to_peft
+                
+                #set the current peft as the policy to optimize
+                self.rl_algorithm.name_to_adapter["peft_to_train"] = self.peft_config_name
+                #load the previous policy as the reward model
+                self.rl_algorithm.policy.lm.load_adapter(path_to_peft, adapter_name = name_of_reward_peft)
+                self._remove_save(tmp_save_dir)
+                
+            #normally you should have the same lm in all envs so setting the model in one env should be enough
+            if hasattr(self.rl_algorithm.env.envs[0].reward, "set_model_peft_name"):
+                self.rl_algorithm.env.envs[0].reward.set_model_peft_name(name_of_reward_peft)
+            self.name_of_reward_peft = name_of_reward_peft
+         
+        #rebuild the optimizer (since we've changed the model)
+        if self.use_previous_policy_as_reward_model or use_base_model_for_learning:
+            self.rl_algorithm.policy.lm.set_adapter(self.rl_algorithm.name_to_adapter["peft_to_train"])
+            self.rl_algorithm.policy._build()
+            
+        self.set_stage("train")
+            
+    def on_learn_end(self):
+        self.rl_algorithm.policy.enable_peft_at_inference()
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        # For validation, we need to swap the sample with the trained/new policy (it's what we'd like to test)
+        if use_base_model_for_learning:
+            self.sampler_to_delete = self.rl_algorithm.name_to_adapter["sampler"]
+            self.rl_algorithm.name_to_adapter["sampler"] = self.rl_algorithm.name_to_adapter["peft_to_train"]
+            
+        if hasattr(self.rl_algorithm.policy.lm, "enable_adapter_layers"):
+            #just to be sure, enable adapter layers (I've had issues with this in the past)
+            self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
         pass

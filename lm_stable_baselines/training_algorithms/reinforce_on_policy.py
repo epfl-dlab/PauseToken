@@ -2,16 +2,25 @@ from lm_stable_baselines.training_algorithms import STaROnPolicy
 import torch
 from torch.nn.functional import nll_loss
 import numpy as np
+from torchviz import make_dot
 class ReinforceOnPolicy(STaROnPolicy):
     
-    def __init__(self, baseline_init_val , baseline_lr, *args, **kwargs):
+    def __init__(self, baseline_init_val , baseline_lr, n_grad_accumulation_steps = 1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.baseline = baseline_init_val
         self.baseline_lr = baseline_lr
+        self.n_grad_accumulation_steps = n_grad_accumulation_steps
+        self.accumulated_advantages = 0.0
     
-    def update_baseline(self, rewards):
+    def accumulate_advantages(self, rewards):
+        mean_advantages = (rewards - self.baseline).mean()
+        self.accumulated_advantages += mean_advantages
+    
+    def update_baseline(self, gradient_accumulation_counter):
         #running average$
-        self.baseline = self.baseline + self.baseline_lr * (rewards - self.baseline).mean()
+        accumulated_advantages = self.accumulated_advantages/gradient_accumulation_counter
+        self.baseline = self.baseline + self.baseline_lr * accumulated_advantages
+        self.accumulated_advantages = 0.0
         
     def token_level_reinforce_loss(
         lm_output,
@@ -82,7 +91,7 @@ class ReinforceOnPolicy(STaROnPolicy):
             for j in range(k - m + 1):  # Slide across the observation
                 if torch.equal(obs[j:j + m], act):
                     start_idx = j
-                    end_idx = j + m - 1
+                    end_idx = j + m
                     mask[i, start_idx : end_idx] = False
                     found_match = True
                     break
@@ -93,6 +102,12 @@ class ReinforceOnPolicy(STaROnPolicy):
         return labels
     
     def train(self) -> None:
+        
+        if hasattr(self.policy.lm, "enable_adapter_layers"):
+            self.policy.lm.enable_adapter_layers()
+
+        if "peft_to_train" in self.name_to_adapter:
+            self.policy.lm.set_adapter(self.name_to_adapter["peft_to_train"])
         
         self.policy.train()
         
@@ -107,11 +122,15 @@ class ReinforceOnPolicy(STaROnPolicy):
         num_above_baseline = []
         num_below_baseline = []
         advantages = []
+        total_above_baseline = 0
+        total_seen_samples = 0
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size
         self.policy.tokenizer.padding_side = "right"
         baseline_to_log = self.baseline
+        
+        gradient_accumulation_counter = 0
         for _ in range(n_batches):
             
             self._n_updates += 1
@@ -124,8 +143,9 @@ class ReinforceOnPolicy(STaROnPolicy):
             labels = collated_labels["labels"].to(self.device) # check with 
            
             labels = self.make_labels_for_action_only(next_observation["input_ids"], data.actions, labels)
-
+                  
             input_ids = next_observation["input_ids"].to(self.device)
+      
             attention_mask = next_observation["attention_mask"].to(self.device)
             
             output = self.policy.lm(
@@ -143,7 +163,8 @@ class ReinforceOnPolicy(STaROnPolicy):
             
             above_baseline_condition = data.advantages >= self.baseline
             below_baseline_condition = data.advantages < self.baseline
-            
+            total_above_baseline += above_baseline_condition.sum().item()
+            total_seen_samples += len(data.advantages)
             num_above_baseline.append(above_baseline_condition.sum().item())
             num_below_baseline.append(below_baseline_condition.sum().item())
             
@@ -168,16 +189,25 @@ class ReinforceOnPolicy(STaROnPolicy):
             rewards.append(data.advantages.mean().item())
             advantages.append((data.advantages - self.baseline).mean().item())
 
-            self.policy.optimizer.zero_grad()
-            
+            loss = loss / self.n_grad_accumulation_steps
             loss.backward()
             
-            self.policy.optimizer.step()
+            self.accumulate_advantages(data.advantages)
+            
+            gradient_accumulation_counter += 1
+            if gradient_accumulation_counter == self.n_grad_accumulation_steps:
+                self.update_baseline(gradient_accumulation_counter)
+                self.policy.optimizer.step()
+                self.policy.optimizer.zero_grad()
+                gradient_accumulation_counter = 0
             
             baseline_to_log = self.baseline
             
-            self.update_baseline(data.advantages)
-                    
+        if gradient_accumulation_counter != 0:
+            self.policy.optimizer.step()
+            self.policy.optimizer.zero_grad()
+            self.update_baseline(gradient_accumulation_counter)
+            
         self.logger.record("train/avg_reward", np.mean(rewards))
         self.logger.record("train/reinforce_loss", np.mean(losses))
         self.logger.record("train/mean_nll", np.mean(nll_list))
@@ -191,4 +221,5 @@ class ReinforceOnPolicy(STaROnPolicy):
         self.logger.record("train/above_baseline_rewards", mean_above_baseline_rewards)
         self.logger.record("train/below_baseline_rewards", mean_below_baseline_rewards)
         self.logger.record("train/baseline", baseline_to_log)
+        self.logger.record("train/portion_above_baseline", total_above_baseline/total_seen_samples if total_seen_samples > 0 else 0)
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")

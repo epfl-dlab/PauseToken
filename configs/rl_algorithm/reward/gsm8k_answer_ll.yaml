@@ -1,3 +1,4 @@
 _target_: src.reward.GSM8KFinalAnswerLogLikelihoodReward
 
 delimiter: "####"
+correctness_reward_weight: 0.0

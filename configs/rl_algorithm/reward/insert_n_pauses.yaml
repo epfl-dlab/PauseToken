@@ -1,0 +1,4 @@
+_target_: src.reward.InsertNPauses
+
+n_pauses: 5
+pause_token_str: "<|pause|>"

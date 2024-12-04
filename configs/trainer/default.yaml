@@ -16,3 +16,6 @@ metric_for_best_model: "val/accuracy"
 #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
 metric_for_best_model_mode_is_min: false
 do_sample_at_validation: false
+
+peft_config_name: default
+use_previous_policy_as_reward_model: false

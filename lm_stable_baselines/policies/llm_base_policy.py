@@ -83,6 +83,7 @@ class LLMBasePolicy(BasePolicy):
         self.filler_token = filler_token
 
         #args for generation
+        self.lr_schedule = lr_schedule
         self.generation_params = generation_params
         self.kwargs = kwargs
         self._build(lr_schedule)
@@ -90,12 +91,16 @@ class LLMBasePolicy(BasePolicy):
         
         
         
-    def _build(self, lr_schedule: Schedule):
+    def _build(self, lr_schedule: Schedule = None) -> None:
         """ Build the policy and optimizer
         
         :param lr_schedule: Learning rate schedule
         :type lr_schedule: Schedule
         """
+        
+        if lr_schedule is None:
+            lr_schedule = self.lr_schedule
+        
         self.optimizer = self.optimizer_class(
             self.lm.parameters(),
             lr=lr_schedule(1),  # type: ignore[call-arg]

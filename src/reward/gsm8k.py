@@ -2,7 +2,6 @@ from lm_stable_baselines.rewards import AbstractReward
 import torch
 from transformers import PreTrainedTokenizer
 from src.utils.trainer_utils import decode_and_strip_special_tokens, extract_answer, INVALID_ANS 
-
 class GSM8KCorrectnessReward(AbstractReward):
     """Reward function for the GSM8K dataset. This reward function checks if the model output is correct given the ground truth answer. The ground truth answer must be in the GSM8K dataset format
     
@@ -60,6 +59,7 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         model = None,
         delimiter= "####",
         # invalid_answer_penalty = torch.finfo(torch.float).min,
+        correctness_reward_weight = 20.0,
         **kwargs
     ):
         """ Reward function for the GSM8K dataset. This reward function computes the log likelihood of the final answer given the model output.
@@ -69,15 +69,22 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         
         self.tokenizer = tokenizer
         self.model = model
+        self.correctness_reward_weight = float(correctness_reward_weight)
+        if correctness_reward_weight != 0:
+            self.correctness_reward = GSM8KCorrectnessReward(tokenizer)
         # self.tokens_ids_to_ignore = tokens_ids_to_ignore
         # self.invalid_ans_penalty = invalid_answer_penalty
         
         # self.tokens_ids_to_ignore.append(self.tokenizer.eos_token_id)
         # self.tokens_ids_to_ignore.append(self.tokenizer.encode(' ')[-1])
         self.identifiers = self.find_all_token_ids(delimiter)
+        self.model_peft_name = None
             
     def set_model(self, model):
         self.model = model
+        
+    def set_model_peft_name(self, model_peft_name):
+        self.model_peft_name = model_peft_name
         
     def get_start_of_answer_token_position(self, model_output: torch.LongTensor):
         #find the position of the first token of the answer
@@ -101,7 +108,14 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         return torch.tensor(matching_token_ids)
     
     def reward_fn(self, model_output: torch.LongTensor, ground_truth: torch.LongTensor):
-              
+        
+        if self.model_peft_name is not None:
+            og_active_adapter = self.model.active_adapter
+            
+            if self.model_peft_name == "disable peft":
+                self.model.disable_adapter_layers()
+            else:
+                self.model.set_adapter(self.model_peft_name)
         start_of_answer_token_position_model_output = \
             self.get_start_of_answer_token_position(model_output)
 
@@ -133,6 +147,19 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
             context_size += 1
 
         true_ans_log_prop = self.final_answer_log_likelihood(input_ids.unsqueeze(0), context_size)
+        
+        
+        if self.model_peft_name is not None:
+            if self.model_peft_name == "disable peft":
+                self.model.enable_adapter_layers()
+            
+            self.model.set_adapter(og_active_adapter)
+        
+        if flag and self.correctness_reward_weight != 0:
+            correctness_reward = self.correctness_reward.reward_fn(model_output, ground_truth)
+            return self.correctness_reward_weight * correctness_reward + true_ans_log_prop[0].item()
+        
+        
         return true_ans_log_prop[0].item()
         
     def final_answer_log_likelihood(self, input_ids: torch.LongTensor, context_length: int):
@@ -153,6 +180,31 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         return final_answer_lprob.sum(dim=-1)
 
     
+    
+class InsertNPauses(AbstractReward):
+    def __init__(self, tokenizer, n_pauses, pause_token_str = "<|pause|>", **kwargs):
+        super().__init__(tokenizer, **kwargs)
+        self.n_pauses = n_pauses
+        self.pause_token_str = pause_token_str
+        
+    def reward_fn(self, model_output: torch.LongTensor, ground_truth: torch.LongTensor):
+        decoded_output = self.tokenizer.decode(model_output)
+        #count how many pauses are in decoded_output
+        n_pauses = decoded_output.count(self.pause_token_str)
+        
+        reward = (n_pauses - self.n_pauses)
+        
+        if reward > 0:
+            reward = -reward
+            
+        return reward
+        
+    
+    def get_max_reward(self):
+        return 0.0
+    
+    def get_min_reward(self):
+        return -1000
     # def batch_call(self, model_output: torch.LongTensor, ground_truth: torch.LongTensor) -> List[float]:
     #     raise NotImplementedError("batch_call not implemented for GSM8KFinalAnswerLogLikelihoodReward would need to fix get_start_of_answer_token_position")
 

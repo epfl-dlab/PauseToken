@@ -35,6 +35,7 @@ trainer:
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
   metric_for_best_model_mode_is_min: false
   disable_peft_first_inference: false
+  use_previous_policy_as_reward_model: True
 
 
 
@@ -42,6 +43,9 @@ rl_algorithm:
 
   environment:
     enable_delta_reward: true
+
+  reward:
+    correctness_reward_weight: 20.0
 
   baseline_init_val: -6.0 # I've disabled these for the moment, they have no effect
   baseline_lr: 0.01

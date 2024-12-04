@@ -37,6 +37,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
     ) -> RolloutReturn:
        
         if self.use_base_model_for_learning:
+            self.policy.lm.enable_adapter_layers()
             self.policy.lm.set_adapter(self.name_to_adapter["sampler"])
         
         og_padding_side = self.policy.tokenizer.padding_side
@@ -85,10 +86,15 @@ class STaROnPolicy(OnPolicyAlgorithm):
 
 
     def train(self) -> None:
-        self.policy.train()
         
-        if self.use_base_model_for_learning:
+        
+        if hasattr(self.policy.lm, "enable_adapter_layers"):
+            self.policy.lm.enable_adapter_layers()
+
+        if "peft_to_train" in self.name_to_adapter:
             self.policy.lm.set_adapter(self.name_to_adapter["peft_to_train"])
+        
+        self.policy.train()
         
         self._update_learning_rate(self.policy.optimizer)
         nll_losses = []
