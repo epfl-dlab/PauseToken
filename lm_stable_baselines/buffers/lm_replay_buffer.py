@@ -107,28 +107,31 @@ class LMReplayBuffer(ReplayBuffer):
         else:
             next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
 
-        next_obs = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(next_obs[...,1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
-            ),
-            return_tensors="pt", padding=True, truncation=True
-        )
+        # next_obs = self.tokenizer(
+        #     self.tokenizer.batch_decode(
+        #         remove_filler_tokens(next_obs[...,1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
+        #     ),
+        #     return_tensors="pt", padding=True, truncation=True
+        # )
+        next_obs = self.remove_filler_tokens_and_pad(next_obs, batch_inds)
         
         obs = self._normalize_obs(self.observations[idx], env)
         
-        obs = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(obs[..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
-            ),
-            return_tensors="pt", padding=True, truncation=True
-        )
+        # obs = self.tokenizer(
+        #     self.tokenizer.batch_decode(
+        #         remove_filler_tokens(obs[..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
+        #     ),
+        #     return_tensors="pt", padding=True, truncation=True
+        # )
+        obs = self.remove_filler_tokens_and_pad(obs, batch_inds)
  
-        actions = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(self.actions[idx], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
-            ),
-             return_tensors="pt", padding=True, truncation=True
-        )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
+        # actions = self.tokenizer(
+        #     self.tokenizer.batch_decode(
+        #         remove_filler_tokens(self.actions[idx], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
+        #     ),
+        #      return_tensors="pt", padding=True, truncation=True
+        # )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
+        actions = self.remove_filler_tokens_and_pad(self.actions[idx], batch_inds)["input_ids"][...,1:]
 
         data = (
             obs,
@@ -144,6 +147,18 @@ class LMReplayBuffer(ReplayBuffer):
         
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
         
+
+    def remove_filler_tokens_and_pad(self, tensor, batch_inds,):
+        tensor_list = remove_filler_tokens(tensor[batch_inds], self.filler_token)
+        max_len = max([len(t) for t in tensor_list])
+        tensor_tensor = torch.ones(len(tensor_list), max_len, dtype=torch.long) * self.tokenizer.pad_token_id
+        for i, t in enumerate(tensor_list):
+            tensor_tensor[i, :len(t)] = torch.tensor(t)
+        output_tensor = {"input_ids": tensor_tensor, "attention_mask": torch.tensor(tensor_tensor != self.tokenizer.pad_token_id).long()}
+        return output_tensor
+    
+    
+
 
     #TODO: I probably can delete this method
     # def add(

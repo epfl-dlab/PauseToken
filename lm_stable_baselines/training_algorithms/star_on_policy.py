@@ -84,7 +84,6 @@ class STaROnPolicy(OnPolicyAlgorithm):
         return val_samps
         
 
-
     def train(self) -> None:
         
         
@@ -107,26 +106,23 @@ class STaROnPolicy(OnPolicyAlgorithm):
             self._n_updates += 1
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
             next_observation = self.get_next_observation(data)
-            if self.loss_computed_in_forward_pass:
-                labels = next_observation["input_ids"]
-                labels_list = list(labels.cpu())
-                collated_labels = self.data_collator(labels_list)
-                labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
-            else:
-                labels = None
-                
+            
+            # if self.loss_computed_in_forward_pass:
+            #     labels = next_observation["input_ids"]
+            #     labels_list = list(labels.cpu())
+            #     collated_labels = self.data_collator(labels_list)
+            #     labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
+            # else:
+            #     labels = None
             kwargs = {}
-            # if isinstance(self.policy.lm, BaseControlTokenWrapper):
-            #     kwargs["reduce_mean"] = False
 
             input_ids = next_observation['input_ids'].to(self.device)
-
             attention_mask=next_observation['attention_mask'].to(self.device)
-
+            self.policy.lm.eval()
             output = self.policy.lm(
                 input_ids=input_ids, 
                 attention_mask=attention_mask,
-                labels=labels,
+                labels=input_ids, # perhaps should be [:, 1:] if we don't want to predict the first token
                 **kwargs
             )
             if self.loss_computed_in_forward_pass:
@@ -139,19 +135,13 @@ class STaROnPolicy(OnPolicyAlgorithm):
                 # nll_loss = self.policy.compute_nll_loss(output.logits, labels)
             
 
-            # # getting log_probs for importance sampling
-            # old_log_probs = data.old_log_prob
-            
-            # mask = labels>0 # get the ids of the tokens that are not padding or the question token
-            # labels[labels<0] = 0
-            
-            # logprobs = torch.log_softmax(output.logits, dim = -1)[:,:-1,:]
-            # logprob_actions = torch.gather(logprobs, 2, labels[:,1:].unsqueeze(-1)).squeeze(-1)
-            # logprobs = (logprob_actions * mask[:,1:]).sum(dim = 1)
-            # breakpoint()
-            # ratio = torch.exp(logprobs - old_log_probs).detach() #wrong value at initialization! needs debugging!
-            # breakpoint()
-
+            # getting log_probs for importance sampling
+            old_log_probs = data.old_log_prob
+            logprobs = torch.log_softmax(output.logits, dim = -1)[:, :-1, :]
+            input_ending_ids = (data.observations['input_ids']!=0).sum(dim=-1) - 1
+            new_logprobs = self.policy._compute_logprobs(logprobs, input_ids[:, 1:], input_ending_ids)
+            ratio = torch.exp(new_logprobs - old_log_probs).detach() 
+            print(ratio)
             # Compute the loss
             nll_losses.append(nll_loss.item())
             
