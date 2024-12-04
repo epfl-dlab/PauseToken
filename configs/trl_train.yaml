@@ -18,7 +18,7 @@ defaults:
 
   - rl_algorithm/policy/model/tokenizer: auto_tokenizer
 
-  - rl_algorithm/policy/generation: default
+  - rl_algorithm/policy/generation: train_default
 
   - rl_algorithm/policy/model/peft_config@trainer.peft_config: null
   

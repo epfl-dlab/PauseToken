@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import seed_everything
 from datasets import Dataset
@@ -10,7 +11,7 @@ from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
 from src.utils.trainer_utils import test_model
 import os
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
 # - adding project root dir to PYTHONPATH

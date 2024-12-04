@@ -1,0 +1,18 @@
+defaults:
+  - .@language_model: auto_model_for_causal_lm
+
+_target_: src.model.components.control_token_wrappers.PauseClassifierWrapper
+
+config:
+  _target_: src.model.components.control_token_wrappers.PauseCLFConfig
+  pause_token_id: 32000
+  pause_token_name: <PAUSE> 
+  ctrl_token_head_temperature: 1.0
+  detach_ctrl_tok_clf: false
+
+language_model:
+  pretrained_model_name_or_path: /dlabscratch1/wendler/code/nanotron/hf_models/pause-30000
+  device_map: "auto"
+  torch_dtype: 
+    _target_: src.utils.hydra_custom_resolvers.get_module_attr
+    module_and_attr: torch.bfloat16

@@ -23,6 +23,7 @@ dependencies = [
     "stable_baselines3==2.3.2",
     "datasets==2.18.0",
     "transformers==4.46.2",
+    "accelerate==0.34.2"
     "peft==0.10.0",
     "scipy==1.13.0",
     "matplotlib==3.8.4",
