@@ -47,8 +47,8 @@ class LMRolloutBuffer(RolloutBuffer):
         self.actions.fill(filler_token)
 
 
-    def to_torch(self, array: Union[np.ndarray, torch.Tensor, transformers.BatchEncoding], copy: bool = True) -> Union[torch.Tensor, transformers.BatchEncoding]:
-        if isinstance(array, transformers.BatchEncoding):
+    def to_torch(self, array: Union[np.ndarray, torch.Tensor, transformers.BatchEncoding, dict], copy: bool = True) -> Union[torch.Tensor, transformers.BatchEncoding]:
+        if isinstance(array, transformers.BatchEncoding,) or isinstance(array, dict):
             return {k: v.to(self.device) for k,v in array.items()}
         elif isinstance(array, torch.Tensor):
             return array.to(self.device)
@@ -100,29 +100,37 @@ class LMRolloutBuffer(RolloutBuffer):
     
     def _get_samples(self, batch_inds, env: Optional[VecNormalize] = None, padding='right') -> RolloutBufferSamples:
         
-        obs = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(self.observations[batch_inds][..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
-            ),
-            return_tensors="pt", padding=True, truncation=True
-        )
- 
-        actions = self.tokenizer(
-            self.tokenizer.batch_decode(
-                remove_filler_tokens(self.actions[batch_inds], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
-            ),
-             return_tensors="pt", padding=True, truncation=True
-        )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
-
-        # data = (
-        #     self.observations[batch_inds],
-        #     self.actions[batch_inds],
-        #     self.values[batch_inds].flatten(),
-        #     self.log_probs[batch_inds].flatten(),
-        #     self.advantages[batch_inds].flatten(),
-        #     self.returns[batch_inds].flatten(),
+        # obs = self.tokenizer(
+        #     self.tokenizer.batch_decode(
+        #         remove_filler_tokens(self.observations[batch_inds][..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
+        #     ),
+        #     return_tensors="pt", padding=True, truncation=True
         # )
-       
+ 
+        # actions = self.tokenizer(
+        #     self.tokenizer.batch_decode(
+        #         remove_filler_tokens(self.actions[batch_inds], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
+        #     ),
+        #      return_tensors="pt", padding=True, truncation=True
+        # )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
+
+        # this messes up by retokenizing, and same text can be tokenized differently
+        # obs_list = remove_filler_tokens(self.observations[batch_inds][..., 0:], self.filler_token) # No tokenizer, keep the BOS
+        # max_obs_len = max([len(obss) for obss in obs_list])
+        # obs_tensor = torch.ones(len(obs_list), max_obs_len, dtype=torch.long) * self.tokenizer.pad_token_id
+        # for i, obs in enumerate(obs_list):
+        #     obs_tensor[i, :len(obs)] = torch.tensor(obs)
+        # obs = {"input_ids": obs_tensor, "attention_mask": torch.tensor(obs_tensor != self.tokenizer.pad_token_id).long()}
+        obs = self.remove_filler_tokens_and_pad(self.observations, batch_inds)
+
+        # actions_list = remove_filler_tokens(self.actions[batch_inds], self.filler_token)
+        # max_actions_len = max([len(actions) for actions in actions_list])
+        # actions_tensor = torch.ones(len(actions_list), max_actions_len, dtype=torch.long) * self.tokenizer.pad_token_id
+        # for i, actions in enumerate(actions_list):
+        #     actions_tensor[i, :len(actions)] = torch.tensor(actions)
+        # actions = actions_tensor
+        actions = self.remove_filler_tokens_and_pad(self.actions, batch_inds)["input_ids"]
+
         data = (
             obs,
             actions,
@@ -134,3 +142,11 @@ class LMRolloutBuffer(RolloutBuffer):
 
         return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
         
+    def remove_filler_tokens_and_pad(self, tensor, batch_inds,):
+        tensor_list = remove_filler_tokens(tensor[batch_inds], self.filler_token)
+        max_len = max([len(t) for t in tensor_list])
+        tensor_tensor = torch.ones(len(tensor_list), max_len, dtype=torch.long) * self.tokenizer.pad_token_id
+        for i, t in enumerate(tensor_list):
+            tensor_tensor[i, :len(t)] = torch.tensor(t)
+        output_tensor = {"input_ids": tensor_tensor, "attention_mask": torch.tensor(tensor_tensor != self.tokenizer.pad_token_id).long()}
+        return output_tensor
