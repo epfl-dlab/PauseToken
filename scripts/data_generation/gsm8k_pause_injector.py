@@ -263,37 +263,36 @@ if __name__ == "__main__":
     
     data_files = {"train": os.path.join(args.dataset_location, "train.json"),
                   "test": os.path.join(args.dataset_location, "test.json")}
-    dataset = load_dataset("json", data_files=data_files, split="train")
-    if args.tokenizer_hf_name:
-        if args.verbose:
-            print("Loading Tokenizer ...")
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_hf_name)
-    else:
-        if args.verbose:
-            print("No Tokenizer provided. Using spaces to insert random pauses.")
-        tokenizer = None
-    
-    if args.verbose:
-        print("Injecting Pauses...")
-    
-    augmented_ds = []
-    for it in range(args.n_generated_samples_per_datapoint):
-        augmented_ds.append(
-            dataset.map(
-                lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses, args.n_leading_pauses),load_from_cache_file=False
-            )
-        )
-    if args.n_generated_samples_per_datapoint == 1:
-        dataset = augmented_ds[0]
-    else:
-        dataset = concatenate_datasets(augmented_ds)
-    
-    if args.verbose:
-        print("done !")
-        print("viewing a sample from training data: ")
-        print(dataset[0])
+    for split in data_files.keys():
+        dataset = load_dataset("json", data_files=data_files, split=split)
+        if args.tokenizer_hf_name:
+            if args.verbose:
+                print("Loading Tokenizer ...")
+            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_hf_name)
+        else:
+            if args.verbose:
+                print("No Tokenizer provided. Using spaces to insert random pauses.")
+            tokenizer = None
         
-        print("Saving Augmented Dataset...")
-    dataset.to_json(os.path.join(args.augm_dataset_save_location,"train.json"),batch_size= len(dataset), indent = 2, lines=False)
-    test_ds = load_dataset("json", data_files=data_files, split="test")
-    test_ds.to_json(os.path.join(args.augm_dataset_save_location,"test.json"),batch_size= len(test_ds),indent = 2, lines=False)
+        if args.verbose:
+            print("Injecting Pauses...")
+        
+        augmented_ds = []
+        for it in range(args.n_generated_samples_per_datapoint):
+            augmented_ds.append(
+                dataset.map(
+                    lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses, args.n_leading_pauses),load_from_cache_file=False
+                )
+            )
+        if args.n_generated_samples_per_datapoint == 1:
+            dataset = augmented_ds[0]
+        else:
+            dataset = concatenate_datasets(augmented_ds)
+        
+        if args.verbose:
+            print("done !")
+            print("viewing a sample from training data: ")
+            print(dataset[0])
+            
+            print("Saving Augmented Dataset...")
+        dataset.to_json(os.path.join(args.augm_dataset_save_location,f"{split}.json"),batch_size= len(dataset), indent = 2, lines=False)
