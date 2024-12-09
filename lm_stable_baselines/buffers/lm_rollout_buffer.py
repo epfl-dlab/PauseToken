@@ -32,6 +32,29 @@ class LMRolloutBuffer(RolloutBuffer):
     
     def set_tokenizer(self, tokenizer):
         self.tokenizer = tokenizer
+        
+    def add(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: np.ndarray,
+        episode_start: np.ndarray,
+        value: torch.Tensor,
+        log_prob: torch.Tensor,
+    ) -> None:
+        """
+        :param obs: Observation
+        :param action: Action
+        :param reward:
+        :param episode_start: Start of episode signal.
+        :param value: estimated value of the current state
+            following the current policy.
+        :param log_prob: log probability of the action
+            following the current policy.
+        """
+        # convert log_prob to float 32 (problematic when model is in float 16)
+        log_prob = log_prob.float()
+        super().add(obs, action, reward, episode_start, value, log_prob)
     
     def reset(self) -> None:
         super().reset()
@@ -148,5 +171,6 @@ class LMRolloutBuffer(RolloutBuffer):
         tensor_tensor = torch.ones(len(tensor_list), max_len, dtype=torch.long) * self.tokenizer.pad_token_id
         for i, t in enumerate(tensor_list):
             tensor_tensor[i, :len(t)] = torch.tensor(t)
-        output_tensor = {"input_ids": tensor_tensor, "attention_mask": torch.tensor(tensor_tensor != self.tokenizer.pad_token_id).long()}
+        #NICKY: Changed this to clone().detach() due to pytorch warnings
+        output_tensor = {"input_ids": tensor_tensor, "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).clone().detach().long()}
         return output_tensor

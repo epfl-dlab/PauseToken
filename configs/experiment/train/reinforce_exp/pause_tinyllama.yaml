@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - train/reinforce_exp/pause
+  - override /rl_algorithm/policy/model/peft_config: null
+
+
+
+run_name: "reinforce_pause_tinyllama"
+
+trainer:
+  use_previous_policy_as_reward_model: false 
+
+
+rl_algorithm:
+  n_steps: 1 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
+  n_grad_accumulation_steps: 8
+  reward:
+    correctness_reward_weight: 20.0
+
+  buffer:
+    advantage_threshold: -40
+
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-04_14-50-01/final

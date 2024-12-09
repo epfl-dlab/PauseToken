@@ -12,6 +12,8 @@ All models are trained for 1 epoch on GSM8K with random pauses. The training is 
 
 The table below shows for each model the components that are unfrozen. If not specified, all components are frozen.
 
+#### Mistral
+
 | experiment-yaml-file                             | Unfreeze Pause Embedding | Unfreeze Pause Head | Unfreeze LM head |  Unfreeze LM Embeddings | LORA | python command                                                                           |
 |--------------------------------------------------|:------------------------:|:-------------------:|:----------------:| :----------------------:|:----:|--------------------------------------------------------------------------------------------------------|
 | sft.yaml                                         |           X              |      X              |                  |                         |      | `python src/trl_train.py experiment=trl_train/step2_exp/sft.yaml`                                        |
@@ -36,9 +38,21 @@ The table below shows for each model the components that are unfrozen. If not sp
 | baseline (model w/out pause; peft) 2 epoch       |                          |                     |                  |                         |   X  | `python src/trl_train.py experiment=trl_train/step_1_sft.yaml trainer.args.num_train_epochs=2.0`         |
 
 
+#### TinyLLama
+
+
+| experiment-yaml-file                             | Train full model          |    Pause Model    | python command                                                            |
+|--------------------------------------------------|:-------------------------:|-----------------------------------------------------------------------------------------------|
+| sft_pause_tiny_llama_pause.yaml                  |        x                  |         X         | `python src/trl_train.py experiment=trl_train/sft_pause_tiny_llama_pause` |
+| sft_tiny_llama.yaml                              |        x                  |                   | `python src/trl_train.py experiment=trl_train/sft_tiny_llama`             |
+
+
+
 
 ### Results
 
+
+#### Mistral
 
 | experiment-yaml-file                             |  Test Accuracy | Eval Loss     |  Average Number of pauses per reply | Average Number of pauses per reply (correctly predicted)  | Average Number of pauses per reply (incorrectly predicted) |
 |--------------------------------------------------|:--------------:|:-------------:|:------------------------------------:|:--------------------------------------------------------:|:----------------------------------------------------------:|
@@ -88,6 +102,20 @@ The table below shows for each model the components that are unfrozen. If not sp
 | baseline (model w/out pause; peft) 2 epoch | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/w5xt8w0w) |
 
 
+
+#### TinyLLama
+
+| experiment-yaml-file                             |  Test Accuracy |
+|--------------------------------------------------|:--------------:|
+| sft_pause_tiny_llama_pause.yaml                  |    **0.01076** |
+| sft_tiny_llama.yaml                              |    0.0887      |
+
+
+| experiment-yaml-file                       |                               Path to predictions                                             |             Model Location                                                        |                       WandB Link                                     |
+|--------------------------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|:--------------------------------------------------------------------:|
+| sft_pause_tiny_llama_pause.yaml            | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-04_14-50-01/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-04_14-50-01/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/ka3rb349) | 
+|         sft_tiny_llama.yaml                | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-04_14-50-52/test_results.json` | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-04_14-50-52/final` | [click here](https://wandb.ai/sigmae/Control%20Tokens/runs/h9vk0hj3) |
+
 ### Takeaways
 
 It seems like the best way to 'pretrain' the model on random pauses is by unfreezing the Pause Head, and the Pause embedding and using LoRa for updating the base model. Note however that training the pause embedding doesn't have much of an effect on the accuracy. We do notice a generally tendency (in this pretraining phase), that incorrect replies seem to generate more pauses than incorrect ones on average.
@@ -129,7 +157,7 @@ The table below shows the training specifications for each model. They are all t
 | reward_conditioning/pause_constant_rc_temp_1.5    |  `pause model`|  `Textual Reward Conditioning (constant text rewards) offline`        |     1.5     | `python src/train.py experiment=train/reward_conditioning/pause_constant_rc run_name=constant_rc_pause_temp_1.5 rl_algorithm.policy.generation.generation_config.temperature=1.5`        |
 | online_star_exp/pause_n_steps_1                   |`pause model`  |`STaR online. Train after every n_steps (=1) * batch_size(=64) = 64 rollouts`| 1.0   | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=1 run_name=online_star_pause_n_steps_1`                                                                 |
 | online_star_exp/pause_n_steps_9                   |`pause model`  |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.0  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_n_steps_0`                                                                 |
-| online_star_exp/no_pause_n_steps_9_temp          |`pause model`  |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.5  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_no_pause_n_steps_9`                                                               |
+| online_star_exp/no_pause_n_steps_9_temp          |`pause model`   |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.5  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_no_pause_n_steps_9`                                                               |
 
 ### Results
 

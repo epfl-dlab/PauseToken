@@ -8,10 +8,10 @@ rl_algorithm:
   policy:
     model:
       tokenizer:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1
       language_model:
         language_model:
-          pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_13-23-45/final
+          pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1
         post_instanciation_method_calls: 
           - method: freeze_all
           - method: unfreeze_ctrl_embeddings
@@ -23,7 +23,6 @@ data:
   path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses"
 
 trainer:
-  _target_: src.trainer.trl_trainers.trainers.SFTTrainerForCtrlTokLogging
   data_collator:
     _target_: trl.DataCollatorForCompletionOnlyLM
     response_template:
@@ -41,14 +40,17 @@ trainer:
     do_eval: true
     evaluation_strategy: "steps"
     save_strategy: "steps"
-    eval_steps: 500
+    eval_steps: 300
     load_best_model_at_end: true
     save_total_limit: 10
     num_train_epochs: 1.0
     per_device_train_batch_size: 8
     per_device_eval_batch_size: 8
-    save_steps: 500
+    save_steps: 300
     report_to: "wandb"
+    learning_rate: 5e-05
+    adam_beta2: 0.999
+    warmup_ratio: 0.05
 
 save_before_train: false
 merge_peft_after_train: true

@@ -153,13 +153,20 @@ class LMSBTrainer:
         ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
-
+    
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
         val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
+        
         if hasattr(val_samps, "next_observations"):
             next_obs = val_samps.next_observations
         else:
             next_obs = self.rl_algorithm.get_next_observation(val_samps)
+        
+        if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
+            mean_reward = val_samps.rewards.mean().item()
+        else:
+            mean_reward = val_samps.advantages.mean().item()
+        
         
         texts = decode_and_strip_pad_tokens(
             next_obs["input_ids"],
@@ -220,10 +227,10 @@ class LMSBTrainer:
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
-            
+        self.rl_algorithm.logger.record(f"{stage}/reward", mean_reward)
         #TODO: Save rollouts to file
         save_json(reses, self.output_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
-        
+
     def run_validation(self):    
         self.evaluation("val")
     
@@ -285,7 +292,7 @@ class LMSBTrainer:
                 warnings.warn("Could not load adapter model, make sure to have `peft>=0.3.0` installed")
             
         else:
-            self.rl_algorithm.policy.lm = class_lm.from_pretrained(model_id = output_dir, **kwargs)
+            self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir, **kwargs)
         
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
             

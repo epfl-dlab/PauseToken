@@ -60,6 +60,7 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         delimiter= "####",
         # invalid_answer_penalty = torch.finfo(torch.float).min,
         correctness_reward_weight = 20.0,
+        inverse_neg_log_likelihood = False,
         **kwargs
     ):
         """ Reward function for the GSM8K dataset. This reward function computes the log likelihood of the final answer given the model output.
@@ -79,7 +80,7 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         # self.tokens_ids_to_ignore.append(self.tokenizer.encode(' ')[-1])
         self.identifiers = self.find_all_token_ids(delimiter)
         self.model_peft_name = None
-            
+        self.inverse_neg_log_likelihood = inverse_neg_log_likelihood
     def set_model(self, model):
         self.model = model
         
@@ -146,7 +147,9 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         if flag:
             context_size += 1
 
-        true_ans_log_prop = self.final_answer_log_likelihood(input_ids.unsqueeze(0), context_size)
+        true_ans_log_prop = self.final_answer_log_likelihood(input_ids.unsqueeze(0), context_size)[0].item()
+        if self.inverse_neg_log_likelihood:
+             true_ans_log_prop = 1/(1-true_ans_log_prop)
         
         
         if self.model_peft_name is not None:
@@ -157,10 +160,10 @@ class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
         
         if flag and self.correctness_reward_weight != 0:
             correctness_reward = self.correctness_reward.reward_fn(model_output, ground_truth)
-            return self.correctness_reward_weight * correctness_reward + true_ans_log_prop[0].item()
+            return self.correctness_reward_weight * correctness_reward + true_ans_log_prop
         
         
-        return true_ans_log_prop[0].item()
+        return true_ans_log_prop
         
     def final_answer_log_likelihood(self, input_ids: torch.LongTensor, context_length: int):
         attention_mask = torch.ones_like(input_ids)

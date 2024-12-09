@@ -1,7 +1,7 @@
 defaults:
   - dataset_from_file
 
-path: "data/gsm8k_json/gsm8k/"
+path: "data/gsm8k_jsonl/gsm8k/"
     
 files: 
   - "train"
