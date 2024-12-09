@@ -7,43 +7,6 @@ import numpy as np
 class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
     
     def __init__(self,*args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
-<<<<<<< HEAD
-=======
-        super().__init__(*args, **kwargs)
-        assert all([isinstance(myenv, LanguageModelEnv) for myenv in self.env.envs]), "All environments must be of type LanguageModelEnv"
-        all_filler_token = [myenv.filler_token for myenv in self.env.envs]
-        assert all([filler_token == all_filler_token[0] for filler_token in all_filler_token]), "All environments must have the same filler token"
-        self.policy.filler_token = all_filler_token[0]
-        self.rollout_buffer.set_filler_token(all_filler_token[0])
-        self.env.set_filler_token(all_filler_token[0])
-        self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
-        self.policy.predict_values = self.predict_values
-        self.batch_size = batch_size
-        self.use_base_model_for_learning = use_base_model_for_learning
-    
-    def collect_rollouts(
-        self,
-        env: VecEnv,
-        callback: BaseCallback,
-        rollout_buffer: RolloutBuffer,
-        n_rollout_steps: int,
-    ) -> RolloutReturn:
-       
-        if self.use_base_model_for_learning:
-            self.policy.lm.enable_adapter_layers()
-            self.policy.lm.set_adapter(self.name_to_adapter["sampler"])
-        
-        og_padding_side = self.policy.tokenizer.padding_side
-        self.policy.tokenizer.padding_side = "left"
-        res = super().collect_rollouts(
-            env,
-            callback,
-            rollout_buffer,
-            n_rollout_steps,
-        )
-        self.policy.tokenizer.padding_side = og_padding_side
-        return res
->>>>>>> 344e8eff17f78896a69f04875b34c646458a5b9d
 
         # taking care of on policy arguments
         on_policy_kwargs = {k: kwargs[k] for k in kwargs if k in OnPolicyAlgorithm.__init__.__code__.co_varnames}
