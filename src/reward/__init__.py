@@ -1,1 +1,1 @@
-from src.reward.gsm8k import GSM8KCorrectnessReward, GSM8KFinalAnswerLogLikelihoodReward
+from src.reward.gsm8k import GSM8KCorrectnessReward, GSM8KFinalAnswerLogLikelihoodReward, InsertNPauses

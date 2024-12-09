@@ -19,16 +19,16 @@ import pandas as pd
 
 PATH_TO_DEFAULT_GENERATION_CONFIG = "../../configs/rl_algorithm/policy/generation/"
 
-def load_model_and_tokenizer(name, name_to_path_dict):
+def load_model_and_tokenizer(name, name_to_path_dict, device_map="auto", use_automodel=True):
     path = name_to_path_dict[name]
-    if "no_pause" in name or "baseline" in name:
-        model = AutoModelForCausalLM.from_pretrained(path, device_map = "auto")
+    if "no_pause" in name or "baseline" in name or use_automodel:
+        model = AutoModelForCausalLM.from_pretrained(path, device_map = device_map)
     elif "pause" or "sft" in name:
         model = PauseClassifierWrapper.from_pretrained(path, torch_dtype=bfloat16)
         #check if gpu is available
     else:
         raise ValueError(f"Unrecognized naming convention for model {name}")
-    if is_available():
+    if is_available() and device_map == "auto":
         model = model.to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(path)
     
@@ -41,7 +41,7 @@ def load_generation_config(pad_token_id: int, eos_token_id: int, bos_token_id: i
         overrides.append(f"{name}={value}")
     
     with initialize(version_base=None, config_path=PATH_TO_DEFAULT_GENERATION_CONFIG):
-        cfg = compose(config_name="default.yaml", overrides=overrides)
+        cfg = compose(config_name="test_default.yaml", overrides=overrides)
         
     return OmegaConf.to_container(cfg,resolve=True)
 

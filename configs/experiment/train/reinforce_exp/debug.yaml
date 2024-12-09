@@ -5,14 +5,12 @@ defaults:
   - override /rl_algorithm: reinforce
   - override /rl_algorithm/policy/model/language_model: pause_from_pretrained
   - override /rl_algorithm/policy/model/peft_config: mistral_pause #peft is already there
-  - override /rl_algorithm/reward: gsm8k_answer_ll
+  - override /rl_algorithm/reward: insert_n_pauses
   - override /metrics: gsm8k
 
 name: "Reinforce on gsm8k"
-run_name: "reinforce_pause"
+run_name: "debug"
 task_name: "train"
-
-
 
 data:
   additional_transformation:
@@ -34,7 +32,7 @@ trainer:
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
   metric_for_best_model_mode_is_min: false
   disable_peft_first_inference: false
-  use_previous_policy_as_reward_model: True
+  use_previous_policy_as_reward_model: false
 
 
 rl_algorithm:
@@ -44,7 +42,6 @@ rl_algorithm:
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
-  n_grad_accumulation_steps: 1
   
   reward:
     correctness_reward_weight: 20.0
