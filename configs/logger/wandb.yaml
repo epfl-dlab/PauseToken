@@ -6,3 +6,4 @@ name: ???
 config: {} # will be inferred is null
 folder: null # will be inferred is null
 output_formats: null # will be inferred is null
+notes: null

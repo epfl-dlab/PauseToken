@@ -225,7 +225,7 @@ class LLMBasePolicy(BasePolicy):
 
         # Gather log probabilities for the action tokens
         log_probs_seq = torch.gather(log_probs, 2, padded_seq.unsqueeze(-1)).squeeze(-1)
-        logprobs = (log_probs_seq * action_mask).sum(dim = 1)
+        logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(torch.float16)
         # if logprobs.size(0) <5:
         #     print((padded_seq[0][action_mask[0] == 1]))
         #     print((log_probs_seq * action_mask)[0][action_mask[0]>0])

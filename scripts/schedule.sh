@@ -5,12 +5,14 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
+# python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="just logging ratios"
+python src/train.py experiment=train/online_star_exp/no_pause_peft rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="just logging ratios"
 
 # training
 # echo "Starting training"
 
 # python src/train.py experiment=/train/online_star_exp/no_pause_peft
-python src/train.py experiment=/train/online_star_exp/pause
+# python src/train.py experiment=/train/online_star_exp/pause
 
 
 

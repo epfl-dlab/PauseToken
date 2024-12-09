@@ -1,0 +1,9 @@
+defaults:
+  - llm_base_policy
+
+_target_: lm_stable_baselines.policies.llm_base_policy_value_model.LLMBasePolicyValueModel
+
+
+hidden_size: 1024
+value_head_hidden_dim: 2048
+
