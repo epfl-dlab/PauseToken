@@ -1,87 +1,19 @@
+from lm_stable_baselines.training_algorithms.abstract_on_policy import AbstractLMOnPolicy
 from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
 import torch
-from stable_baselines3.common.type_aliases import PyTorchObs
-from lm_stable_baselines.environments import LanguageModelEnv
-from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import VecEnv
-from stable_baselines3.common.type_aliases import RolloutReturn
-from stable_baselines3.common.buffers import RolloutBuffer
-from gymnasium import spaces
-from typing import Optional, Union, Dict, Any, List, Tuple
 import numpy as np
-from stable_baselines3.common.type_aliases import MaybeCallback 
-from copy import deepcopy
 
 
-class STaROnPolicy(OnPolicyAlgorithm):
+class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
     
     def __init__(self,*args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert all([isinstance(myenv, LanguageModelEnv) for myenv in self.env.envs]), "All environments must be of type LanguageModelEnv"
-        all_filler_token = [myenv.filler_token for myenv in self.env.envs]
-        assert all([filler_token == all_filler_token[0] for filler_token in all_filler_token]), "All environments must have the same filler token"
-        self.policy.filler_token = all_filler_token[0]
-        self.rollout_buffer.set_filler_token(all_filler_token[0])
-        self.env.set_filler_token(all_filler_token[0])
-        self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
-        self.policy.predict_values = self.predict_values
-        self.batch_size = batch_size
-        self.use_base_model_for_learning = use_base_model_for_learning
-    
-    def collect_rollouts(
-        self,
-        env: VecEnv,
-        callback: BaseCallback,
-        rollout_buffer: RolloutBuffer,
-        n_rollout_steps: int,
-    ) -> RolloutReturn:
-       
-        if self.use_base_model_for_learning:
-            self.policy.lm.enable_adapter_layers()
-            self.policy.lm.set_adapter(self.name_to_adapter["sampler"])
-        
-        og_padding_side = self.policy.tokenizer.padding_side
-        self.policy.tokenizer.padding_side = "left"
-        res = super().collect_rollouts(
-            env,
-            callback,
-            rollout_buffer,
-            n_rollout_steps,
-        )
-        self.policy.tokenizer.padding_side = og_padding_side
-        return res
 
-    # set the forward pass of the base policy
-    @staticmethod
-    def predict_values(obs: PyTorchObs) -> torch.Tensor:
-        # return -1 for all values
-        return torch.ones(obs.shape[0]) * 0
+        # taking care of on policy arguments
+        on_policy_kwargs = {k: kwargs[k] for k in kwargs if k in OnPolicyAlgorithm.__init__.__code__.co_varnames}
+        OnPolicyAlgorithm.__init__(self, *args, **on_policy_kwargs)
 
-    def get_next_observation(self, data):
-        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)
-        #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
-        next_observation = self.policy.tokenizer.pad( 
-            {'input_ids': next_obs},
-            return_tensors="pt",
-            padding=True,
-        )
-        return next_observation
-    
-    # def process_sampled_rollouts(self, val_samps): # remove -100 tokens, add 'input_ids' and 'attention_mask' from 'observations' and 'actions' and return the processed samples
-    #     keys = ['observations', 'actions']
-    #     dict = {}
-    #     for key in keys:
-    #         # this doens't work, need to get attribute
-    #         values = remove_filler_tokens(getattr(val_samps, key), self.policy.filler_token)
-    #         values = self.policy.tokenizer.pad(
-    #             {'input_ids': values},
-    #             return_tensors="pt",
-    #             padding=True,
-    #         )
-    #         dict[key] = values
-
-    def process_sampled_rollouts(self, val_samps): 
-        return val_samps
+        AbstractLMOnPolicy.__init__(self, loss_computed_in_forward_pass=loss_computed_in_forward_pass, 
+                         batch_size=batch_size, use_base_model_for_learning=use_base_model_for_learning)
         
 
     def train(self) -> None:
@@ -96,7 +28,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
         self.policy.train()
         
         self._update_learning_rate(self.policy.optimizer)
-        nll_losses = []
+        nll_losses, ratios = [], []
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size
@@ -141,7 +73,7 @@ class STaROnPolicy(OnPolicyAlgorithm):
             input_ending_ids = (data.observations['input_ids']!=0).sum(dim=-1) - 1
             new_logprobs = self.policy._compute_logprobs(logprobs, input_ids[:, 1:], input_ending_ids)
             ratio = torch.exp(new_logprobs - old_log_probs).detach() 
-            print(ratio)
+            ratios.append(ratio.mean().item())
             # Compute the loss
             nll_losses.append(nll_loss.item())
             
@@ -153,4 +85,5 @@ class STaROnPolicy(OnPolicyAlgorithm):
                     
             
         self.logger.record("train/nll_loss", np.mean(nll_losses))
+        self.logger.record("train/ratio", np.mean(ratios))
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")

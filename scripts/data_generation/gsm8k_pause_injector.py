@@ -58,7 +58,7 @@ def add_pause(string, idx ,n_pauses, pause_token):
     return string[:idx] + pause_toks + string[idx:]
 
 
-def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer, variable_number_of_pauses):
+def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer, variable_number_of_pauses, n_leading_pauses):
     """ Inject pauses in a string based on the patterns provided
     
     :param input_string: The string in which the pauses are to be injected
@@ -81,6 +81,7 @@ def inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_rando
    
     pattern_occurences.sort(key=lambda x: x["start"], reverse=True)
     augmented_string = input_string
+    augmented_string = add_pause(augmented_string, 0, n_leading_pauses, pause_token)
     for patt in pattern_occurences:
         augmented_string =  add_pause(
             string = augmented_string,
@@ -131,7 +132,8 @@ def inject_pauses(
         pause_token = "<|PAUSE|>",
         pause_augm_col_name = "pause_augmented_answer",
         tokenizer = None,
-        variable_number_of_pauses = False
+        variable_number_of_pauses = False,
+        n_leading_pauses = 0
     ):
     """ function used in map to inject pauses in a sample
     
@@ -144,7 +146,7 @@ def inject_pauses(
     """
     
     input_string = sample["answer"]
-    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer,variable_number_of_pauses)
+    sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer,variable_number_of_pauses, n_leading_pauses)
     return sample
 
 
@@ -183,6 +185,13 @@ def parse_args():
         type=int,
         help="The number of pauses to be injected at random locations (using uniform distribution)"
     )
+
+    parser.add_argument(
+        "--n_leading_pauses",
+        default=0,
+        type=int,
+        help="The number of pauses to be injected at the beginning of the response."
+    )
     
     parser.add_argument(
         "--variable_number_of_pauses",
@@ -201,7 +210,7 @@ def parse_args():
     parser.add_argument(
         "--augm_dataset_save_location",
         type=str,
-        default=os.path.join(DATA_DIR, "gs8k_pause_injected"),
+        default=os.path.join(DATA_DIR, "gsm8k_pause_injected"),
         help="Specify the location of the output dataset"
     )
     
@@ -254,37 +263,36 @@ if __name__ == "__main__":
     
     data_files = {"train": os.path.join(args.dataset_location, "train.json"),
                   "test": os.path.join(args.dataset_location, "test.json")}
-    dataset = load_dataset("json", data_files=data_files, split="train")
-    if args.tokenizer_hf_name:
-        if args.verbose:
-            print("Loading Tokenizer ...")
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_hf_name)
-    else:
-        if args.verbose:
-            print("No Tokenizer provided. Using spaces to insert random pauses.")
-        tokenizer = None
-    
-    if args.verbose:
-        print("Injecting Pauses...")
-    
-    augmented_ds = []
-    for it in range(args.n_generated_samples_per_datapoint):
-        augmented_ds.append(
-            dataset.map(
-                lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses),load_from_cache_file=False
-            )
-        )
-    if args.n_generated_samples_per_datapoint == 1:
-        dataset = augmented_ds[0]
-    else:
-        dataset = concatenate_datasets(augmented_ds)
-    
-    if args.verbose:
-        print("done !")
-        print("viewing a sample from training data: ")
-        print(dataset[0])
+    for split in data_files.keys():
+        dataset = load_dataset("json", data_files=data_files, split=split)
+        if args.tokenizer_hf_name:
+            if args.verbose:
+                print("Loading Tokenizer ...")
+            tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_hf_name)
+        else:
+            if args.verbose:
+                print("No Tokenizer provided. Using spaces to insert random pauses.")
+            tokenizer = None
         
-        print("Saving Augmented Dataset...")
-    dataset.to_json(os.path.join(args.augm_dataset_save_location,"train.json"),batch_size= len(dataset), indent = 2, lines=False)
-    test_ds = load_dataset("json", data_files=data_files, split="test")
-    test_ds.to_json(os.path.join(args.augm_dataset_save_location,"test.json"),batch_size= len(test_ds),indent = 2, lines=False)
+        if args.verbose:
+            print("Injecting Pauses...")
+        
+        augmented_ds = []
+        for it in range(args.n_generated_samples_per_datapoint):
+            augmented_ds.append(
+                dataset.map(
+                    lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses, args.n_leading_pauses),load_from_cache_file=False
+                )
+            )
+        if args.n_generated_samples_per_datapoint == 1:
+            dataset = augmented_ds[0]
+        else:
+            dataset = concatenate_datasets(augmented_ds)
+        
+        if args.verbose:
+            print("done !")
+            print("viewing a sample from training data: ")
+            print(dataset[0])
+            
+            print("Saving Augmented Dataset...")
+        dataset.to_json(os.path.join(args.augm_dataset_save_location,f"{split}.json"),batch_size= len(dataset), indent = 2, lines=False)
