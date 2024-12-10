@@ -45,6 +45,7 @@ class LanguageModelEnv(Env):
         n_envs = -1,
         env_idx = -1,
         enable_delta_reward = False,
+        max_actions=1,
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -54,6 +55,7 @@ class LanguageModelEnv(Env):
         self.tokenizer = tokenizer
         self.filler_token = filler_token
         self.require_dataset = require_dataset
+        self.max_actions = max_actions
 
         LanguageModelEnv.n_envs = n_envs
         self.env_idx = env_idx
@@ -68,6 +70,7 @@ class LanguageModelEnv(Env):
         self.action_space = spaces.MultiDiscrete([tokenizer.vocab_size]* max_tokens, dtype = np.int64)
         self.current_state = []
         self.enable_delta_reward = enable_delta_reward
+        self.n_actions_taken = 0
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -107,7 +110,7 @@ class LanguageModelEnv(Env):
         clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
         self.current_state = self._step(self.current_state, clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
-
+        self.n_actions_taken += 1
         if self.enable_delta_reward:
             reward = reward - self.last_reward
             self.last_reward = reward
@@ -145,7 +148,9 @@ class LanguageModelEnv(Env):
         """
 
         if not self.is_terminated(state):
-            return len(state) >= self.max_tokens
+            reached_max_tokens = len(state) >= self.max_tokens
+            reached_max_actions = self.n_actions_taken >= self.max_actions
+            return reached_max_actions or reached_max_tokens
         return False
     
     @classmethod
@@ -216,7 +221,7 @@ class LanguageModelEnv(Env):
         batch_encoding = self.tokenizer(input_text, return_tensors="np", padding=True, truncation=True)
         #save the current state (input text)
         self.current_state = batch_encoding["input_ids"].reshape(-1).tolist()
-        
+        self.n_actions_taken = 0
         if len(self.current_state) > self.max_tokens:
             warnings.warn(f"The sampled input text here below is longer than max_tokens ({len(self.current_state)} > {self.max_tokens}): \n {self.input_text} \n Another example will be sampled")
             return self.reset(seed=seed, options=options)

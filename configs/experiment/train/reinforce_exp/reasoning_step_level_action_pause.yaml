@@ -43,6 +43,7 @@ rl_algorithm:
 
   environment:
     enable_delta_reward: true
+    max_rounds: 5
 
   reward:
     correctness_reward_weight: 20.0
