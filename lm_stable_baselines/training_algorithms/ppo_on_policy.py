@@ -14,7 +14,6 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         AbstractLMOnPolicy.__init__(self, loss_computed_in_forward_pass=loss_computed_in_forward_pass, 
                                     batch_size=batch_size, 
                                     use_base_model_for_learning=use_base_model_for_learning)
-        
     
     def collect_rollouts(self, *args, **kwargs):
         # Override if LM-specific logic is necessary
@@ -23,3 +22,4 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
     def train(self):
         # Use your custom training logic
         return PPO.train(self)
+

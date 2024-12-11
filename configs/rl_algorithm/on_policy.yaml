@@ -25,7 +25,7 @@ n_steps: 10
 batch_size: 2
 gamma: 0.99
 gae_lambda: 0.999
-ent_coef: 0.5
+ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 use_sde: false

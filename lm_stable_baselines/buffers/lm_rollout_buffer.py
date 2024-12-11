@@ -52,8 +52,9 @@ class LMRolloutBuffer(RolloutBuffer):
         :param log_prob: log probability of the action
             following the current policy.
         """
-        # convert log_prob to float 32 (problematic when model is in float 16)
+        # convert log_prob, value to float 32 (problematic when model is in float 16)
         log_prob = log_prob.float()
+        value = value.float()
         super().add(obs, action, reward, episode_start, value, log_prob)
     
     def reset(self) -> None:
@@ -172,5 +173,6 @@ class LMRolloutBuffer(RolloutBuffer):
         for i, t in enumerate(tensor_list):
             tensor_tensor[i, :len(t)] = torch.tensor(t)
         #NICKY: Changed this to clone().detach() due to pytorch warnings
-        output_tensor = {"input_ids": tensor_tensor, "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).clone().detach().long()}
+        output_tensor = {"input_ids": tensor_tensor, 
+                         "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).long()}
         return output_tensor

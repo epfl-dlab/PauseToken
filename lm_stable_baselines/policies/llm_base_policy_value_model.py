@@ -31,8 +31,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         squash_output: bool = False,
         filler_token: int = -100,
         generation_params: Dict[str, Any] = None,
-        hidden_size: int = 768,
-        value_head_hidden_dim: int = 64,
+        hidden_size: int = 4096,
+        value_head_hidden_dim: int = 4096,
         **kwargs):
 
 
@@ -53,12 +53,14 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             **kwargs
         )
 
-        # Define the value head (MLP on top of the transformer)
+        # Define the value head (MLP on top of the transformer), with a sigmoid activation for returns between 0 and 1
+        # send to correct dtype (Bfloat or float depending on policy.lm)
         self.MLP_value_head = nn.Sequential(
             nn.Linear(hidden_size, value_head_hidden_dim),
             nn.ReLU(),
             nn.Linear(value_head_hidden_dim, 1),
-        )
+            nn.Sigmoid()
+        ).to(next(self.lm.parameters()).dtype)
 
     def evaluate_actions(self, observations, actions):
         """
@@ -70,34 +72,46 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         """
         # Compute next observations and prepare for LM processing
         next_obs = self.get_next_observation(observations, actions)  # Assuming this is defined elsewhere
-        right_padded_next_obs = self._move_padding_to_side(next_obs, left_padding=False)
 
         # Compute action log probabilities
-        action_start_indices = (observations != self.filler_token).sum(dim=1) - 1
-        logits = self.lm(right_padded_next_obs).logits  # Forward pass through LM
+        action_start_indices = (observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
+        logits = self.lm(**next_obs).logits  # Forward pass through LM
         all_logprobs = torch.log_softmax(logits, dim=-1)  # Convert logits to log-probabilities
         log_probs = self._compute_logprobs(
-            all_logprobs[:, :-1, ...], right_padded_next_obs[:, 1:], action_start_indices
+            all_logprobs[:, :-1, ...], next_obs['input_ids'][:, 1:], action_start_indices
         )
 
         # Compute entropy
-        action_distribution = torch.distributions.Categorical(logits=logits[:, :-1, ...])
-        entropy = action_distribution.entropy().mean(dim=-1)  # Mean entropy across tokens
+        # action_distribution = torch.distributions.Categorical(logits=logits[:, :-1, ...])
+        # entropy = action_distribution.entropy().mean(dim=-1)  # Mean entropy across tokens
+        entropy = None # can't approximate it, ppo will simply take log_probs as entropy
 
         # Compute values
-        values = self.predict_values(right_padded_next_obs)
+        values = self.predict_values(observations['input_ids'])
 
         return values, log_probs, entropy
 
 
-    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
+    def predict_values(self, obs) -> torch.Tensor:
         """
         Predict the value of a state.
         Used in the buffer during rollout generation.
         """
-        with torch.no_grad():
-            latent = self.lm(obs).last_hidden_state[:, 0, :]  # Use CLS token (or equivalent) for value prediction
+        # input questions should be left padded! I am going to take the last hidden state [-1] of the hidden states
+        # of the transformer model and pass it through a MLP to get the value of the state!
+        assert isinstance(obs, torch.Tensor)
+        obs[obs==self.filler_token] = self.tokenizer.pad_token_id
 
+        if torch.any(obs[:, -1] == self.tokenizer.pad_token_id):
+            # Last token should not be padding token, make sure padding is done from left
+            obs = self._move_padding_to_side(obs, left_padding=True)
+
+        attention_mask = (obs != self.tokenizer.pad_token_id).long()
+        with torch.no_grad():
+            output = self.lm(obs, attention_mask=attention_mask,
+                             return_dict=True, output_hidden_states=True)
+
+        latent = output['hidden_states'][-1][:, -1, :] # final word output embedding
         values = self.MLP_value_head(latent)
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 

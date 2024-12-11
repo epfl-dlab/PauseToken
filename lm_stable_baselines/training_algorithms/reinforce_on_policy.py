@@ -2,7 +2,7 @@ from lm_stable_baselines.training_algorithms import STaROnPolicy
 import torch
 from torch.nn.functional import nll_loss
 import numpy as np
-from torchviz import make_dot
+# from torchviz import make_dot
 class ReinforceOnPolicy(STaROnPolicy):
     
     def __init__(self, baseline_init_val , baseline_lr, n_grad_accumulation_steps = 1, *args, **kwargs):
