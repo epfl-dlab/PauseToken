@@ -2,13 +2,13 @@
 defaults:
   - override /rl_algorithm/policy/model/language_model: tiny_llama
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: null
-  - override /metrics: gsm8k
+  - override /metrics: commonsense_qa
 
-run_name: "sft_gsm8k_tiny_llama"
+run_name: "sft_commonsense_qa_tiny_llama"
 
 data:
   debug_n: null
-  path: "/dlabscratch1/wendler/code/PauseToken/data/gsm8k/"
+  path: "/dlabscratch1/wendler/code/PauseToken/data/commonsense_qa/"
 
 trainer:
   data_collator:

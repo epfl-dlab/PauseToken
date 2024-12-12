@@ -1,14 +1,25 @@
 # @package _global_
 defaults:
-  - override /rl_algorithm/policy/model/language_model: tiny_llama
+  - override /rl_algorithm/policy/model/language_model: pause_tiny_llama
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: null
-  - override /metrics: gsm8k
+  - override /metrics: commonsense_qa
 
-run_name: "sft_gsm8k_tiny_llama"
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        language_model:
+          device_map: cuda:0
+
+      tokenizer:
+        pretrained_model_name_or_path: /dlabscratch1/wendler/code/nanotron/hf_models/tinyllamapause
+
+run_name: "sft_pause50_commonsense_qa_tiny_llama"
 
 data:
   debug_n: null
-  path: "/dlabscratch1/wendler/code/PauseToken/data/gsm8k/"
+  path: "/dlabscratch1/wendler/code/PauseToken/data/commonsense_qa_injected_50"
+  #path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses" # TODO: change path of DS if you want to use another one 
 
 trainer:
   data_collator:
@@ -18,7 +29,6 @@ trainer:
       module_and_attr: src.utils.constants.ANSWER_TEMPLATE
 
   max_seq_length: 600
-
   formatting_func:
     _target_: functools.partial
     _args_: 
@@ -42,8 +52,7 @@ trainer:
     warmup_ratio: 0.05
     weight_decay: 0.01
 
-save_before_train: false
-merge_peft_after_train: false
+save_before_train: true
 test: true
 test_batch_size: 8
 test_formatting_func:
@@ -51,3 +60,4 @@ test_formatting_func:
   _args_: 
     - ${get_method:src.utils.trainer_utils.inference_formatting_function}
   eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
+

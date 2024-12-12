@@ -12,13 +12,14 @@ rl_algorithm:
           device_map: cuda:0
 
       tokenizer:
-        pretrained_model_name_or_path: /dlabscratch1/wendler/code/nanotron/hf_models/pause-30000
+        pretrained_model_name_or_path: /dlabscratch1/wendler/code/nanotron/hf_models/tinyllamapause
 
-run_name: "sft_pause_gsm8k_tiny_llama"
+run_name: "sft_pause_commonsense_qa_tiny_llama"
 
 data:
   debug_n: null
-  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses" # TODO: change path of DS if you want to use another one 
+  path: "/dlabscratch1/wendler/code/PauseToken/data/gsm8k_pause_injected"
+  #path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses" # TODO: change path of DS if you want to use another one 
 
 trainer:
   data_collator:
@@ -41,7 +42,7 @@ trainer:
     eval_steps: 300
     load_best_model_at_end: true
     save_total_limit: 10
-    num_train_epochs: 1.0
+    num_train_epochs: 5.0
     per_device_train_batch_size: 8
     per_device_eval_batch_size: 8
     save_steps: 300
@@ -49,6 +50,7 @@ trainer:
     learning_rate: 5e-05
     adam_beta2: 0.999
     warmup_ratio: 0.05
+    weight_decay: 0.01
 
 save_before_train: true
 test: true

@@ -133,7 +133,8 @@ def inject_pauses(
         pause_augm_col_name = "pause_augmented_answer",
         tokenizer = None,
         variable_number_of_pauses = False,
-        n_leading_pauses = 0
+        n_leading_pauses = 0,
+        n_pauses_end_of_question = 0
     ):
     """ function used in map to inject pauses in a sample
     
@@ -144,7 +145,7 @@ def inject_pauses(
     :param pause_token: The pause token to be injected
     :type pause_token: str
     """
-    
+    sample["question"] = add_pause(sample["question"], len(sample["question"]), n_pauses_end_of_question, pause_token)
     input_string = sample["answer"]
     sample[pause_augm_col_name]  = inject_pause_to_str(input_string, n_pauses_per_patterns, pause_token,n_random_pauses, tokenizer,variable_number_of_pauses, n_leading_pauses)
     return sample
@@ -191,6 +192,13 @@ def parse_args():
         default=0,
         type=int,
         help="The number of pauses to be injected at the beginning of the response."
+    )
+
+    parser.add_argument(
+        "--n_pauses_end_of_question",
+        default=0,
+        type=int,
+        help="The number of pauses to be injected at the end of the question."
     )
     
     parser.add_argument(
@@ -281,7 +289,7 @@ if __name__ == "__main__":
         for it in range(args.n_generated_samples_per_datapoint):
             augmented_ds.append(
                 dataset.map(
-                    lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses, args.n_leading_pauses),load_from_cache_file=False
+                    lambda sample: inject_pauses(sample,args.n_pauses_per_patterns,args.n_random_pauses ,args.pause_token, args.pause_augm_col_name, tokenizer,args.variable_number_of_pauses, args.n_leading_pauses, args.n_pauses_end_of_question),load_from_cache_file=False
                 )
             )
         if args.n_generated_samples_per_datapoint == 1:
