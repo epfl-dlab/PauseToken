@@ -16,6 +16,6 @@ optimizer_class: ${get_class_from_name:torch.optim.Adam}
 optimizer_kwargs: null
 squash_output: false
 filler_token: -100
-max_output_generation_length: 2048
+max_output_generation_length: 1024
 
 

@@ -8,7 +8,7 @@ run_name: "sft_gsm8k_tiny_llama"
 
 data:
   debug_n: null
-  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k"
+  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_jsonl/gsm8k"
 
 trainer:
   data_collator:
