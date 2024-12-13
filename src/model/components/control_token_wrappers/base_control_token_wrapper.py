@@ -581,7 +581,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         ctrl_tok_logits = self.ctrl_tok_clf(ctrl_tok_hidden_state)
         
         lm_logits = outputs.logits
-       
+
         #set logit of control tokens to -inf
         og_vocab_size = self.get_original_vocab_size()
         lm_logits[..., og_vocab_size:] = torch.finfo(lm_logits.dtype).min
@@ -597,8 +597,11 @@ class BaseControlTokenWrapper(PreTrainedModel):
         :type ctrl_tok_logits: torch.FloatTensor
         :returns: logprobs of the combined logits
         """
+        og_vocab_size = self.get_original_vocab_size()
+        # ctrl_tok_logits = ctrl_tok_logits.to(torch.float32)
+        # lm_logits = lm_logits.to(torch.float32) # I think this results in torch out of memory over time.
         ctrl_tok_lprobs = torch.nn.functional.log_softmax(ctrl_tok_logits/self.ctrl_tokens_temperature, dim=-1)
-        lm_lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1).clone()
+        lm_lprobs = torch.nn.functional.log_softmax(lm_logits[..., :og_vocab_size], dim=-1)
 
         use_lm_head_id = self.get_id_in_ctrl_tok_clf(self.lm_head_ctrl_token_id)
         use_lm_head_lprobs = ctrl_tok_lprobs[..., use_lm_head_id].unsqueeze(-1)
@@ -606,9 +609,8 @@ class BaseControlTokenWrapper(PreTrainedModel):
         #use lm_head_id is actually always the last token of the control token classifier
         use_ctrl_tok_lprobs = ctrl_tok_lprobs[..., :-1] 
 
-        og_vocab_size = self.get_original_vocab_size()
         #concatenate combined log prob vector
-        lprobs = torch.cat([lm_lprobs[...,:og_vocab_size] + use_lm_head_lprobs, use_ctrl_tok_lprobs], dim=-1)
+        lprobs = torch.cat([lm_lprobs + use_lm_head_lprobs, use_ctrl_tok_lprobs], dim=-1)
         
         return lprobs
         

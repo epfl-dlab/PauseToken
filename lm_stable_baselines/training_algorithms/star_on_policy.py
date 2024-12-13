@@ -50,7 +50,7 @@ class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
 
             input_ids = next_observation['input_ids'].to(self.device)
             attention_mask=next_observation['attention_mask'].to(self.device)
-            # self.policy.lm.eval()
+            self.policy.lm.eval()
             output = self.policy.lm(
                 input_ids=input_ids, 
                 attention_mask=attention_mask,

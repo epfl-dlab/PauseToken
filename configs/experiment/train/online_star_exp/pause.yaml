@@ -38,8 +38,8 @@ trainer:
 
 
 rl_algorithm:
-  n_steps: 99 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  n_envs: 64 #  is the number of times rollout() is called in each outer loop, 
+  n_steps: 9 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   use_base_model_for_learning: false

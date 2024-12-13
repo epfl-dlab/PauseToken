@@ -102,6 +102,10 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         assert isinstance(obs, torch.Tensor)
         obs[obs==self.filler_token] = self.tokenizer.pad_token_id
 
+        # if obs is one dimensional, add batch dimension
+        if len(obs.shape) == 1:
+            obs = obs.unsqueeze(0)
+
         if torch.any(obs[:, -1] == self.tokenizer.pad_token_id):
             # Last token should not be padding token, make sure padding is done from left
             obs = self._move_padding_to_side(obs, left_padding=True)
@@ -113,6 +117,10 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         latent = output['hidden_states'][-1][:, -1, :] # final word output embedding
         values = self.MLP_value_head(latent)
+        # # if the output is for rollout buffer,(we take rollouts without grad) and need to convert to float32 if it is bfloat
+        # if not self.training:
+        #     values = values.float()
+
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 
 
