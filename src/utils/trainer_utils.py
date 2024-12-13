@@ -202,10 +202,15 @@ def test_model(
             ground_truths = dataset[ground_truth_field][i:i + batch_size] if gt_is_in_dataset else None
             
         tokenized_prompt = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(model.device)
+        # get model dtype
+        
+        input_ids = tokenized_prompt.input_ids
+        attention_mask = tokenized_prompt.attention_mask
+        
         with torch.no_grad():
             output = model.generate(
-                input_ids=tokenized_prompt.input_ids,
-                attention_mask=tokenized_prompt.attention_mask,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 generation_config=generation_config,
                 logits_processor = logits_processor,
                 stopping_criteria= stopping_criteria,
