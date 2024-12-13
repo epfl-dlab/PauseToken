@@ -121,7 +121,7 @@ The table below shows for each model the components that are unfrozen. If not sp
 It seems like the best way to 'pretrain' the model on random pauses is by unfreezing the Pause Head, and the Pause embedding and using LoRa for updating the base model. Note however that training the pause embedding doesn't have much of an effect on the accuracy. We do notice a generally tendency (in this pretraining phase), that incorrect replies seem to generate more pauses than incorrect ones on average.
 
 
-## RL experiments on pause tokens
+## RL experiments on pause tokens
 
 In this experiment, we compare the training of models on STaR. More specifically, we'll be varying the following axes:
 - Model: Pause token model (using the best from previous experiments: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final`) vs baseline model (no pause token: `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final`). For the pause model we'll be training with the best configuration from the previous experiments: `sft_peft.yaml`
@@ -158,6 +158,8 @@ The table below shows the training specifications for each model. They are all t
 | online_star_exp/pause_n_steps_1                   |`pause model`  |`STaR online. Train after every n_steps (=1) * batch_size(=64) = 64 rollouts`| 1.0   | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=1 run_name=online_star_pause_n_steps_1`                                                                 |
 | online_star_exp/pause_n_steps_9                   |`pause model`  |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.0  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_n_steps_0`                                                                 |
 | online_star_exp/no_pause_n_steps_9_temp          |`pause model`   |`STaR online. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts`| 1.5  | `python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_no_pause_n_steps_9`                                                               |
+| ppo/no_pause_n_steps_9                           |   `baseline`    | `PPO. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts` |     1.0    | `python src/train.py experiment=train/ppo/no_pause_peft run_name=ppo_no_pause_n_steps_9`                                                                                           |
+| ppo/pause_n_steps_9                              |   `pause model` | `PPO. Train after every n_steps (=9) * batch_size(=64) = 576 rollouts` |     1.0    | `python src/train.py experiment=train/ppo/pause run_name=ppo_pause_n_steps_9`                                                                                                  |
 
 ### Results
 
@@ -174,7 +176,10 @@ The table below shows the training specifications for each model. They are all t
 | online_star_exp/pause_n_steps_1                  |`/dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-19/09-57-20/test_results.json`        | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-18_11-11-55/last_ckpt `     | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/g37jka36)     |
 | online_star_exp/pause_n_steps_9                  |`/dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-19/09-58-03/test_results.json`        | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-18_11-12-23/last_ckpt`      | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/p5pp2ehc)     |
 | online_star_exp/no_pause_n_steps_9_temp          |`dlabscratch1/baldwin/pause2/PauseToken/outputs/2024-11-22/10-29-29/test_results.json`         | `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-19_11-02-32/ckpt-44352-0.68` (this is final but there was an error while runnin) | [Click here](https://wandb.ai/sigmae/online%20star%20on%20gsm8k/runs/e0tqsfvn)     |
-
+| ppo/no_pause_n_steps_9                          |`/dlabscratch1/...`        | `/dlabscratch1/...` | [Click here](https://wandb.ai/epfl-dlab/ppo%20on%20gsm8k/runs/wuupw3zx)     |
+| ppo/pause_n_steps_9                             |`/dlabscratch1/...`        | `/dlabscratch1/...` | [Click here](https://wandb.ai/epfl-dlab/ppo%20on%20gsm8k/runs/oz27e42p)     |
+| masani_online_star_exp/no_pause_n_steps_9          |`/dlabscratch1/..`        | `/dlabscratch1/...` | [Click here](https://wandb.ai/epfl-dlab/online%20star%20on%20gsm8k/runs/unq48qk5)     |
+| masani_online_star_exp/pause_n_steps_9             |`/dlabscratch1/...`        | `/dlabscratch1/...` | [Click here](https://wandb.ai/epfl-dlab/online%20star%20on%20gsm8k/runs/ws0mnc31)     |
 
 Collapse of 1.5 temperature models. See their validation predictions for more information because we're sampling from the model at temperature 1.5 (gets better when we resample from argmax): 
 -  **offline_star_exp/no_pause_peft_temp_1.5**: `/dlabscratch1/baldwin/pause2/PauseToken/logs/train/runs/2024-11-01_13-46-35/val_results_outer_loop_6.json`
