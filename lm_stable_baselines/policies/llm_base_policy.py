@@ -12,6 +12,7 @@ from stable_baselines3.common.utils import obs_as_tensor
 import warnings
 import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens
+from lm_stable_baselines.utils import remove_filler_tokens
 
 class LLMBasePolicy(BasePolicy):
     """ Base policy for language models. This class is a subclass of BasePolicy and is used to handle language model policies.
@@ -150,6 +151,25 @@ class LLMBasePolicy(BasePolicy):
         assert isinstance(observation, np.ndarray), "Observation must be a numpy array"
         obs_tensor = obs_as_tensor(observation, self.device)
         return obs_tensor, True
+    
+    def get_next_observation(self, observations, actions):
+        #assumption: filler tokens have been removed
+        obs_padded_tensor = observations['input_ids']
+        actions_padded_tensor = actions
+
+        next_obs = []
+        #remove the filler tokens from the actions and observations
+        obs_list = remove_filler_tokens(obs_padded_tensor, self.tokenizer.pad_token_id)
+        actions_list = remove_filler_tokens(actions_padded_tensor, self.tokenizer.pad_token_id)
+        #concatenate the observations and actions
+        for obs, action in zip(obs_list, actions_list):
+            next_obs.append(torch.cat([obs, action]))
+        
+        #pad the observations
+        new_observations = self.tokenizer.pad({"input_ids": next_obs}, return_tensors="pt", 
+                                              padding=True, padding_side="right").to(self.device)
+
+        return new_observations
         
     def compute_nll_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """ Compute the negative log likelihood loss
@@ -174,7 +194,7 @@ class LLMBasePolicy(BasePolicy):
     
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if (isinstance(obs, dict) and 'input_ids' in obs and 'attention_mask' not in obs) or isinstance(obs, torch.Tensor):
-            warnings.warn("Attention mask not provided, the padding mask will be automatically computed")
+            # warnings.warn("Attention mask not provided, the padding mask will be automatically computed")
             obs_to_pass = obs if isinstance(obs, torch.Tensor) else obs["input_ids"]
             device = obs_to_pass.device
             obs_to_pass = [ obs[obs != self.filler_token] for obs in obs_to_pass]
@@ -184,13 +204,15 @@ class LLMBasePolicy(BasePolicy):
         else:
             raise ValueError("Observation type not supported")
         return feature
-            
+
+    @staticmethod
+    def predict_values(obs: PyTorchObs) -> torch.Tensor:
+        # return 0 for all values
+        return torch.ones(obs.shape[0]) * 0
             
     def forward(self, obs: PyTorchObs, labels = None) -> torch.Tensor:
-        # feature = self.extract_features(obs)
-        # feature = {k: v.to(self.device) for k, v in feature.items()}
-        # feature["labels"] = labels.to(self.device) if labels is not None else None
 
+        padded_obs = self.extract_features(obs)
         next_obs, actions, padded_actions = self._predict(obs, return_dict= True).values()
         right_padded_next_obs = self._move_padding_to_side(next_obs, left_padding=False)
 
@@ -200,20 +222,8 @@ class LLMBasePolicy(BasePolicy):
         logprobs = torch.log_softmax(logits, dim=-1)
         action_logprobs = self._compute_logprobs(logprobs[:, :-1, ...], right_padded_next_obs[:, 1:], action_start_indecies)
 
-        # # compute the log probabilities of the actions, but on the inputs not shifted!
-        # # finding first index which is not padding for each sequence in next_obs
-        # non_padding_mask = next_obs != self.tokenizer.pad_token_id
-        # indices = torch.arange(next_obs.size(1)).unsqueeze(0).expand(next_obs.size(0), -1).to(self.device)
-        # max_number = indices[0, -1] + 1
-        # obs_start_id = torch.where(non_padding_mask, indices, torch.full_like(indices, max_number)).min(dim=1).values
-        # # obsactions_end_id = torch.where(non_padding_mask, indices, torch.full_like(indices, -1)).max(dim=1).values + 1
-        # obs_length = (obs!= self.filler_token).sum(dim=1)
-        # logits_on_leftpadded_obs = self.lm(next_obs, attention_mask=(next_obs != self.tokenizer.pad_token_id) ).logits
-        # logprobs_on_leftpadded_obs = torch.log_softmax(logits_on_leftpadded_obs, dim=-1)
-        # action_logprobs_on_leftpadded_obs = self._compute_logprobs(logprobs_on_leftpadded_obs[:, :-1, ...], next_obs[:, 1:], obs_start_id + obs_length - 1)
-
-        # Compute the values of the actions
-        values = self.predict_values(right_padded_next_obs)
+        # Compute the values of the state! not actions my friend
+        values = self.predict_values(padded_obs['input_ids'])
         return actions, values, action_logprobs
     
     def _compute_logprobs(self, log_probs, padded_seq, action_start_indecies, action_end_indices=None) -> torch.Tensor:
@@ -221,7 +231,6 @@ class LLMBasePolicy(BasePolicy):
         if action_end_indices == None:
             action_end_indices = [None] * padded_seq.size(0)
             
-
         action_mask = torch.zeros_like(padded_seq)
         for i in range(log_probs.size(0)):
             action_mask[i, action_start_indecies[i]:action_end_indices[i]] = 1
@@ -230,18 +239,10 @@ class LLMBasePolicy(BasePolicy):
 
         # Gather log probabilities for the action tokens
         log_probs_seq = torch.gather(log_probs, 2, padded_seq.unsqueeze(-1)).squeeze(-1)
-        logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(torch.float16)
-        # if logprobs.size(0) <5:
-        #     print((padded_seq[0][action_mask[0] == 1]))
-        #     print((log_probs_seq * action_mask)[0][action_mask[0]>0])
-        # else:
-        #     print((padded_seq[1][action_mask[1] == 1]))
-        #     print((log_probs_seq * action_mask)[1][action_mask[1]>0])
-        return logprobs
+        logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(log_probs.dtype)
         
-    
-    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
-        raise NotImplementedError
+        return logprobs
+
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor, return_dict = False) -> torch.Tensor:
         # for on-policy replay buffer, we need to pad the actions to the max length of the action space, to append to

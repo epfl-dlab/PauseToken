@@ -39,13 +39,13 @@ class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
             next_observation = self.get_next_observation(data)
             
-            # if self.loss_computed_in_forward_pass:
-            #     labels = next_observation["input_ids"]
-            #     labels_list = list(labels.cpu())
-            #     collated_labels = self.data_collator(labels_list)
-            #     labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
-            # else:
-            #     labels = None
+            if self.loss_computed_in_forward_pass:
+                labels = next_observation["input_ids"]
+                labels_list = list(labels.cpu())
+                collated_labels = self.data_collator(labels_list)
+                labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
+            else:
+                labels = None
             kwargs = {}
 
             input_ids = next_observation['input_ids'].to(self.device)
@@ -54,7 +54,7 @@ class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
             output = self.policy.lm(
                 input_ids=input_ids, 
                 attention_mask=attention_mask,
-                labels=input_ids, # perhaps should be [:, 1:] if we don't want to predict the first token
+                labels=labels if labels is not None else input_ids, #  should not do [:, 1:], it's taken care of.
                 **kwargs
             )
             if self.loss_computed_in_forward_pass:
@@ -69,6 +69,7 @@ class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
 
             # getting log_probs for importance sampling
             old_log_probs = data.old_log_prob
+
             logprobs = torch.log_softmax(output.logits, dim = -1)[:, :-1, :]
             input_ending_ids = (data.observations['input_ids']!=0).sum(dim=-1) - 1
             new_logprobs = self.policy._compute_logprobs(logprobs, input_ids[:, 1:], input_ending_ids)

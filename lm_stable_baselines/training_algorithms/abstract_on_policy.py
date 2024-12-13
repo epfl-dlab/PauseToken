@@ -30,7 +30,6 @@ class AbstractLMOnPolicy:
 
         # setting hparams
         self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
-        self.policy.predict_values = self.predict_values
         self.batch_size = batch_size
         self.use_base_model_for_learning = use_base_model_for_learning
     
@@ -59,11 +58,6 @@ class AbstractLMOnPolicy:
         self.policy.tokenizer.padding_side = og_padding_side
         return res
 
-    # set the forward pass of the base policy
-    @staticmethod
-    def predict_values(obs: PyTorchObs) -> torch.Tensor:
-        # return -1 for all values
-        return torch.ones(obs.shape[0]) * 0
 
     def get_next_observation(self, data):
         next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)

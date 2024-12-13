@@ -23,12 +23,16 @@ class LMRolloutBuffer(RolloutBuffer):
         **kwargs
     ):
         self.filler_token = filler_token
-        super().__init__(*args, **kwargs)
+        # taking care of rollout buffer arguments
+        rollout_buffer_kwargs = {k: kwargs[k] for k in kwargs if k in RolloutBuffer.__init__.__code__.co_varnames}
+        # RolloutBuffer.__init__(self, *args, **rollout_buffer_kwargs)
+        super().__init__(*args, **rollout_buffer_kwargs)
         self.set_filler_token(filler_token)
         self.tokenizer = tokenizer
         self.advantage_threshold = advantage_threshold
         self.above_threshold_indices = None
         self.data_size = 0
+        self.model_dtype = kwargs.get("model_dtype", torch.float16)
     
     def set_tokenizer(self, tokenizer):
         self.tokenizer = tokenizer
@@ -52,8 +56,9 @@ class LMRolloutBuffer(RolloutBuffer):
         :param log_prob: log probability of the action
             following the current policy.
         """
-        # convert log_prob to float 32 (problematic when model is in float 16)
+        # convert log_prob, value to float 32 (problematic when model is in float 16)
         log_prob = log_prob.float()
+        value = value.float()
         super().add(obs, action, reward, episode_start, value, log_prob)
     
     def reset(self) -> None:
@@ -119,6 +124,11 @@ class LMRolloutBuffer(RolloutBuffer):
         )
         
         return self._get_samples(sampled_positions, env)
+    
+    def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
+        if last_values.dtype == torch.bfloat16:
+            last_values = last_values.float()
+        super().compute_returns_and_advantage(last_values, dones)
 
     
     def _get_samples(self, batch_inds, env: Optional[VecNormalize] = None, padding='right') -> RolloutBufferSamples:
@@ -153,14 +163,24 @@ class LMRolloutBuffer(RolloutBuffer):
         #     actions_tensor[i, :len(actions)] = torch.tensor(actions)
         # actions = actions_tensor
         actions = self.remove_filler_tokens_and_pad(self.actions, batch_inds)["input_ids"]
-
+        # if model dtype is bfloat16, convert values to bfloat16
+        if self.model_dtype == torch.bfloat16:
+            values = self.values[batch_inds].to(torch.bfloat16)
+            log_probs = self.log_probs[batch_inds].to(torch.bfloat16)
+            advantages = self.advantages[batch_inds].to(torch.bfloat16)
+            returns = self.returns[batch_inds].to(torch.bfloat16)
+        else:
+            values = self.values[batch_inds]
+            log_probs = self.log_probs[batch_inds]
+            advantages = self.advantages[batch_inds]
+            returns = self.returns[batch_inds]
         data = (
             obs,
             actions,
-            self.values[batch_inds].flatten(),
-            self.log_probs[batch_inds].flatten(),
-            self.advantages[batch_inds].flatten(),
-            self.returns[batch_inds].flatten(),
+            values.flatten(),
+            log_probs.flatten(),
+            advantages.flatten(),
+            returns.flatten(),
         )
 
         return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
@@ -172,5 +192,6 @@ class LMRolloutBuffer(RolloutBuffer):
         for i, t in enumerate(tensor_list):
             tensor_tensor[i, :len(t)] = torch.tensor(t)
         #NICKY: Changed this to clone().detach() due to pytorch warnings
-        output_tensor = {"input_ids": tensor_tensor, "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).clone().detach().long()}
+        output_tensor = {"input_ids": tensor_tensor, 
+                         "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).long()}
         return output_tensor

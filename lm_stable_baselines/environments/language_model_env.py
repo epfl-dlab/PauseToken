@@ -106,12 +106,10 @@ class LanguageModelEnv(Env):
         :return: Observation, reward, termination signal, truncation signal, info
         :rtype: Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]
         """
-        
         self.n_actions_taken += 1
         clean_action = remove_filler_tokens(action, self.filler_token).squeeze(-1).tolist()
         self.current_state = self._step(self.current_state, clean_action)
         observation , reward, terminated, truncated, info = self._get_obs()
-        
         if self.enable_delta_reward:
             reward = reward - self.last_reward
             self.last_reward = reward
