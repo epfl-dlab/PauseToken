@@ -4,6 +4,6 @@ defaults:
 # pretrained_model_name_or_path: /dlabdata1/llm_hub/Mistral-7B-v0.1
 pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1
 
-torch_dtype: 
-  _target_: src.utils.hydra_custom_resolvers.get_module_attr
-  module_and_attr: torch.bfloat16
+# torch_dtype: 
+#   _target_: src.utils.hydra_custom_resolvers.get_module_attr
+#   module_and_attr: torch.bfloat16

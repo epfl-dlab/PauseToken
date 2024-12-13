@@ -203,9 +203,9 @@ def test_model(
             
         tokenized_prompt = tokenizer(batch, padding=True, truncation=True, return_tensors="pt").to(model.device)
         # get model dtype
-        model_dtype = next(model.parameters()).dtype
-        input_ids = tokenized_prompt.input_ids.to(model_dtype)
-        attention_mask = tokenized_prompt.attention_mask.to(model_dtype)
+        
+        input_ids = tokenized_prompt.input_ids
+        attention_mask = tokenized_prompt.attention_mask
         
         with torch.no_grad():
             output = model.generate(

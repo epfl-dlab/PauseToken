@@ -95,7 +95,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
 
         ########## Instantiating and resizing Control Token CLF and Embeddings ##########
         #get same dtype as model parameter
-        torch_dtype = self.language_model.config.torch_dtype
+        torch_dtype = next(self.language_model.parameters()).dtype
         self.ctrl_tok_clf = nn.Linear(
             self.language_model.config.hidden_size,
             self.config.num_control_tokens + 1, # +1 because one of the tokens is "don't use a control token" control token,
