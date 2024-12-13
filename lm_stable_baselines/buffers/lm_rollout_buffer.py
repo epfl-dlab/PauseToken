@@ -164,11 +164,16 @@ class LMRolloutBuffer(RolloutBuffer):
         # actions = actions_tensor
         actions = self.remove_filler_tokens_and_pad(self.actions, batch_inds)["input_ids"]
         # if model dtype is bfloat16, convert values to bfloat16
-        if self.model_dtype == torch.bfloat16:
-            values = self.values[batch_inds].to(torch.bfloat16)
-            log_probs = self.log_probs[batch_inds].to(torch.bfloat16)
-            advantages = self.advantages[batch_inds].to(torch.bfloat16)
-            returns = self.returns[batch_inds].to(torch.bfloat16)
+        if self.model_dtype == 'torch.bfloat16':
+            # make them bfloat16 tensort
+            # values = torch.tensor(self.values[batch_inds], dtype=torch.bfloat16)
+            # log_probs = torch.tensor(self.log_probs[batch_inds], dtype=torch.bfloat16)
+            # advantages = torch.tensor(self.advantages[batch_inds], dtype=torch.bfloat16)
+            values = self.values[batch_inds]
+            log_probs = self.log_probs[batch_inds]
+            advantages = self.advantages[batch_inds]
+            
+            returns = torch.tensor(self.returns[batch_inds], dtype=torch.bfloat16)
         else:
             values = self.values[batch_inds]
             log_probs = self.log_probs[batch_inds]

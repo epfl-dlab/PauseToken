@@ -117,9 +117,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         latent = output['hidden_states'][-1][:, -1, :] # final word output embedding
         values = self.MLP_value_head(latent)
-        # # if the output is for rollout buffer,(we take rollouts without grad) and need to convert to float32 if it is bfloat
-        # if not self.training:
-        #     values = values.float()
 
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 

@@ -46,7 +46,7 @@ rl_algorithm:
   ent_coef: 0
   buffer:
     advantage_threshold: 0
-    dtype: torch.bfloat16
+    model_dtype: torch.bfloat16
 
   policy:
     model:
