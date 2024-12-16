@@ -3,6 +3,7 @@ defaults:
   - override /rl_algorithm/policy/model/language_model: pause_model
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: null
   - override /metrics: gsm8k
+  - override /data: gsm8k_random_pause
 
 rl_algorithm:
   policy:
@@ -18,9 +19,6 @@ rl_algorithm:
 
 run_name: "step2exp_sft_fr_pembed"
 
-data:
-  debug_n: null
-  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses"
 
 trainer:
   _target_: src.trainer.trl_trainers.trainers.SFTTrainerForCtrlTokLogging

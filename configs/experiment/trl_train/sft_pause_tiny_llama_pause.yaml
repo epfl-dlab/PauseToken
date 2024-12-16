@@ -3,6 +3,7 @@ defaults:
   - override /rl_algorithm/policy/model/language_model: pause_tiny_llama
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: null
   - override /metrics: gsm8k
+  - override /data: gsm8k_random_pause
 
 rl_algorithm:
   policy:
@@ -16,9 +17,6 @@ rl_algorithm:
 
 run_name: "sft_pause_gsm8k_tiny_llama"
 
-data:
-  debug_n: null
-  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses" # TODO: change path of DS if you want to use another one 
 
 trainer:
   data_collator:

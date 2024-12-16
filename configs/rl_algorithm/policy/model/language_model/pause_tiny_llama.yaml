@@ -6,7 +6,7 @@ _target_: src.model.components.control_token_wrappers.PauseClassifierWrapper
 config:
   _target_: src.model.components.control_token_wrappers.PauseCLFConfig
   pause_token_id: 32000
-  pause_token_name: <PAUSE> 
+  pause_token_name: <|pause|> 
   ctrl_token_head_temperature: 1.0
   detach_ctrl_tok_clf: false
 

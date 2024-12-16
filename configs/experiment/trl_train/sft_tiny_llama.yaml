@@ -3,6 +3,7 @@ defaults:
   - override /rl_algorithm/policy/model/language_model: tiny_llama
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: null
   - override /metrics: gsm8k
+  - override /data: gsm8k
 
 run_name: "sft_gsm8k_tiny_llama"
 

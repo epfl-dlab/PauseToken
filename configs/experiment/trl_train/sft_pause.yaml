@@ -3,6 +3,7 @@ defaults:
   - override /rl_algorithm/policy/model/language_model: pause_model
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: mistral_pause
   - override /metrics: gsm8k
+  - override /data: gsm8k_variable_random_pauses
 
 rl_algorithm:
   policy:
@@ -12,9 +13,6 @@ rl_algorithm:
 
 run_name: "sft_pause_gsm8k_mistral"
 
-data:
-  debug_n: null
-  path: "/dlabscratch1/baldwin/pause2/PauseToken/data/gsm8k_json/gsm8k_variable_random_pauses"
 
 trainer:
   max_seq_length: 600
