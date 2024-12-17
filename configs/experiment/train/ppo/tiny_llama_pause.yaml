@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - train/ppo/pause
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /rl_algorithm/reward: gsm8k_answer_ll
+
+
+run_name: "ppo_tiny_llama_pause"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: ???
+
+  reward:
+    inverse_neg_log_likelihood: true
+    correctness_reward_weight: 1.0

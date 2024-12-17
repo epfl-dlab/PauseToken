@@ -1,0 +1,9 @@
+defaults:
+  - gsm8k
+
+path: "data/gsm8k_json/gsm8k_pause_prob0.1-5samp"
+
+files:
+  - "train"
+  - "test"
+  - "val"
