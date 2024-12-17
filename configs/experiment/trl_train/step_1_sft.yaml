@@ -4,6 +4,7 @@ defaults:
   - override /rl_algorithm/policy/model/peft_config@trainer.peft_config: mistral
   - override /metrics: gsm8k
 
+
 run_name: "step1_sft_gsm8k_mistral"
 
 data:

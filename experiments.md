@@ -42,7 +42,7 @@ The table below shows for each model the components that are unfrozen. If not sp
 
 
 | experiment-yaml-file                             | Train full model          |    Pause Model    | python command                                                            |
-|--------------------------------------------------|:-------------------------:|-----------------------------------------------------------------------------------------------|
+|--------------------------------------------------|:-------------------------:|-------------------|---------------------------------------------------------------------------|
 | sft_pause_tiny_llama_pause.yaml                  |        x                  |         X         | `python src/trl_train.py experiment=trl_train/sft_pause_tiny_llama_pause` |
 | sft_tiny_llama.yaml                              |        x                  |                   | `python src/trl_train.py experiment=trl_train/sft_tiny_llama`             |
 
