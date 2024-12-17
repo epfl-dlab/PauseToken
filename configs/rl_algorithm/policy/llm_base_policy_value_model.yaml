@@ -3,7 +3,10 @@ defaults:
 
 _target_: lm_stable_baselines.policies.llm_base_policy_value_model.LLMBasePolicyValueModel
 
+value_head_path: null
 
-hidden_size: 4096
-value_head_hidden_dim: 4096
-
+value_head:
+  _target_: src.model.components.value_head.mlp_value_head.MLPValueHead
+  hidden_sizes: [4096, 4096, 4096, 4096, 1]
+  activation: 'relu'
+  output_activation: 'none'

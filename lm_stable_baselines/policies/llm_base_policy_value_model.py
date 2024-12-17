@@ -2,6 +2,7 @@ from lm_stable_baselines.policies.llm_base_policy import LLMBasePolicy
 from stable_baselines3.common.type_aliases import PyTorchObs
 import torch
 import torch.nn as nn
+import hydra
 
 from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, FlattenExtractor
@@ -31,8 +32,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         squash_output: bool = False,
         filler_token: int = -100,
         generation_params: Dict[str, Any] = None,
-        hidden_size: int = 4096,
-        value_head_hidden_dim: int = 4096,
+        value_head: nn.Module = None,
+        value_head_path: str = None,
         **kwargs):
 
 
@@ -53,14 +54,10 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             **kwargs
         )
 
-        # Define the value head (MLP on top of the transformer), with a sigmoid activation for returns between 0 and 1
-        # send to correct dtype (Bfloat or float depending on policy.lm)
-        self.MLP_value_head = nn.Sequential(
-            nn.Linear(hidden_size, value_head_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(value_head_hidden_dim, 1),
-            nn.Sigmoid()
-        ).to(next(self.lm.parameters()).dtype)
+        self.MLP_value_head = hydra.utils.instantiate(value_head).to(next(self.lm.parameters()).dtype)
+        if value_head_path is not None:
+            self.MLP_value_head.load_state_dict(torch.load(value_head_path))
+        
 
     def evaluate_actions(self, observations, actions):
         """

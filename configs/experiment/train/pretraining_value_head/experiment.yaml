@@ -2,14 +2,14 @@
 
 defaults:
   - override /data: gsm8k
-  - override /rl_algorithm: ppo
+  - override /rl_algorithm: pretraining_value_head
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
-name: "ppo on gsm8k"
-run_name: "ppo_no_pause_peft"
+name: "pretraining value head"
+run_name: "pretraining_value_head"
 task_name: "train"
 
 
@@ -23,8 +23,8 @@ data:
   
 
 trainer:
-  n_steps_before_validation: 6336
-  n_outer_loops: 10
+  n_steps_before_validation: 10
+  n_outer_loops: 1
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
@@ -39,7 +39,7 @@ trainer:
 rl_algorithm:
   # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   # for gsm8k it is 396 * 99 = 1584
-  n_steps: 9
+  n_steps: 1
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
@@ -52,7 +52,10 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
-    value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/value_head_mistral_055acc.pth
+
+    # path to where the model should be saved, if null, it will be saved in /data/value_head
+  saving_path: "./data/value_heads/${clean_path:${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}}.pth"
+
 
 test: true
 test_batch_size: 8

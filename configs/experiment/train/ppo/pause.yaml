@@ -52,6 +52,7 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final
+    value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/value_head_mistral_055acc.pth
 
 test: true
 test_batch_size: 8

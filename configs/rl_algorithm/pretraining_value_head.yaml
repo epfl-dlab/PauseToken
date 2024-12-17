@@ -1,0 +1,13 @@
+defaults:
+  - on_policy
+  - override policy: llm_base_policy_value_model 
+
+_target_: lm_stable_baselines.training_algorithms.pretraining_value_head.PretrainingValueHead
+
+saving_path: null
+
+n_epochs: 1
+target_kl: null # 0.01
+clip_range: 0.2
+clip_range_vf: null # Union[None, float, Schedule]
+normalize_advantage: true
