@@ -129,8 +129,12 @@ class BaseControlTokenWrapper(PreTrainedModel):
             ctr_token_ids[-1] >= embeddings_size - 1, \
             "Control token ids should be the last tokens of the vocabulary or larger than the original vocab size"
                 
-        
-        
+    def attach_ctrl_token_clf(self):
+        self.config.detach_ctrl_tok_clf = False
+    
+    def detach_ctrl_token_clf(self):
+        self.config.detach_ctrl_tok_clf = True
+            
     def _resize_input_embeds(self):
         """ Resize the input embeddings of the language model to account for the new control tokens """
         og_embeddings =  self.language_model.get_input_embeddings()
