@@ -1,0 +1,6 @@
+_target_: src.model.components.value_head.mlp_value_head.MLPValueHead
+hidden_sizes: [4096, 4096, 4096, 4096, 1]
+activation: 'relu'
+output_activation: 'none'
+
+value_head_path: null

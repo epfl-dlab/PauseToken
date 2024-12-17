@@ -19,7 +19,7 @@ class PretrainingValueHead(AbstractLMOnPolicy, PPO):
                                     use_base_model_for_learning=use_base_model_for_learning)
         
         self.policy.lm.requires_grad = False
-        self.policy.MLP_value_head.requires_grad = True
+        self.policy.value_head.requires_grad = True
         if saving_path is not None:
             self.saving_path = saving_path
         else:
@@ -111,6 +111,6 @@ class PretrainingValueHead(AbstractLMOnPolicy, PPO):
         )
 
         # save the lm_head 
-        print("Saving the value head at ")
-        torch.save(self.policy.MLP_value_head.state_dict(), self.saving_path)
+        print("Saving the value head at ", self.saving_path)
+        torch.save(self.policy.value_head.state_dict(), self.saving_path)
         return U

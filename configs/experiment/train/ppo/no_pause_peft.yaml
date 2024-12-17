@@ -3,6 +3,7 @@
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: ppo
+  - override /rl_algorithm/policy/model/value_head: torch_transformer # mlp or torch_transformer
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
@@ -52,7 +53,8 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
-    value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/value_head_mistral_055acc.pth
+      # value_head: 
+        # value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/_dlabscratch1_baldwin_pause2_PauseToken_logs_sft_runs_2024-10-21_10-08-12_final.pth
 
 test: true
 test_batch_size: 8

@@ -6,7 +6,7 @@ cd /dlabscratch1/amani/PauseToken/
 pwd
 
 # python src/train.py experiment=train/ppo/pause rl_algorithm.n_steps=9 run_name=ppo_pause_9_step 
-python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 run_name=ppo_no_pause_9_step logger.notes="fixed long sequences eos problem"
+# python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 run_name=ppo_no_pause_9_step logger.notes="fixed long sequences eos problem"
 
 
 # python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="correct nll loss only actions"
@@ -14,7 +14,7 @@ python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 ru
 
 
 # pretraining value head and saving it
-# python src/train.py experiment=train/pretraining_value_head/experiment 
+python src/train.py experiment=train/pretraining_value_head/experiment 
 # training
 # echo "Starting training"
 

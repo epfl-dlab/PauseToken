@@ -2,7 +2,7 @@ import torch
 
 class MLPValueHead(torch.nn.Module):
     def __init__(
-            self, hidden_sizes: list, activation: str = 'relu', output_activation: str = 'none'
+            self, hidden_sizes: list, activation: str = 'relu', output_activation: str = 'none', value_head_path: str = None
     ):
         super(MLPValueHead, self).__init__()
         self.hidden_sizes = hidden_sizes
@@ -31,10 +31,15 @@ class MLPValueHead(torch.nn.Module):
         else:
             raise ValueError('Invalid output activation function')
         self.model = torch.nn.Sequential(*self.layers)
+
+        if value_head_path is not None:
+            self.load_state_dict(torch.load(value_head_path, weights_only=True))
         
 
-    def forward(self, input_ids):
-        return self.model(input_ids)
+    def forward(self, all_hidden_embeds):
+        last_layer_hidden_embeds = all_hidden_embeds[-1]
+        last_token_hidden_embed = last_layer_hidden_embeds[:, -1]
+        return self.model(last_token_hidden_embed)
     
 
         

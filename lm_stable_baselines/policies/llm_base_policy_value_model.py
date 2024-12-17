@@ -32,8 +32,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         squash_output: bool = False,
         filler_token: int = -100,
         generation_params: Dict[str, Any] = None,
-        value_head: nn.Module = None,
-        value_head_path: str = None,
         **kwargs):
 
 
@@ -54,10 +52,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             **kwargs
         )
 
-        self.MLP_value_head = hydra.utils.instantiate(value_head).to(next(self.lm.parameters()).dtype)
-        if value_head_path is not None:
-            self.MLP_value_head.load_state_dict(torch.load(value_head_path))
-        
+        self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
 
     def evaluate_actions(self, observations, actions):
         """
@@ -112,8 +107,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             output = self.lm(obs, attention_mask=attention_mask,
                              return_dict=True, output_hidden_states=True)
 
-        latent = output['hidden_states'][-1][:, -1, :] # final word output embedding
-        values = self.MLP_value_head(latent)
+        latent = output['hidden_states']
+        values = self.value_head(latent)
 
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 

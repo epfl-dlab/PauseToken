@@ -3,6 +3,7 @@
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: pretraining_value_head
+  - override /rl_algorithm/policy/model/value_head: torch_transformer # mlp or torch_transformer
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: mistral
   - override /rl_algorithm/reward: gsm8k
@@ -54,7 +55,7 @@ rl_algorithm:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
 
     # path to where the model should be saved, if null, it will be saved in /data/value_head
-  saving_path: "./data/value_heads/${clean_path:${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}}.pth"
+  saving_path: "./data/value_heads/${clean_path:${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}}_transformer.pth"
 
 
 test: true

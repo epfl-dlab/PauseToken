@@ -1,0 +1,12 @@
+_target_: src.model.components.value_head.torch_transformer.TransformerValueHead
+
+hidden_dim: 4096
+transformer_config:
+  _target_: torch.nn.TransformerEncoder
+  num_layers: 6
+  encoder_layer:
+    _target_: torch.nn.TransformerEncoderLayer
+    d_model: ${...hidden_dim}
+    nhead: 8
+    batch_first: true
+  
