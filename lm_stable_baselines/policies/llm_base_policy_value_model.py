@@ -2,6 +2,7 @@ from lm_stable_baselines.policies.llm_base_policy import LLMBasePolicy
 from stable_baselines3.common.type_aliases import PyTorchObs
 import torch
 import torch.nn as nn
+import hydra
 
 from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, FlattenExtractor
@@ -31,8 +32,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         squash_output: bool = False,
         filler_token: int = -100,
         generation_params: Dict[str, Any] = None,
-        hidden_size: int = 4096,
-        value_head_hidden_dim: int = 4096,
         **kwargs):
 
 
@@ -53,14 +52,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             **kwargs
         )
 
-        # Define the value head (MLP on top of the transformer), with a sigmoid activation for returns between 0 and 1
-        # send to correct dtype (Bfloat or float depending on policy.lm)
-        self.MLP_value_head = nn.Sequential(
-            nn.Linear(hidden_size, value_head_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(value_head_hidden_dim, 1),
-            nn.Sigmoid()
-        ).to(next(self.lm.parameters()).dtype)
+        self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
 
     def evaluate_actions(self, observations, actions):
         """
@@ -75,7 +67,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         # Compute action log probabilities
         action_start_indices = (observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
-        logits = self.lm(**next_obs).logits  # Forward pass through LM
+        outputs = self.lm(**next_obs, output_hidden_states=True)
+        logits = outputs.logits  # Forward pass through LM
         all_logprobs = torch.log_softmax(logits, dim=-1)  # Convert logits to log-probabilities
         log_probs = self._compute_logprobs(
             all_logprobs[:, :-1, ...], next_obs['input_ids'][:, 1:], action_start_indices
@@ -86,10 +79,52 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         # entropy = action_distribution.entropy().mean(dim=-1)  # Mean entropy across tokens
         entropy = None # can't approximate it, ppo will simply take log_probs as entropy
 
-        # Compute values
-        values = self.predict_values(observations['input_ids'])
+        # Compute values, do not use predict values, it will be gradent less, and will do another forward pass through 
+        # the LM!
+        raw_latent = outputs.hidden_states
+        latent = []
+        # get observation mask in next_obs
+        obs_mask = next_obs['attention_mask'].clone()
+        for i in range(next_obs['input_ids'].size(0)):
+            obs_mask[i, action_start_indices[i]:] = 0
+
+        for i in range(len(raw_latent)):
+            left_padded_embeds, left_padded_mask = self._move_embeddding_padding_to_side(raw_latent[i], obs_mask, left_padding=True)
+            latent.append(left_padded_embeds)
+        
+ 
+        values = self.value_head(latent, attention_mask=left_padded_mask)
 
         return values, log_probs, entropy
+
+
+
+    def _move_embeddding_padding_to_side(self, obs_embed, padding_mask, left_padding=True):
+        """
+        Moves padding (denoted by 0) in a batch of sequences to the specified side.
+
+        Args:
+            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
+                                    containing padded sequences with 0 as padding token.
+            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
+
+        Returns:
+            torch.Tensor: Tensor of the same size with padding moved to the specified side.
+        """
+        batch_size = obs_embed.shape[0]
+        length = padding_mask.sum(dim=1).max().item()
+        lengths = padding_mask.sum(dim=1)
+        
+        new_padding_mask = torch.zeros((batch_size, length), dtype=torch.bool, device=obs_embed.device)
+        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
+        for i in range(batch_size):
+            if left_padding:
+                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1]
+                new_padding_mask[i, -lengths[i]:] = 1
+            else:
+                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1]
+                new_padding_mask[i, :lengths[i]] = 1     
+        return padded_embeds, new_padding_mask
 
 
     def predict_values(self, obs) -> torch.Tensor:
@@ -111,12 +146,15 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             obs = self._move_padding_to_side(obs, left_padding=True)
 
         attention_mask = (obs != self.tokenizer.pad_token_id).long()
+        max_length = attention_mask.sum(dim=1).max().item()
+        obs = obs[:, -max_length:]
+        attention_mask = attention_mask[:, -max_length:]
         with torch.no_grad():
             output = self.lm(obs, attention_mask=attention_mask,
                              return_dict=True, output_hidden_states=True)
 
-        latent = output['hidden_states'][-1][:, -1, :] # final word output embedding
-        values = self.MLP_value_head(latent)
+        latent = output['hidden_states']
+        values = self.value_head(latent, attention_mask=attention_mask)
 
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 

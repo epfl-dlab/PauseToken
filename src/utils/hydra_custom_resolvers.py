@@ -5,7 +5,12 @@ from copy import deepcopy
 import hydra
 import warnings
 import importlib
+import re
 
+
+# Custom resolver to remove backslashes and any invalid filename characters
+def clean_path_string(s):
+    return re.sub(r'[\\/:*?"<>|]', '_', s)
 
 # General resolver to get any attribute from a module or class
 def get_module_attr(module_and_attr: str):
@@ -118,3 +123,5 @@ OmegaConf.register_new_resolver("get_method", hydra.utils.get_method)
 OmegaConf.register_new_resolver("get_obj_attr", get_obj_attr)
 
 # OmegaConf.register_new_resolver("get_module_attr", get_module_attr)
+
+OmegaConf.register_new_resolver("clean_path", clean_path_string)

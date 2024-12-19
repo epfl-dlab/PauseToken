@@ -1,0 +1,24 @@
+_target_: src.model.components.value_head.torch_transformer.TransformerValueHead
+
+hidden_dim: 4096
+transformer_config:
+  _target_: transformers.BertModel
+  config:
+    _target_: transformers.BertConfig
+    vocab_size: 1
+    hidden_size: ${...hidden_dim}
+    num_hidden_layers: 4
+    
+    num_attention_heads: 8
+    intermediate_size: 4096
+    
+
+
+  # _target_: torch.nn.TransformerEncoder
+  # num_layers: 6
+  # encoder_layer:
+  #   _target_: torch.nn.TransformerEncoderLayer
+  #   d_model: 
+  #   nhead: 8
+  #   batch_first: true
+  
