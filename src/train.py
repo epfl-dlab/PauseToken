@@ -12,6 +12,7 @@ from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
 from src.utils.trainer_utils import test_model
 import os
+from copy import deepcopy
 
 
 # ------------------------------------------------------------------------------------ #
@@ -154,8 +155,13 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         for name in metrics["val"].keys()
     }
     
-    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
+    cfg_cp = OmegaConf.to_container(deepcopy(cfg), resolve=False)
+
+    config_as_string = str(cfg_cp)
     
+    
+    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
+    trainer.set_config_as_string(config_as_string = config_as_string, name=cfg.name ,run_name = cfg.run_name)
     object_dict = {
         "cfg": cfg,
         "dataset": dataset,

@@ -5,10 +5,11 @@ import numpy as np
 # from torchviz import make_dot
 class ReinforceOnPolicy(STaROnPolicy):
     
-    def __init__(self, baseline_init_val , baseline_lr, n_grad_accumulation_steps = 1, *args, **kwargs):
+    def __init__(self, baseline_init_val=0.0 , baseline_lr=0.01, n_grad_accumulation_steps = 1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.baseline = baseline_init_val
         self.baseline_lr = baseline_lr
+        self.baseline_init_val = baseline_init_val
         self.n_grad_accumulation_steps = n_grad_accumulation_steps
         self.accumulated_advantages = 0.0
     

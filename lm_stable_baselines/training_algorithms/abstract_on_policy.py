@@ -11,7 +11,17 @@ from typing import Optional, Union, Dict, Any, List, Tuple
 import numpy as np
 from stable_baselines3.common.type_aliases import MaybeCallback 
 from copy import deepcopy
+from stable_baselines3.common.save_util import save_to_zip_file,load_from_zip_file
+import os
 
+from stable_baselines3.common.base_class import SelfBaseAlgorithm
+import io
+from typing import Type
+from stable_baselines3.common.type_aliases import GymEnv
+import pathlib
+from stable_baselines3.common.utils import get_system_info,check_for_correct_spaces
+from stable_baselines3.common.vec_env.patch_gym import _convert_space
+import copy
 
 class AbstractLMOnPolicy:
     
@@ -58,6 +68,95 @@ class AbstractLMOnPolicy:
         self.policy.tokenizer.padding_side = og_padding_side
         return res
 
+    def save(
+        self,
+        path: str,
+        zip_name: Optional[str] = "last_rl_alg_ckpt.zip",
+        policy_name: Optional[str] = "last_policy_ckpt.pth",
+        exclude: Optional[List[str]] = None,
+        include: Optional[List[str]] = None,
+        pytorch_exclude: Optional[List[str]] = [],
+    ):
+        """
+        Save all the attributes of the object and the model parameters in a zip-file.
+
+        :param path: path to the file where the rl agent should be saved
+        :param exclude: name of parameters that should be excluded in addition to the default ones
+        :param include: name of parameters that might be excluded but should be included anyway
+        """
+        # Copy parameter list so we don't mutate the original dict
+        data = {k: v for k, v in self.__dict__.copy().items() if k != "policy"}
+        
+        # Exclude is union of specified parameters (if any) and standard exclusions
+        if exclude is None:
+            exclude = []
+        exclude = set(exclude).union(self._excluded_save_params())
+
+        # Do not exclude params if they are specifically included
+        if include is not None:
+            exclude = exclude.difference(include)
+
+        state_dicts_names, torch_variable_names = self._get_torch_save_params()
+        all_pytorch_variables = state_dicts_names + torch_variable_names
+        for torch_var in all_pytorch_variables:
+            # We need to get only the name of the top most module as we'll remove that
+            var_name = torch_var.split(".")[0]
+            # Any params that are in the save vars must not be saved by data
+            exclude.add(var_name)
+
+        # Remove parameter entries of parameters which are to be excluded
+        for param_name in exclude:
+            data.pop(param_name, None)
+            
+        zip_path = os.path.join(path, zip_name)
+
+        save_to_zip_file(zip_path, data=data, params=None, pytorch_variables=None)
+        
+        policy_path = os.path.join(path, policy_name)
+
+        state_dict = {key: value for key, value in self.policy.optimizer.state_dict().items() if key not in pytorch_exclude}
+        torch.save(state_dict, policy_path)
+
+    def load(  # noqa: C901
+        self,
+        path: str,
+        zip_name: str,
+        policy_name: str,
+        env: Optional[GymEnv] = None,
+        device: Union[torch.device, str] = "auto",
+        custom_objects: Optional[Dict[str, Any]] = None,
+        print_system_info: bool = False,
+        force_reset: bool = True,
+        load_optimizer: bool = True,
+        **kwargs,
+    ) -> SelfBaseAlgorithm:
+        
+        
+        if print_system_info:
+            print("== CURRENT SYSTEM INFO ==")
+            get_system_info()
+
+        path_to_zip = os.path.join(path, zip_name)
+        data, _, _ = load_from_zip_file(
+            path_to_zip,
+            device=device,
+            custom_objects=custom_objects,
+            print_system_info=print_system_info,
+        )
+        assert data is not None, "No data found in the saved file"
+        
+        # load parameters
+        self.__dict__.update(data)
+        self.__dict__.update(kwargs)
+
+        if load_optimizer:
+            path_to_policy = os.path.join(path, policy_name)
+            self.policy.optimizer.load_state_dict(torch.load(path_to_policy))
+
+        # Sample gSDE exploration matrix, so it uses the right device
+        # see issue #44
+        if self.use_sde:
+            self.policy.reset_noise()  # type: ignore[operator]
 
     def get_next_observation(self, data):
         next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)

@@ -130,9 +130,11 @@ class BaseControlTokenWrapper(PreTrainedModel):
             "Control token ids should be the last tokens of the vocabulary or larger than the original vocab size"
                 
     def attach_ctrl_token_clf(self):
+        print("Attaching control token classifier from the language model")
         self.config.detach_ctrl_tok_clf = False
     
     def detach_ctrl_token_clf(self):
+        print("Detaching control token classifier from the language model")
         self.config.detach_ctrl_tok_clf = True
             
     def _resize_input_embeds(self):

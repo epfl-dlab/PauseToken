@@ -15,6 +15,9 @@ from src.utils.utils import make_summary_table
 from transformers.trainer import _is_peft_model
 from transformers.utils import ADAPTER_WEIGHTS_NAME, ADAPTER_SAFE_WEIGHTS_NAME
 from peft import PeftModelForCausalLM
+import hashlib
+import json
+
 class LMSBTrainer:
     def __init__(
         self,
@@ -34,7 +37,7 @@ class LMSBTrainer:
         disable_peft_first_inference: bool = False,
         do_sample_at_validation: bool = False,
         peft_config_name: str = "default",
-        use_previous_policy_as_reward_model: bool = False
+        use_previous_policy_as_reward_model: bool = False,
     ):
         self.learn_kwargs = {
             "total_timesteps": n_steps_before_validation,
@@ -52,11 +55,6 @@ class LMSBTrainer:
         self.current_outer_loop = 0
         self.metrics = metrics
         
-        self._train_last_obs = None
-        self._val_last_obs = None
-        self._train_last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
-        self._val_last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
-        
         self.output_dir = output_dir
         
         self.save_top_k = save_top_k
@@ -71,8 +69,44 @@ class LMSBTrainer:
         
         self.peft_config_name = peft_config_name
         self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model
+        
+        
+        
+        self.trainer_save_parameters_to_exclude = [
+            'learn_kwargs',
+            'rl_algorithm',
+            'n_outer_loops',
+            'num_val_samples',
+            'logger',
+            'metrics',
+            'save_top_k',
+            'metric_for_best_model',
+            'disable_peft_first_inference',
+            'do_sample_at_validation',
+            'use_previous_policy_as_reward_model',
+            "config_as_string",
+            "output_dir",
+            "trainer_save_parameters_to_exclude",
+        ]
+        
+    def set_config_as_string(self, config_as_string: str, name: str, run_name: str):
+        self.config_as_string = config_as_string
+        
+        self.checkpoint_dir = os.path.join(".", "logs", "checkpoints", name,  run_name, self.hash_config())
+        
+        #make a symbolic link to the output_dir in the checkpoint_dir
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        
+        output_dir_last_folder_name = os.path.basename(os.path.normpath(self.output_dir))
+        
+        os.makedirs(os.path.join(self.checkpoint_dir, "previous_runs"), exist_ok=True)
+        #get aboslute path of checkpoint_dir
+        checkpoint_dir_abs = os.path.abspath(self.checkpoint_dir)
+        os.symlink(os.path.abspath(self.output_dir), os.path.join(checkpoint_dir_abs, "previous_runs", output_dir_last_folder_name), target_is_directory=True)
+
+    def hash_config(self):
+        return hashlib.sha256(self.config_as_string.encode()).hexdigest()
  
-    
     def set_stage(self, stage: str):
         valid_stages = ["train", "val", "test"]
         assert stage in valid_stages, f"Invalid stage: {stage}, valid stages are: {valid_stages}"
@@ -89,7 +123,6 @@ class LMSBTrainer:
         
         # Reset env for new stage
         self.rl_algorithm._last_obs = self.rl_algorithm.env.reset()  # type: ignore[assignment]
-        self._last_episode_starts = np.ones((self.rl_algorithm.env.num_envs,), dtype=bool)
         # Retrieve unnormalized observation for saving into the buffer
         if self.rl_algorithm._vec_normalize_env is not None:
             self._last_original_obs = self._vec_normalize_env.get_original_obs()
@@ -229,7 +262,7 @@ class LMSBTrainer:
             self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
         self.rl_algorithm.logger.record(f"{stage}/reward", mean_reward)
         #TODO: Save rollouts to file
-        save_json(reses, self.output_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+        save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
 
     def run_validation(self):    
         self.evaluation("val")
@@ -239,14 +272,64 @@ class LMSBTrainer:
         self.eval_dataset.set_stage("test")
         self.evaluation("test")
     
-    def _save_model(self, output_dir, save_type = "lm"):
+    
+    def save_checkpoint(self):
+        path_to_save_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
+        path_to_save_trainer = os.path.join(self.checkpoint_dir, "last_trainer_ckpt.zip")
+        path_to_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt.zip")
+        
+        new_path_to_save_rl_alg = os.path.join(self.checkpoint_dir, f"last_rl_alg_ckpt_2.zip")
+        new_path_go_save_trainer = os.path.join(self.checkpoint_dir, f"last_trainer_ckpt_2.zip")
+        new_path_to_policy = os.path.join(self.checkpoint_dir, f"last_policy_ckpt_2.zip")
+        
+        self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")        
+        self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs"])
+        
+        #remove old files
+        for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
+            if os.path.exists(path):
+                self._remove_save(path_to_save_rl_alg, is_directory = False)
+
+        #rename new files
+        os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
+        os.rename(new_path_go_save_trainer, path_to_save_trainer)
+        os.rename(new_path_to_policy, path_to_policy)
+    
+    def load_checkpoint(self):
+        path_to_ckpt_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
+        path_to_ckpt_trainer = os.path.join(self.checkpoint_dir, "last_trainer_ckpt.zip")
+        path_to_ckpt_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt.zip")
+        
+        
+        all_ckpt_donot_exist = not os.path.exists(path_to_ckpt_rl_alg) and not os.path.exists(path_to_ckpt_trainer) and not os.path.exists(path_to_ckpt_policy)
+        all_ckpt_exist = os.path.exists(path_to_ckpt_rl_alg) and os.path.exists(path_to_ckpt_trainer) and os.path.exists(path_to_ckpt_policy)
+        
+        assert all_ckpt_donot_exist or all_ckpt_exist, "Both checkpoints must exist or not exist"
+
+        if all_ckpt_exist:
+            self._lm_load(os.path.join(self.checkpoint_dir, "last_ckpt"))
+            
+            self.load_rl_alg(
+                self.checkpoint_dir,
+                "last_rl_alg_ckpt.zip",
+                "last_policy_ckpt.zip"
+            )
+            
+            self.load_trainer(path_to_ckpt_trainer)
+            self.rl_algorithm.policy.to(self.rl_algorithm.device)
+        
+        else:
+            print("No checkpoint found, will keep the current state")
+
+            
+    def _save_model(self, output_dir, save_type = "lm", **rl_alg_kwargs):
         save_types = ["lm", "rl_alg"]
         assert save_type in save_types, f"Invalid save_type: {save_type}, valid save_types are: {save_types}"
         
         if save_type == "lm":
             self._lm_save(output_dir)
         else:
-            self.rl_algorithm.save(output_dir)
+            self.rl_algorithm.save(output_dir, **rl_alg_kwargs)
     
     def _lm_save(self, output_dir):
         self.rl_algorithm.policy.lm.save_pretrained(output_dir)
@@ -296,11 +379,14 @@ class LMSBTrainer:
         
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
             
-    def _remove_save(self, output_dir):
+    def _remove_save(self, output_dir, is_directory = True):
         try:
-            shutil.rmtree(output_dir)
+            if is_directory:
+                shutil.rmtree(output_dir)
+            else:
+                os.remove(output_dir)
         except:
-            warnings.warn(f"Could not remove directory: {output_dir}")
+            warnings.warn(f"Could not remove: {output_dir}")
             
     def save_model(self, save_dir = None, save_type = "lm", use_save_top_k = True):
         
@@ -321,7 +407,7 @@ class LMSBTrainer:
         if save_dir is None:
             #number of timesteps taken so far (from learn)
             n_timesteps_taken = self.learn_kwargs["total_timesteps"] * (self.current_outer_loop + 1)
-            save_dir = os.path.join(self.output_dir, f"ckpt-{n_timesteps_taken}")
+            save_dir = os.path.join(self.checkpoint_dir, f"ckpt-{n_timesteps_taken}")
             #append metric to save_dir if it's not None and we want to save the top k models
             save_dir += \
                 "" if not use_save_top_k or self.metric_for_best_model is None\
@@ -330,7 +416,7 @@ class LMSBTrainer:
         
         #if we only want to save the top k models, then we need to check if the current model is better than the worst model
         if use_save_top_k:
-            last_ckpt = os.path.join(self.output_dir, f"last_ckpt")
+            last_ckpt = os.path.join(self.checkpoint_dir, f"last_ckpt")
             
             if os.path.exists(last_ckpt):
                 self._remove_save(last_ckpt)
@@ -382,6 +468,29 @@ class LMSBTrainer:
         best_model_path = self.curr_best_models[0]["dir"]
         print("Best model path: ", best_model_path)
         self._lm_load(best_model_path)
+        
+    def load_rl_alg(self, path, zip_name, policy_name):
+        
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        print("load optimizer: ", not (self.use_previous_policy_as_reward_model or use_base_model_for_learning))
+        self.rl_algorithm.load(
+            path=path,
+            zip_name= zip_name,
+            policy_name = policy_name,
+            env = self.rl_algorithm.env,
+            load_optimizer = not (self.use_previous_policy_as_reward_model or use_base_model_for_learning)
+        )
+        
+    def save_trainer(self, path_to_folder, filename):
+        trainer_parameters = {k: v for k, v in self.__dict__.items() if k not in self.trainer_save_parameters_to_exclude}
+        #save trainer parameters as json
+        save_json(trainer_parameters, path_to_folder, filename)
+        
+    def load_trainer(self, path):
+        with open(path, "r") as file:
+            trainer_parameters = json.load(file) 
+        for k, v in trainer_parameters.items():
+            setattr(self, k, v)
     
     def on_validation_end(self):
         use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
@@ -408,7 +517,7 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.set_adapter(adapter_name)
                         
             #temporarily save the peft model we need
-            tmp_save_dir = os.path.join(self.output_dir, "tmp")
+            tmp_save_dir = os.path.join(self.checkpoint_dir, "tmp")
             self._save_model(tmp_save_dir)
             
             #delete adapter and unload all adapters
@@ -479,7 +588,7 @@ class LMSBTrainer:
                 name_of_reward_peft = "reward"
                 
                 #temporarily save previous policy
-                tmp_save_dir = os.path.join(self.output_dir, "tmp")
+                tmp_save_dir = os.path.join(self.checkpoint_dir, "tmp")
                 self._save_model(tmp_save_dir)
                 path_to_peft = tmp_save_dir
                 possible_path_to_peft = os.path.join(tmp_save_dir, self.peft_config_name)
@@ -501,7 +610,7 @@ class LMSBTrainer:
         if self.use_previous_policy_as_reward_model or use_base_model_for_learning:
             self.rl_algorithm.policy.lm.set_adapter(self.rl_algorithm.name_to_adapter["peft_to_train"])
             self.rl_algorithm.policy._build()
-            
+        
         self.set_stage("train")
             
     def on_learn_end(self):
@@ -517,12 +626,21 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        pass
+        print("Loading checkpoint ...")
+        self.load_checkpoint()
+    
+    def on_outer_loop_end(self):  
+        print("Saving model and checkpoint ...")  
+        #save lm only
+        self.save_model()
+        #save_checkpoint (opt, rl_alg)
+        self.save_checkpoint()
+ 
      
     def fit(self):
-        
-        for i in range(self.n_outer_loops):
-            self.current_outer_loop = i
+        self.current_outer_loop = 0
+        while self.current_outer_loop < self.n_outer_loops:
+            
             self.on_outer_loop_start()
             # Learn
             self.on_learn_start()
@@ -536,7 +654,7 @@ class LMSBTrainer:
             self.run_validation()
             self.on_validation_end()
             
-            print("Saving model")
-            # Save model
-            self.save_model()        
+            self.current_outer_loop += 1
+            self.on_outer_loop_end()
+           
             
