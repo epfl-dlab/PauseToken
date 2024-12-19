@@ -162,6 +162,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     
     trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
     trainer.set_config_as_string(config_as_string = config_as_string, name=cfg.name ,run_name = cfg.run_name)
+    print("Loading checkpoint ...")
+    trainer.load_checkpoint()
     object_dict = {
         "cfg": cfg,
         "dataset": dataset,

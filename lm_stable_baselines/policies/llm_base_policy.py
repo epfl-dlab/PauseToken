@@ -170,6 +170,18 @@ class LLMBasePolicy(BasePolicy):
                                               padding=True, padding_side="right").to(self.device)
 
         return new_observations
+    
+    def save_additional_modules(self, save_path):
+        """
+        Save additional modules (value head) to the save path.
+        """
+        pass
+
+    def load_additional_modules(self, load_path):
+        """
+        Load additional modules (value head) from the load path.
+        """
+        pass
         
     def compute_nll_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """ Compute the negative log likelihood loss

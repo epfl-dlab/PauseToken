@@ -12,7 +12,9 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-17_10-47-16/final
-
+      value_head:
+        hidden_sizes: [2048, 4096, 4096, 4096, 1]
   reward:
     inverse_neg_log_likelihood: true
     correctness_reward_weight: 1.0
+

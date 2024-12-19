@@ -277,14 +277,16 @@ class LMSBTrainer:
         path_to_save_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
         path_to_save_trainer = os.path.join(self.checkpoint_dir, "last_trainer_ckpt.zip")
         path_to_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt.zip")
+        path_to_add_mods_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt")
         
         new_path_to_save_rl_alg = os.path.join(self.checkpoint_dir, f"last_rl_alg_ckpt_2.zip")
         new_path_go_save_trainer = os.path.join(self.checkpoint_dir, f"last_trainer_ckpt_2.zip")
         new_path_to_policy = os.path.join(self.checkpoint_dir, f"last_policy_ckpt_2.zip")
+        new_path_to_add_mods_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt_2")
         
         self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")        
         self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs"])
-        
+        self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy)
         #remove old files
         for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
             if os.path.exists(path):
@@ -294,11 +296,13 @@ class LMSBTrainer:
         os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
         os.rename(new_path_go_save_trainer, path_to_save_trainer)
         os.rename(new_path_to_policy, path_to_policy)
+        os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
     
     def load_checkpoint(self):
         path_to_ckpt_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
         path_to_ckpt_trainer = os.path.join(self.checkpoint_dir, "last_trainer_ckpt.zip")
         path_to_ckpt_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt.zip")
+        path_to_add_mods_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt")
         
         
         all_ckpt_donot_exist = not os.path.exists(path_to_ckpt_rl_alg) and not os.path.exists(path_to_ckpt_trainer) and not os.path.exists(path_to_ckpt_policy)
@@ -316,6 +320,8 @@ class LMSBTrainer:
             )
             
             self.load_trainer(path_to_ckpt_trainer)
+
+            self.rl_algorithm.policy.load_additional_modules(path_to_add_mods_policy)
             self.rl_algorithm.policy.to(self.rl_algorithm.device)
         
         else:
@@ -626,8 +632,7 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        print("Loading checkpoint ...")
-        self.load_checkpoint()
+        pass
     
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  

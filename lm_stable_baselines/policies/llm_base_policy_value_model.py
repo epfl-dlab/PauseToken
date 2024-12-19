@@ -11,7 +11,7 @@ from gymnasium import spaces
 
 from transformers import PreTrainedModel,PreTrainedTokenizer
 from stable_baselines3.common.type_aliases import Schedule
-
+import os
 
 class LLMBasePolicyValueModel(LLMBasePolicy):
     """
@@ -97,7 +97,19 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         return values, log_probs, entropy
 
+    def save_additional_modules(self, save_path):
+        """
+        Save additional modules (value head) to the save path.
+        """
+        filename = os.path.join(save_path, "value_head.pth")
+        torch.save(self.value_head.state_dict(), filename)
 
+    def load_additional_modules(self, load_path):
+        """
+        Load additional modules (value head) from the load path.
+        """
+        filename = os.path.join(load_path, "value_head.pth")
+        self.value_head.load_state_dict(torch.load(filename))
 
     def _move_embeddding_padding_to_side(self, obs_embed, padding_mask, left_padding=True):
         """
