@@ -36,7 +36,7 @@ class MLPValueHead(torch.nn.Module):
             self.load_state_dict(torch.load(value_head_path, weights_only=True))
         
 
-    def forward(self, all_hidden_embeds):
+    def forward(self, all_hidden_embeds, attention_mask=None):
         last_layer_hidden_embeds = all_hidden_embeds[-1]
         last_token_hidden_embed = last_layer_hidden_embeds[:, -1]
         return self.model(last_token_hidden_embed)

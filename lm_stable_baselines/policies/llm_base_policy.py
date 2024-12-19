@@ -208,6 +208,9 @@ class LLMBasePolicy(BasePolicy):
     @staticmethod
     def predict_values(obs: PyTorchObs) -> torch.Tensor:
         # return 0 for all values
+        # this is only to handle timeouts or last environemnt steps by bootstraping with value function, it's used only in the
+        # buffer during rollout generation at the last step when buffer is almost full, or when a sequence is not finished
+        # always without gradients
         return torch.ones(obs.shape[0]) * 0
             
     def forward(self, obs: PyTorchObs, labels = None) -> torch.Tensor:

@@ -1,53 +1,23 @@
 # @package _global_
 
 defaults:
-  - override /data: gsm8k
+  - train/ppo/no_pause_peft
   - override /rl_algorithm: pretraining_value_head
-  - override /rl_algorithm/policy/model/value_head: torch_transformer # mlp or torch_transformer
-  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
-  - override /rl_algorithm/policy/model/peft_config: mistral
-  - override /rl_algorithm/reward: gsm8k
-  - override /metrics: gsm8k
+  - override /rl_algorithm/policy/model/value_head: mlp # mlp or torch_transformer
 
 name: "pretraining value head"
 run_name: "pretraining_value_head"
-task_name: "train"
-
-
-
-data:
-  additional_transformation:
-    _target_: functools.partial
-    _args_: 
-      - ${get_method:src.utils.trainer_utils.inference_formatting_function}
-    eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
-  
 
 trainer:
   n_steps_before_validation: 10
-  n_outer_loops: 1
-  progress_bar: true
-  # learn_callbacks:
-  #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
-  num_val_samples: 100
-  save_top_k: 3
-  metric_for_best_model: "val/accuracy"
-  #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
-  metric_for_best_model_mode_is_min: false
-  disable_peft_first_inference: true
+  n_outer_loops: 10
   
-
 rl_algorithm:
-  # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  # for gsm8k it is 396 * 99 = 1584
   n_steps: 1
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
   loss_computed_in_forward_pass: true
   ent_coef: 0
-  use_base_model_for_learning: false
-  buffer:
-    advantage_threshold: 0
 
   policy:
     model:
@@ -56,8 +26,3 @@ rl_algorithm:
 
     # path to where the model should be saved, if null, it will be saved in /data/value_head
   saving_path: "./data/value_heads/${clean_path:${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}}_transformer.pth"
-
-
-test: true
-test_batch_size: 8
-test_formatting_func: null

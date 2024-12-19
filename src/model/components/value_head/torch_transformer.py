@@ -14,13 +14,21 @@ class TransformerValueHead(torch.nn.Module):
             self.model.load_state_dict(torch.load(value_head_path))
         
 
-    def forward(self, all_hidden_embeds):
+    def forward(self, all_hidden_embeds, attention_mask=None):
         last_layer_hidden_embeds = all_hidden_embeds[-1]
+        if attention_mask is None:
+            attention_mask = torch.ones((last_layer_hidden_embeds.size(0), last_layer_hidden_embeds.size(1)), device=last_layer_hidden_embeds.device)
         query_appended_embed = torch.cat([last_layer_hidden_embeds, 
                                           self.query_embedding.unsqueeze(0).expand(last_layer_hidden_embeds.size(0), -1).unsqueeze(1)],
                                             dim=1)
-        output = self.model(query_appended_embed)[:, -1, :]
+        
+        attention_mask_appended = torch.cat([attention_mask, torch.ones((attention_mask.size(0), 1), device=attention_mask.device)], dim=1)
+        attention_mask_appended = attention_mask_appended.unsqueeze(1).expand(-1, attention_mask_appended.size(1), -1)
+        sequence_attention_mask = torch.logical_not(attention_mask_appended)
+
+        output = self.model(query_appended_embed, mask=sequence_attention_mask)
         value = self.linear_head(output)
+        value = torch.nn.functional.sigmoid(value)
         return value
     
 

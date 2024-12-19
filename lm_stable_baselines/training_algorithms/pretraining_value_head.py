@@ -55,17 +55,11 @@ class PretrainingValueHead(AbstractLMOnPolicy, PPO):
                 values, log_prob, entropy = self.policy.evaluate_actions(rollout_data.observations, actions)
                 values = values.flatten()
                 
-                if self.clip_range_vf is None:
-                    # No clipping
-                    values_pred = values
-                else:
-                    # Clip the difference between old and new value
-                    # NOTE: this depends on the reward scaling
-                    values_pred = rollout_data.old_values + torch.clamp(
-                        values - rollout_data.old_values, -clip_range_vf, clip_range_vf
-                    )
-                # Value loss using the TD(gae_lambda) target
+                values_pred = values
+                
                 value_loss = F.mse_loss(rollout_data.returns, values_pred)
+                # cross entropy loss
+                # value_loss = torch.nn.CrossEntropyLoss()(values_pred, rollout_data.returns)
                 value_losses.append(value_loss.item())
 
                 loss = value_loss
@@ -81,16 +75,16 @@ class PretrainingValueHead(AbstractLMOnPolicy, PPO):
             if not continue_training:
                 break
 
-        # Logs
+            # Logs
         
-        self.logger.record("train/value_loss", np.mean(value_losses))
-        self.logger.record("train/loss", loss.item())
+            # self.logger.record("train/value_loss", np.mean(value_losses))
+            self.logger.record("train/loss", loss.item())
 
 
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/clip_range", clip_range)
-        if self.clip_range_vf is not None:
-            self.logger.record("train/clip_range_vf", clip_range_vf)
+        # self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        # self.logger.record("train/clip_range", clip_range)
+        # if self.clip_range_vf is not None:
+        #     self.logger.record("train/clip_range_vf", clip_range_vf)
 
     def learn(
         self,
