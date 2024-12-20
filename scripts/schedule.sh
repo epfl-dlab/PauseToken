@@ -5,8 +5,8 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
-python src/train.py experiment=train/ppo/pause rl_algorithm.n_steps=9 run_name=ppo_pause_9_step 
-# python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 run_name=ppo_no_pause_9_step logger.notes="fixed long sequences eos problem"
+python src/train.py experiment=train/ppo/pause rl_algorithm.n_steps=9 run_name=ppo_pause_9_step logger.notes="1025 p.E"
+# python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 run_name=ppo_no_pause_9_step logger.notes="1025 p.E"
 
 
 # python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="correct nll loss only actions"

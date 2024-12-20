@@ -11,7 +11,7 @@ transformer_config:
     
     num_attention_heads: 8
     intermediate_size: 4096
-    max_position_embeddings: 1024
+    max_position_embeddings: 1025
     position_embedding_type: 'relative_key_query'
 
 
