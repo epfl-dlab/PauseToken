@@ -284,6 +284,7 @@ class LMSBTrainer:
         new_path_to_policy = os.path.join(self.checkpoint_dir, f"last_policy_ckpt_2.zip")
         new_path_to_add_mods_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt_2")
         
+        
         self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")        
         self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs"])
         self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy)
@@ -296,7 +297,8 @@ class LMSBTrainer:
         os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
         os.rename(new_path_go_save_trainer, path_to_save_trainer)
         os.rename(new_path_to_policy, path_to_policy)
-        os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
+        if os.path.exists(path_to_add_mods_policy):
+            os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
     
     def load_checkpoint(self):
         path_to_ckpt_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
@@ -316,17 +318,18 @@ class LMSBTrainer:
             self.load_rl_alg(
                 self.checkpoint_dir,
                 "last_rl_alg_ckpt.zip",
-                "last_policy_ckpt.zip"
             )
             
             self.load_trainer(path_to_ckpt_trainer)
 
             self.rl_algorithm.policy.load_additional_modules(path_to_add_mods_policy)
             self.rl_algorithm.policy.to(self.rl_algorithm.device)
-        
+            self.load_opt(self.checkpoint_dir, "last_policy_ckpt.zip")
         else:
             print("No checkpoint found, will keep the current state")
 
+        
+        
             
     def _save_model(self, output_dir, save_type = "lm", **rl_alg_kwargs):
         save_types = ["lm", "rl_alg"]
@@ -475,17 +478,19 @@ class LMSBTrainer:
         print("Best model path: ", best_model_path)
         self._lm_load(best_model_path)
         
-    def load_rl_alg(self, path, zip_name, policy_name):
+    def load_rl_alg(self, path, zip_name):
         
-        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
-        print("load optimizer: ", not (self.use_previous_policy_as_reward_model or use_base_model_for_learning))
         self.rl_algorithm.load(
             path=path,
             zip_name= zip_name,
-            policy_name = policy_name,
             env = self.rl_algorithm.env,
-            load_optimizer = not (self.use_previous_policy_as_reward_model or use_base_model_for_learning)
         )
+        
+    def load_opt(self, path, policy_name):
+        use_base_model_for_learning = getattr(self.rl_algorithm, "use_base_model_for_learning", False)
+        print("load optimizer: ", not (self.use_previous_policy_as_reward_model or use_base_model_for_learning))
+        if not (self.use_previous_policy_as_reward_model or use_base_model_for_learning):
+            self.rl_algorithm.load_optimizer_state_dict(path, policy_name)
         
     def save_trainer(self, path_to_folder, filename):
         trainer_parameters = {k: v for k, v in self.__dict__.items() if k not in self.trainer_save_parameters_to_exclude}
@@ -633,6 +638,7 @@ class LMSBTrainer:
 
     def on_outer_loop_start(self):
         pass
+        
     
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  

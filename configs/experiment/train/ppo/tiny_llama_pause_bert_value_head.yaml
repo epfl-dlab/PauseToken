@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - train/ppo/pause
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /rl_algorithm/reward: gsm8k_answer_ll
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+
+
+run_name: "tiny_llama_pause_bert_value_head"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-17_10-47-16/final
+      value_head:
+        hidden_dim: 2048
+  reward:
+    inverse_neg_log_likelihood: true
+    correctness_reward_weight: 1.0

@@ -4,9 +4,10 @@ import torch
 import numpy as np
 
 
-class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
+
+class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
     
-    def __init__(self,*args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass=True, batch_size=8, use_base_model_for_learning=False, **kwargs):
 
         # taking care of on policy arguments
         on_policy_kwargs = {k: kwargs[k] for k in kwargs if k in OnPolicyAlgorithm.__init__.__code__.co_varnames}
@@ -77,14 +78,15 @@ class STaROnPolicy(OnPolicyAlgorithm, AbstractLMOnPolicy):
             ratios.append(ratio.mean().item())
             # Compute the loss
             nll_losses.append(nll_loss.item())
-            
             self.policy.optimizer.zero_grad()
-            
+    
             nll_loss.backward()
 
             self.policy.optimizer.step()
-                    
-            
+               
+         
         self.logger.record("train/nll_loss", np.mean(nll_losses))
         self.logger.record("train/ratio", np.mean(ratios))
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        
+        
