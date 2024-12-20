@@ -121,7 +121,6 @@ class AbstractLMOnPolicy:
         self,
         path: str,
         zip_name: str,
-        policy_name: str,
         env: Optional[GymEnv] = None,
         device: Union[torch.device, str] = "auto",
         custom_objects: Optional[Dict[str, Any]] = None,
@@ -149,14 +148,16 @@ class AbstractLMOnPolicy:
         self.__dict__.update(data)
         self.__dict__.update(kwargs)
 
-        if load_optimizer:
-            path_to_policy = os.path.join(path, policy_name)
-            self.policy.optimizer.load_state_dict(torch.load(path_to_policy))
-
         # Sample gSDE exploration matrix, so it uses the right device
         # see issue #44
         if self.use_sde:
             self.policy.reset_noise()  # type: ignore[operator]
+
+    def load_optimizer_state_dict(self, path: str, policy_name: str):
+        self.policy._build(lr_schedule=self.lr_schedule)
+        path_to_policy = os.path.join(path, policy_name)
+        self.policy.optimizer.load_state_dict(torch.load(path_to_policy))
+
 
     def get_next_observation(self, data):
         next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)

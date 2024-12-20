@@ -101,6 +101,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         """
         Save additional modules (value head) to the save path.
         """
+        os.makedirs(save_path, exist_ok=True)
         filename = os.path.join(save_path, "value_head.pth")
         torch.save(self.value_head.state_dict(), filename)
 
