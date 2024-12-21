@@ -289,7 +289,7 @@ class LMSBTrainer:
         self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs"])
         self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy)
         #remove old files
-        for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
+        for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy,path_to_add_mods_policy]:
             if os.path.exists(path):
                 self._remove_save(path_to_save_rl_alg, is_directory = False)
 
@@ -297,7 +297,7 @@ class LMSBTrainer:
         os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
         os.rename(new_path_go_save_trainer, path_to_save_trainer)
         os.rename(new_path_to_policy, path_to_policy)
-        if os.path.exists(path_to_add_mods_policy):
+        if os.path.exists(new_path_to_add_mods_policy):
             os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
     
     def load_checkpoint(self):
