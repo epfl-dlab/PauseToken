@@ -101,9 +101,9 @@ class LLMBasePolicy(BasePolicy):
         
         if lr_schedule is None:
             lr_schedule = self.lr_schedule
-        
+
         self.optimizer = self.optimizer_class(
-            self.lm.parameters(),
+            self.parameters(),
             lr=lr_schedule(1),  # type: ignore[call-arg]
             **self.optimizer_kwargs,
         )
