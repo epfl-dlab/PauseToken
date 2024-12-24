@@ -132,10 +132,10 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
         for i in range(batch_size):
             if left_padding:
-                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone()
+                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone().detach()
                 new_padding_mask[i, -lengths[i]:] = 1
             else:
-                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1].clone()
+                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1].clone().detach()
                 new_padding_mask[i, :lengths[i]] = 1     
         return padded_embeds, new_padding_mask
 
