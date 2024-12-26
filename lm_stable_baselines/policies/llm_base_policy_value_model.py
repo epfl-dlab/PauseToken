@@ -54,6 +54,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
 
+        self._build(lr_schedule=lr_schedule)
+        
     def evaluate_actions(self, observations, actions):
         """
         Evaluate actions. Used in the training loop to fit the MLP head.

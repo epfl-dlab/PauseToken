@@ -113,8 +113,7 @@ class AbstractLMOnPolicy:
         save_to_zip_file(zip_path, data=data, params=None, pytorch_variables=None)
         
         policy_path = os.path.join(path, policy_name)
-
-        state_dict = {key: value for key, value in self.policy.optimizer.state_dict().items() if key not in pytorch_exclude}
+        state_dict = self.policy.optimizer.state_dict()
         torch.save(state_dict, policy_path)
 
     def load(  # noqa: C901
