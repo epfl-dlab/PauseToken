@@ -291,7 +291,7 @@ class LMSBTrainer:
         #remove old files
         for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
             if os.path.exists(path):
-                self._remove_save(path_to_save_rl_alg, is_directory = False)
+                self._remove_save(path, is_directory = False)
 
         if os.path.exists(path_to_add_mods_policy):
             self._remove_save(path_to_add_mods_policy, is_directory = True)
