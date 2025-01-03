@@ -238,7 +238,8 @@ class LMSBTrainer:
             gt = gts[i]
             tmp_reses = {
                 "generated_text": text,
-                "tokenized_text": strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0],
+                # "tokenized_text": strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0],
+                "tokenized_text": ', '.join(map(str, strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0])),
                 "input": input_text,
                 "predicted_output": predicted_output,
                 "ground_truth": gt,

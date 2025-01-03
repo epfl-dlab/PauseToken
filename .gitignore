@@ -3,6 +3,7 @@ scripts/disposable
 *thirdparty*
 notebooks/model_playgrounds/data
 notebooks/model_playgrounds/plots
+scripts/tmp_scripts
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

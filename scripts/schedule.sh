@@ -5,8 +5,10 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
-python src/train.py experiment=train/ppo/pause rl_algorithm.n_steps=9 run_name=ppo_pause_9_step logger.notes="1025 p.E"
-# python src/train.py experiment=train/ppo/no_pause_peft rl_algorithm.n_steps=9 run_name=ppo_no_pause_9_step logger.notes="1025 p.E"
+
+python src/train.py experiment=train/ppo/tiny_llama/tiny_llama_pause_bert trainer.n_steps_before_validation=4 \
+                                        rl_algorithm.n_steps=1 rl_algorithm.n_envs=4 rl_algorithm.batch_size=4 \
+                                        rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=1
 
 
 # python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="correct nll loss only actions"

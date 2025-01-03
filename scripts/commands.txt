@@ -1,0 +1,35 @@
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_pause_bert run_name=tiny_llama_pause_bert_correctness \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_pause_bert run_name=tiny_llama_pause_bert_correctness_e6 \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8 rl_algorithm.learning_rate=1e-6
+
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_pause_bert run_name=tiny_llama_pause_bert_nll \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm.n_grad_accumulation_steps=8
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_pause_bert run_name=tiny_llama_pause_bert_nll_e6 \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm.n_grad_accumulation_steps=8 rl_algorithm.learning_rate=1e-6
+
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_bert run_name=tiny_llama_bert_correctness \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_bert run_name=tiny_llama_bert_correctness_e6 \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8 rl_algorithm.learning_rate=1e-6
+
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_bert run_name=tiny_llama_bert_nll \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm.n_grad_accumulation_steps=8
+
+python src/train.py experiment=train/ppo/tiny_llama/mistral_bert run_name=tiny_llama_bert_nll_e6 \
+trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 \
+rl_algorithm.n_grad_accumulation_steps=8 rl_algorithm.learning_rate=1e-6

@@ -4,6 +4,7 @@ defaults:
 
 _target_: lm_stable_baselines.training_algorithms.ppo_on_policy.PPOOnPolicy
 
+n_grad_accumulation_steps: 1
 n_epochs: 1
 target_kl: null # 0.01
 clip_range: 0.2

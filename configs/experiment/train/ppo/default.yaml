@@ -3,7 +3,7 @@
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: ppo
-  - override /rl_algorithm/policy/model/value_head: mlp # mlp or torch_transformer
+  - override /rl_algorithm/policy/model/value_head: ??? # mlp or torch_transformer
   - override /rl_algorithm/policy/model/language_model: ???
   - override /rl_algorithm/policy/model/peft_config: ???
   - override /rl_algorithm/reward: gsm8k
@@ -12,9 +12,6 @@ defaults:
 name: "ppo on gsm8k"
 task_name: "train"
 run_name: ???
-
-
-
 
 data:
   additional_transformation:
@@ -37,12 +34,11 @@ trainer:
   metric_for_best_model_mode_is_min: false
   disable_peft_first_inference: false
 
-
-
 rl_algorithm:
   n_steps: 9 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
+  n_grad_accumulation_steps: 8
   loss_computed_in_forward_pass: true
   use_base_model_for_learning: false
   ent_coef: 0
@@ -56,7 +52,11 @@ rl_algorithm:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final
       # value_head:
       #   value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/_dlabscratch1_baldwin_pause2_PauseToken_logs_sft_runs_2024-10-21_10-08-12_final.pth
-
+  reward:
+    inverse_neg_log_likelihood: true
+    correctness_reward_weight: 1.0
+  
+  
 test: true
 test_batch_size: 8
 test_formatting_func: null
