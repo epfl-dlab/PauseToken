@@ -1,4 +1,4 @@
 defaults:
   - train_default
 
-do_sample: False
+do_sample: false

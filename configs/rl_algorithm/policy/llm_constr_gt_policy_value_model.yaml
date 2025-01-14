@@ -1,0 +1,6 @@
+defaults:
+  - llm_base_policy
+  - model/value_head: mlp # mlp or torch_transformer
+
+_target_: src.model.policy.llm_gt_pause_contrained_policy.LLMBasePolicyValueModelGTConstrained
+

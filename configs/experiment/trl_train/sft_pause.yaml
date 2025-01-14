@@ -15,6 +15,15 @@ run_name: "sft_pause_gsm8k_mistral"
 
 
 trainer:
+
+  _target_: src.trainer.trl_trainers.trainers.SFTTrainerForPause
+  pause_probability: 0.1
+  data_collator:
+    _target_: trl.DataCollatorForCompletionOnlyLM
+    response_template:
+      _target_: src.utils.hydra_custom_resolvers.get_module_attr
+      module_and_attr: src.utils.constants.ANSWER_TEMPLATE
+
   max_seq_length: 600
   formatting_func:
     _target_: functools.partial
@@ -34,7 +43,12 @@ trainer:
     per_device_eval_batch_size: 8
     save_steps: 300
     report_to: "wandb"
+    learning_rate: 5e-05
+    adam_beta2: 0.999
+    warmup_ratio: 0.05
+    weight_decay: 10
 
+merge_peft_after_train: True
 save_before_train: true
 test: true
 test_batch_size: 8

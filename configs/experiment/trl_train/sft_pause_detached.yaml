@@ -1,0 +1,11 @@
+# @package _global_
+defaults:
+  - trl_train/sft_pause
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        config:
+          detach_ctrl_tok_clf: true
+

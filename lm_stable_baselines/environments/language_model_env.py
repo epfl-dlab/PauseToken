@@ -9,6 +9,7 @@ from lm_stable_baselines.utils import remove_filler_tokens
 import warnings
 import torch
 from torch import LongTensor
+from src.utils.constants import ANSWER_TEMPLATE
 class LanguageModelEnv(Env):
     """ Environment for language models. This class is a subclass of gym.Env and is used to handle language model environments. 
     This environment allows to sample from a dataset and compute rewards based on the model output and the ground truth.
@@ -31,6 +32,9 @@ class LanguageModelEnv(Env):
     stage: str = "train"
     next_idx: int = 0
     read_sequentially: bool = False
+    gt_array: np.ndarray = None
+    last_gt_pos: int = 0
+    idx_of_last_in_context_gt_reasoning_step_distr = None
     
     
     def __init__(
@@ -46,6 +50,8 @@ class LanguageModelEnv(Env):
         env_idx = -1,
         enable_delta_reward = False,
         max_actions=1,
+        reasoning_step_splitter = "\n",
+        idx_of_last_in_context_gt_reasoning_step_distr = None,
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -60,6 +66,13 @@ class LanguageModelEnv(Env):
         LanguageModelEnv.n_envs = n_envs
         self.env_idx = env_idx
 
+        self.gt_id = LanguageModelEnv.last_gt_pos
+        LanguageModelEnv.last_gt_pos += 1
+
+        if LanguageModelEnv.gt_array is None:
+            #initialize gt_array of dimention n_envs, max_tokens filled with -100
+            LanguageModelEnv.gt_array = np.full((n_envs, max_tokens), -100)
+
         if require_dataset and not LanguageModelEnv.dataset:
             if dataset is None:
                 raise ValueError("dataset must be provided")
@@ -71,6 +84,17 @@ class LanguageModelEnv(Env):
         self.current_state = []
         self.enable_delta_reward = enable_delta_reward
         self.n_actions_taken = 0
+
+        self.reasoning_step_splitter = reasoning_step_splitter
+        self.update_idx_of_last_in_context_gt_reasoning_step_distr(idx_of_last_in_context_gt_reasoning_step_distr)
+    
+    def update_idx_of_last_in_context_gt_reasoning_step_distr(self, distr):
+        #make sure the distribution is normalized
+        if distr is not None:
+            distr = np.array(distr)
+            distr = distr / distr.sum()
+        LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr = distr
+
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -214,9 +238,36 @@ class LanguageModelEnv(Env):
             
         input_sample = LanguageModelEnv.dataset[LanguageModelEnv.stage][id]
         input_text = input_sample["input"]
-        
+        if LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr is not None and LanguageModelEnv.stage == "train":
+            
+            if ANSWER_TEMPLATE in input_sample["output"]:
+                #keep ony the reasoning steps after ANSWER_TEMPLATE
+                reasoning_steps = input_sample["output"].split(ANSWER_TEMPLATE)[1]
+            else:
+                reasoning_steps = input_sample["output"]
+
+            reasoning_steps = input_sample["output"].split(self.reasoning_step_splitter)
+
+            idx_of_last_in_context_gt_reasoning_step = np.random.choice(
+                np.arange(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)) -  int(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)/2),
+                p=LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr,
+                size=1
+            )[0]
+
+            if idx_of_last_in_context_gt_reasoning_step >= len(reasoning_steps):
+                idx_of_last_in_context_gt_reasoning_step = len(reasoning_steps) - 1
+
+            elif idx_of_last_in_context_gt_reasoning_step <= -len(reasoning_steps):
+                idx_of_last_in_context_gt_reasoning_step = -len(reasoning_steps) + 1
+
+            elif idx_of_last_in_context_gt_reasoning_step == 0:
+                idx_of_last_in_context_gt_reasoning_step = None
+            
+            input_text = input_text + self.reasoning_step_splitter.join(reasoning_steps[:idx_of_last_in_context_gt_reasoning_step])
+
         #save the output text (ground truth)
         self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
+        
         batch_encoding = self.tokenizer(input_text, return_tensors="np", padding=True, truncation=True)
         #save the current state (input text)
         self.current_state = batch_encoding["input_ids"].reshape(-1).tolist()
@@ -229,6 +280,9 @@ class LanguageModelEnv(Env):
         self.terminated = False
         self.truncated = False
         self.done = False
+
+        LanguageModelEnv.gt_array[ self.gt_id , :len(self.output_text)] = self.output_text
+        LanguageModelEnv.gt_array[ self.gt_id , len(self.output_text):] = -100
         
         if self.enable_delta_reward:
             self.last_reward = self.reward(self.current_state, self.output_text)

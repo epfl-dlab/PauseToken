@@ -17,6 +17,7 @@ from transformers.utils import ADAPTER_WEIGHTS_NAME, ADAPTER_SAFE_WEIGHTS_NAME
 from peft import PeftModelForCausalLM
 import hashlib
 import json
+from typing import List
 
 class LMSBTrainer:
     def __init__(
@@ -38,6 +39,7 @@ class LMSBTrainer:
         do_sample_at_validation: bool = False,
         peft_config_name: str = "default",
         use_previous_policy_as_reward_model: bool = False,
+        idx_of_last_in_context_gt_reasoning_step_distributions: List[int] = None,
     ):
         self.learn_kwargs = {
             "total_timesteps": n_steps_before_validation,
@@ -70,7 +72,7 @@ class LMSBTrainer:
         self.peft_config_name = peft_config_name
         self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model
         
-        
+        self.idx_of_last_in_context_gt_reasoning_step_distributions = idx_of_last_in_context_gt_reasoning_step_distributions
         
         self.trainer_save_parameters_to_exclude = [
             'learn_kwargs',
@@ -87,6 +89,7 @@ class LMSBTrainer:
             "config_as_string",
             "output_dir",
             "trainer_save_parameters_to_exclude",
+            "idx_of_last_in_context_gt_reasoning_step_distributions",
         ]
         
     def set_config_as_string(self, config_as_string: str, name: str, run_name: str):
@@ -641,9 +644,12 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        pass
+        if self.idx_of_last_in_context_gt_reasoning_step_distributions is not None:
+            progression = self.current_outer_loop / self.n_outer_loops
+            idx_to_chose = int(progression * len(self.idx_of_last_in_context_gt_reasoning_step_distributions))
+            distr = self.idx_of_last_in_context_gt_reasoning_step_distributions[idx_to_chose]
+            self.rl_algorithm.env.envs[0].update_idx_of_last_in_context_gt_reasoning_step_distr(distr)
         
-    
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
         #save lm only
@@ -672,4 +678,3 @@ class LMSBTrainer:
             self.current_outer_loop += 1
             self.on_outer_loop_end()
            
-            
