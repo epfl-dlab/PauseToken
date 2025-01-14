@@ -1,0 +1,47 @@
+# @package _global_
+defaults:
+  - train/ppo/default
+  - override /rl_algorithm/policy: llm_constr_gt_policy_value_model
+  - override /rl_algorithm/policy/model/language_model:  pause_from_pretrained
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /rl_algorithm/reward: gsm8k_answer_ll
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+
+
+run_name: "tiny_llama_pause_ppo_curriculum_constr_gt"
+
+data:
+  additional_transformation:
+    _target_: functools.partial
+    _args_: 
+      - ${get_method:src.utils.trainer_utils.gt_formatting_function}
+    eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
+
+trainer:
+  idx_of_last_in_context_gt_reasoning_step_distributions: 
+    - [ 0.0625, 0.0625 , 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.5, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.5, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.0625, 0.0625, 0.0625, 0.0625, 0.5, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.0625, 0.0625, 0.0625, 0.5, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.0625, 0.0625, 0.5, 0.0625, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.0625, 0.5, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.0625 , 0.5, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.0625, 0.5 , 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.5, 0.0625 , 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+    - [ 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 0.1, 0.1, 0.1, 0.0, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0]
+   
+
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-17_10-47-16/final
+        post_instanciation_method_calls: [{method: attach_ctrl_token_clf}]
+      value_head:
+        hidden_dim: 2048
+
+  reward:
+    correctness_reward_weight: 0.0
+
+  

@@ -170,7 +170,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         latent = output['hidden_states']
         values = self.value_head(latent, attention_mask=attention_mask)
-
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 
 
