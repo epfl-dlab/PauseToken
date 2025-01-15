@@ -14,9 +14,13 @@ In this, stage we will be warming up both pause and non-pause models on GSM8K da
 
 | Experiment Name                   | Unfreeze Pause Embedding | Unfreeze Pause Head | Unfreeze LM head |  Unfreeze LM Embeddings | LORA  |  Detach Pause Head     |   python command                                                               |
 |-----------------------------------|:------------------------:|:-------------------:|:----------------:| :----------------------:|:----: |------------------------|--------------------------------------------------------------------------------|
-| Warmup Mistral Pause detached     |           X              |      X              |                  |                         |   X   |           X            |  `python src/trl_train.py experiment=trl_train/step2_exp/sft.yaml TODO`       |
-| Warmup Mistral No-Pause detached  |                          |                     |                  |                         |   X   |           X            |  `python src/trl_train.py experiment=trl_train/step_1_sft.yaml`               |
-| Warmup Mistral Pause              |           X              |      X              |                  |                         |   X   |                        |  `python src/trl_train.py experiment=trl_train/step2_exp/sft.yaml`            |
+| Warmup Mistral Pause detached     |           X              |      X              |                  |                         |   X   |           X            |  `python src/trl_train.py  experiment=trl_train/sft_pause_detached run_name=warmup_mistral_pause_detached_5samp_ds_mean_kl data=gsm8k_augmented_pause trainer.args.num_train_epochs=1.0`
+       |
+| Warmup Mistral No-Pause           |                          |                     |                  |                         |   X   |           X            |  `python experiment=trl_train/step_1_sft.yaml trainer.args.num_train_epochs=5.0 run_name=step1_sft_2epochs`
+               |
+| Warmup Mistral Pause              |           X              |      X              |                  |                         |   X   |                        |  `python src/trl_train.py experiment=trl_train/sft_pause run_name=warmup_mistral_pause_5samp_ds_mean_kl data=gsm8k_augmented_pause trainer.args.num_train_epochs=1.0`           |
+
+
 
 
 
@@ -49,6 +53,9 @@ In this, stage we will be warming up both pause and non-pause models on GSM8K da
 | warmup_tinyllama_pause KL on one-hot probs        |`/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_17-24-57/test_results.json`     | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_17-24-57/final` | `https://wandb.ai/sigmae/Control%20Tokens/runs/ho0hpvh3` |
 |warmup_tinyllama_pause_detached KL on one-hoe probs|`/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_17-24-37/test_results.json`     | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_17-24-37/final` | `https://wandb.ai/sigmae/Control%20Tokens/runs/bf8fjkzp` |
 |warmup tinyllama no pause (baseline)               |`/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/test_results.json`     | `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/final` | `https://wandb.ai/sigmae/Control%20Tokens/runs/a3bmvlbk` |
+
+
+
 
 
 ## Stage 2: Reinforcement Learning on GSM8K
