@@ -7,7 +7,7 @@ import numpy as np
 
 class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
     
-    def __init__(self,*args, loss_computed_in_forward_pass=True, batch_size=8, use_base_model_for_learning=False, **kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass=True, batch_size=8, use_base_model_for_learning=False, ft_on_action_only ,**kwargs):
 
         # taking care of on policy arguments
         on_policy_kwargs = {k: kwargs[k] for k in kwargs if k in OnPolicyAlgorithm.__init__.__code__.co_varnames}
@@ -15,6 +15,8 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
 
         AbstractLMOnPolicy.__init__(self, loss_computed_in_forward_pass=loss_computed_in_forward_pass, 
                          batch_size=batch_size, use_base_model_for_learning=use_base_model_for_learning)
+        
+        self.ft_on_action_only = ft_on_action_only
         
 
     def train(self) -> None:
@@ -40,18 +42,28 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
             next_observation = self.get_next_observation(data)
             
+        
             if self.loss_computed_in_forward_pass:
-                labels = next_observation["input_ids"]
-                labels_list = list(labels.cpu())
-                collated_labels = self.data_collator(labels_list)
-                labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
+
+                if self.ft_on_action_only:
+                    observations = data.observations
+                    action_start_indices = (observations['input_ids'] != self.policy.tokenizer.pad_token_id).sum(dim=1)
+                    labels = next_observation["input_ids"].clone()
+                    for idx in range(labels.size(0)):
+                        labels[idx, :action_start_indices[idx]] = -100
+                    labels[labels == self.policy.tokenizer.pad_token_id] = -100
+                else:
+                    labels = next_observation["input_ids"]
+                    labels_list = list(labels.cpu())
+                    collated_labels = self.data_collator(labels_list)
+                    labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
             else:
                 labels = None
             kwargs = {}
 
             input_ids = next_observation['input_ids'].to(self.device)
             attention_mask=next_observation['attention_mask'].to(self.device)
-            self.policy.lm.eval()
+
             output = self.policy.lm(
                 input_ids=input_ids, 
                 attention_mask=attention_mask,
