@@ -1,4 +1,4 @@
-from lm_stable_baselines.policies.llm_base_policy import LLMBasePolicy
+from lm_stable_baselines.policies.llm_base_policy import LLMBasePolicyValueModel
 from stable_baselines3.common.type_aliases import PyTorchObs
 import torch
 import torch.nn as nn
@@ -13,7 +13,7 @@ from transformers import PreTrainedModel,PreTrainedTokenizer
 from stable_baselines3.common.type_aliases import Schedule
 import os
 
-class LLMBasePolicyValueModel(LLMBasePolicy):
+class LLMBasePolicyValueThoughtEmbedModel(LLMBasePolicyValueModel):
     """
     Base class for all LLMs with a value head.
     """
@@ -35,7 +35,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         **kwargs):
 
 
-        super(LLMBasePolicyValueModel, self).__init__(
+        super(LLMBasePolicyValueThoughtEmbedModel, self).__init__(
             observation_space=observation_space,
             action_space=action_space,
             lr_schedule=lr_schedule,
@@ -52,7 +52,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             **kwargs
         )
 
-        self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
+        self.thought_embedding_head = hydra.utils.instantiate(kwargs['model']['thought_embedding_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
 
         self._build(lr_schedule=lr_schedule)
         
@@ -91,56 +91,14 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
             obs_mask[i, action_start_indices[i]:] = 0
 
         for i in range(len(raw_latent)):
-            left_padded_embeds, left_padded_mask = self._move_embedding_padding_to_side(raw_latent[i], obs_mask, left_padding=True)
+            left_padded_embeds, left_padded_mask = self._move_embeddding_padding_to_side(raw_latent[i], obs_mask, left_padding=True)
             latent.append(left_padded_embeds)
         
  
         values = self.value_head(latent, attention_mask=left_padded_mask)
 
         return values, log_probs, entropy
-
-    def save_additional_modules(self, save_path):
-        """
-        Save additional modules (value head) to the save path.
-        """
-        os.makedirs(save_path, exist_ok=True)
-        filename = os.path.join(save_path, "value_head.pth")
-        torch.save(self.value_head.state_dict(), filename)
-
-    def load_additional_modules(self, load_path):
-        """
-        Load additional modules (value head) from the load path.
-        """
-        filename = os.path.join(load_path, "value_head.pth")
-        self.value_head.load_state_dict(torch.load(filename))
-
-    def _move_embedding_padding_to_side(self, obs_embed, padding_mask, left_padding=True):
-        """
-        Moves padding (denoted by 0) in a batch of sequences to the specified side.
-
-        Args:
-            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
-                                    containing padded sequences with 0 as padding token.
-            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
-
-        Returns:
-            torch.Tensor: Tensor of the same size with padding moved to the specified side.
-        """
-        batch_size = obs_embed.shape[0]
-        length = padding_mask.sum(dim=1).max().item()
-        lengths = padding_mask.sum(dim=1)
-        
-        new_padding_mask = torch.zeros((batch_size, length), dtype=torch.bool, device=obs_embed.device)
-        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
-        for i in range(batch_size):
-            if left_padding:
-                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone().detach()
-                new_padding_mask[i, -lengths[i]:] = 1
-            else:
-                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1].clone().detach()
-                new_padding_mask[i, :lengths[i]] = 1     
-        return padded_embeds, new_padding_mask
-
+    
 
     def predict_values(self, obs) -> torch.Tensor:
         """
@@ -170,7 +128,48 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         latent = output['hidden_states']
         values = self.value_head(latent, attention_mask=attention_mask)
+
         return values.squeeze(-1)  # Squeeze to return 1D tensor for scalar values
 
 
+    def save_additional_modules(self, save_path):
+        """
+        Save additional modules (value head) to the save path.
+        """
+        os.makedirs(save_path, exist_ok=True)
+        filename = os.path.join(save_path, "value_head.pth")
+        torch.save(self.value_head.state_dict(), filename)
 
+    def load_additional_modules(self, load_path):
+        """
+        Load additional modules (value head) from the load path.
+        """
+        filename = os.path.join(load_path, "value_head.pth")
+        self.value_head.load_state_dict(torch.load(filename))
+
+    def _move_embeddding_padding_to_side(self, obs_embed, padding_mask, left_padding=True):
+        """
+        Moves padding (denoted by 0) in a batch of sequences to the specified side.
+
+        Args:
+            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
+                                    containing padded sequences with 0 as padding token.
+            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
+
+        Returns:
+            torch.Tensor: Tensor of the same size with padding moved to the specified side.
+        """
+        batch_size = obs_embed.shape[0]
+        length = padding_mask.sum(dim=1).max().item()
+        lengths = padding_mask.sum(dim=1)
+        
+        new_padding_mask = torch.zeros((batch_size, length), dtype=torch.bool, device=obs_embed.device)
+        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
+        for i in range(batch_size):
+            if left_padding:
+                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone().detach()
+                new_padding_mask[i, -lengths[i]:] = 1
+            else:
+                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1].clone().detach()
+                new_padding_mask[i, :lengths[i]] = 1     
+        return padded_embeds, new_padding_mask

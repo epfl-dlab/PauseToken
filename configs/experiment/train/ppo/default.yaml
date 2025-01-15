@@ -23,7 +23,7 @@ data:
 
 trainer:
   n_steps_before_validation: 6336
-  n_outer_loops: 20
+  n_outer_loops: 100
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
