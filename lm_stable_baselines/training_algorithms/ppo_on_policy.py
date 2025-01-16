@@ -41,6 +41,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         entropy_losses = []
         pg_losses, value_losses = [], []
         clip_fractions = []
+        ls_returns = []
+        ls_advantages = []
         gradient_accumulation_counter = 0
         continue_training = True
         # train for n_epochs epochs
@@ -49,6 +51,11 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
             # Do a complete pass on the rollout buffer
             for rollout_data in self.rollout_buffer.get(self.batch_size):
                 actions = rollout_data.actions
+                # for obs, act in zip(rollout_data.observations["input_ids"], actions):
+                #     print("obs: \n", self.policy.tokenizer.decode(obs, skip_special_tokens=True))
+                #     print("act: \n", self.policy.tokenizer.decode(act, skip_special_tokens=True))
+                #     print()
+                # breakpoint()
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to long
                     actions = rollout_data.actions.long().flatten()
@@ -60,6 +67,10 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                 values = values.flatten()
                 # Normalize advantage
                 advantages = rollout_data.advantages
+
+                ls_advantages.append(advantages.mean().item())
+                ls_returns.append(rollout_data.returns.mean().item())
+
                 # Normalization does not make sense if mini batchsize == 1, see GH issue #325
                 if self.normalize_advantage and len(advantages) > 1:
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -145,6 +156,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
+        self.logger.record("train/advantages", np.mean(ls_advantages))
+        self.logger.record("train/returns", np.mean(ls_returns))
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
 

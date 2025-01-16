@@ -265,6 +265,8 @@ class LanguageModelEnv(Env):
             
             if idx_of_last_in_context_gt_reasoning_step != 0:
                 input_text = input_text + self.reasoning_step_splitter.join(reasoning_steps[:idx_of_last_in_context_gt_reasoning_step])
+                if idx_of_last_in_context_gt_reasoning_step is not None:
+                    input_text += self.reasoning_step_splitter
 
         #save the output text (ground truth)
         self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()

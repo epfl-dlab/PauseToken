@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - train/online_star_exp/no_pause_peft
+  - override /rl_algorithm/policy/model/peft_config: null
+
+
+run_name: "star_tinyllama_curriculum"
+
+
+trainer:
+  idx_of_last_in_context_gt_reasoning_step_distributions: 
+    - [ 0.1, 0.1, 0.1 , 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+  disable_peft_first_inference: false
+
+rl_algorithm:
+  n_steps: 9
+
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/final
