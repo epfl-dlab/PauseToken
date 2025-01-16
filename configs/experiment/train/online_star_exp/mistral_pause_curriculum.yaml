@@ -1,11 +1,10 @@
 # @package _global_
 
 defaults:
-  - train/online_star_exp/no_pause_peft
-  - override /rl_algorithm/policy/model/peft_config: null
+  - train/online_star_exp/pause
 
 
-run_name: "star_tinyllama_curriculum"
+run_name: "star_mistral_pause_curriculum"
 
 
 trainer:
@@ -19,4 +18,4 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/final
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-23_09-48-40/final
