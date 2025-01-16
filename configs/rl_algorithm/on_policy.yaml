@@ -10,6 +10,7 @@ data_collator:
   response_template:
     _target_: src.utils.hydra_custom_resolvers.get_module_attr
     module_and_attr: src.utils.constants.ANSWER_TEMPLATE
+  add_context_to_response: false
 
 _target_: stable_baselines3.common.on_policy_algorithm.OnPolicyAlgorithm
 n_envs: 1

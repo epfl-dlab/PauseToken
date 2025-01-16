@@ -17,7 +17,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
                          batch_size=batch_size, use_base_model_for_learning=use_base_model_for_learning)
         
         self.ft_on_action_only = ft_on_action_only
-        
+        self.n_grad_accumulation_steps = kwargs.get("n_grad_accumulation_steps", 1)
 
     def train(self) -> None:
         
@@ -35,6 +35,8 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size + (self.rollout_buffer.data_size % self.batch_size != 0)
         self.policy.tokenizer.padding_side = "right"
+        gradient_accumulation_counter = 0
+
         for _ in range(n_batches):
 
             self._n_updates += 1
@@ -78,8 +80,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
             else:
                 raise NotImplementedError("To be implemented")
                 # nll_loss = self.policy.compute_nll_loss(output.logits, labels)
-            
-
+                
             # getting log_probs for importance sampling
             old_log_probs = data.old_log_prob
 
@@ -94,9 +95,17 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
     
             nll_loss.backward()
 
+            gradient_accumulation_counter += 1
+            if gradient_accumulation_counter == self.n_grad_accumulation_steps:
+                self.policy.optimizer.step()
+                self.policy.optimizer.zero_grad()
+                gradient_accumulation_counter = 0
+        
+        if gradient_accumulation_counter != 0:
             self.policy.optimizer.step()
-               
-         
+            self.policy.optimizer.zero_grad()
+            self.update_baseline(gradient_accumulation_counter)
+             
         self.logger.record("train/nll_loss", np.mean(nll_losses))
         self.logger.record("train/ratio", np.mean(ratios))
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")

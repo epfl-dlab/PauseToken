@@ -247,9 +247,11 @@ class LanguageModelEnv(Env):
                 reasoning_steps = input_sample["output"]
 
             reasoning_steps = input_sample["output"].split(self.reasoning_step_splitter)
-
+            
+            half = int(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)/2) if len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr) // 2 == 0 else int(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr -1)/2)
+                        
             idx_of_last_in_context_gt_reasoning_step = np.random.choice(
-                np.arange(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)) -  int(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)/2),
+                np.arange(len(LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr)) -  half,
                 p=LanguageModelEnv.idx_of_last_in_context_gt_reasoning_step_distr,
                 size=1
             )[0]
@@ -267,7 +269,6 @@ class LanguageModelEnv(Env):
                 input_text = input_text + self.reasoning_step_splitter.join(reasoning_steps[:idx_of_last_in_context_gt_reasoning_step])
                 if idx_of_last_in_context_gt_reasoning_step is not None:
                     input_text += self.reasoning_step_splitter
-
         #save the output text (ground truth)
         self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
         

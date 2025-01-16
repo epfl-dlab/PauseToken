@@ -78,15 +78,22 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
     if tokenizer.pad_token is None:
-        log.warning("No padding token found! Setting padding token to unk token.")
-        tokenizer.pad_token = tokenizer.unk_token
-        
+        if tokenizer.unk_token is not None:
+            log.warning("No padding token found! Setting padding token to unk token.")
+            tokenizer.pad_token = tokenizer.unk_token
+        else:
+            log.warning("No padding token found! To Generation config pad token id")
+            pad_token_id = cfg.rl_algorithm.policy.generation.train.generation_config.pad_token_id
+            pad_token = tokenizer.decode(pad_token_id)
+            tokenizer.pad_token = pad_token
+            tokenizer.pad_token_id = pad_token_id     
 
     log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
     language_model = instantiate_model(
         cfg.rl_algorithm.policy.model.language_model,
         cfg.rl_algorithm.policy.model.get("peft_config")
     )
+
     
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(language_model, BaseControlTokenWrapper):

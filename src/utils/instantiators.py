@@ -124,11 +124,16 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
 
     if "data_collator" in cp:
         data_collator = cp.pop("data_collator")
+        add_context_to_response = data_collator.pop("add_context_to_response")
+
         data_collator["tokenizer"] = tokenizer
+        
         #SUPER UGLY BUT I DON'T KNOW HOW TO DO THIS BETTER ##masani: man it's not so bad!
         if "response_template" in data_collator:
             reponse_template = hydra.utils.instantiate(data_collator["response_template"])
-            response_template_ids = tokenizer.encode(reponse_template, add_special_tokens=False)[1:]
+            if add_context_to_response:
+                reponse_template = "\n" + reponse_template
+            response_template_ids = tokenizer.encode(reponse_template, add_special_tokens=False)[2:]
             data_collator["response_template"] = response_template_ids
         data_collator = hydra.utils.instantiate(data_collator)
     

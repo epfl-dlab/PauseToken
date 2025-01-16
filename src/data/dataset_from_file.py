@@ -16,7 +16,7 @@ def DatasetFromFile(path, **kwargs) -> Dataset:
     if additional_transformation:
         if not callable(additional_transformation):
             additional_transformation = hydra.utils.instantiate(additional_transformation)
-        dataset = dataset.map(additional_transformation, batched=True)
+        dataset = dataset.map(additional_transformation, batched=True,load_from_cache_file=False)
 
     if not 'val' in dataset.keys() and "train" in dataset.keys():
         val_size = kwargs.get('train_val_test_split', [-1, 0.1])[1]
