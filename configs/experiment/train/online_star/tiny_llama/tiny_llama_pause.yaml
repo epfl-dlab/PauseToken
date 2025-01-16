@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - train/online_star/default
+  - override /rl_algorithm/policy/model/peft_config: null
+
+run_name: "STaR_tiny_llama_pause"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-17_10-47-16/final
+
+

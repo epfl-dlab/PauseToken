@@ -306,8 +306,6 @@ class LanguageModelEnv(Env):
         info = {}
         return np.array(self.current_state) , reward, is_terminated, is_truncated, info
 
-    
-
     def render(self):
         """ Render the current state
         

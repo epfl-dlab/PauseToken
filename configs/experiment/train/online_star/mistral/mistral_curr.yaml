@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - train/online_star/default
+  - override /rl_algorithm/policy/model/peft_config: mistral
+
+run_name: "star_mistral_curriculum"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
+
+trainer:
+  idx_of_last_in_context_gt_reasoning_step_distributions: 
+    - [ 0.1, 0.1 , 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]
+
+
+
+
+  

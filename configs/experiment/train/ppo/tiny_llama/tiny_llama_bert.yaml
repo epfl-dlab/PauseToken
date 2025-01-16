@@ -16,3 +16,8 @@ rl_algorithm:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/final      
       value_head:
         hidden_dim: 2048
+
+
+trainer:
+  idx_of_last_in_context_gt_reasoning_step_distributions: 
+    - [ 0.1, 0.1 , 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.0, 0.0 , 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 ]

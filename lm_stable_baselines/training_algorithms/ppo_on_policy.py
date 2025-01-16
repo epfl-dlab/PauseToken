@@ -127,14 +127,9 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                         print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
                     break
 
-                # Optimization step
                 loss.backward()
-                
-
-
                 gradient_accumulation_counter += 1
                 if gradient_accumulation_counter == self.n_grad_accumulation_steps:
-                    # Clip grad norm
                     torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
                     self.policy.optimizer.step()
                     self.policy.optimizer.zero_grad()
@@ -146,9 +141,11 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                 break
 
         if gradient_accumulation_counter != 0:
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
             self.policy.optimizer.zero_grad()
-
+            gradient_accumulation_counter = 0
+        
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
 
         # Logs
