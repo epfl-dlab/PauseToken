@@ -140,6 +140,7 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
     if logger is not None:
         rl_alg.set_logger(logger)
     rl_alg.data_collator = data_collator
+    rl_alg.policy.data_collator = data_collator
     rl_alg.buffer_class_keyword = buffer_class_keyword
 
     return rl_alg
