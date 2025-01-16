@@ -7,7 +7,7 @@ import numpy as np
 
 class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
     
-    def __init__(self,*args, loss_computed_in_forward_pass=True, batch_size=8, use_base_model_for_learning=False, ft_on_action_only ,**kwargs):
+    def __init__(self,*args, loss_computed_in_forward_pass=True, batch_size=8, use_base_model_for_learning=False, ft_on_action_only=False ,**kwargs):
 
         # taking care of on policy arguments
         on_policy_kwargs = {k: kwargs[k] for k in kwargs if k in OnPolicyAlgorithm.__init__.__code__.co_varnames}
@@ -63,6 +63,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
 
             input_ids = next_observation['input_ids'].to(self.device)
             attention_mask=next_observation['attention_mask'].to(self.device)
+            labels = labels.to(self.device)
 
             output = self.policy.lm(
                 input_ids=input_ids, 
