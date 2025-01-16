@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - train/online_star/default
+  - override /rl_algorithm/policy/model/language_model: pause_from_pretrained
+  - override /rl_algorithm/policy/model/peft_config: mistral_pause #peft is already there
+  # - override /rl_algorithm/policy/model/peft_config: null
+
+run_name: "STaR_mistral_pause_bert"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final

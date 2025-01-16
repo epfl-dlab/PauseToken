@@ -19,7 +19,6 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
 
     def train(self) -> None:
         
-        
         if hasattr(self.policy.lm, "enable_adapter_layers"):
             self.policy.lm.enable_adapter_layers()
 
@@ -32,7 +31,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
         nll_losses, ratios = [], []
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
-        n_batches = self.rollout_buffer.data_size // self.batch_size
+        n_batches = self.rollout_buffer.data_size // self.batch_size + (self.rollout_buffer.data_size % self.batch_size != 0)
         self.policy.tokenizer.padding_side = "right"
         for _ in range(n_batches):
 
@@ -51,7 +50,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
 
             input_ids = next_observation['input_ids'].to(self.device)
             attention_mask=next_observation['attention_mask'].to(self.device)
-            self.policy.lm.eval()
+
             output = self.policy.lm(
                 input_ids=input_ids, 
                 attention_mask=attention_mask,

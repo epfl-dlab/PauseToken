@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - train/online_star/default
+  - override /rl_algorithm/policy/model/peft_config: mistral
+
+run_name: "star_mistral"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-21_10-08-12/final
