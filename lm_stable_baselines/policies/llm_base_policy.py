@@ -336,13 +336,25 @@ class LLMBasePolicy(BasePolicy):
         if not self.use_peft_at_inference:
             self.lm.disable_adapter_layers()
 
-        with torch.no_grad():
-            outputs = self.lm.generate(
-                inputs = inputs,
-                attention_mask = feature["attention_mask"],
-                tokenizer=self.tokenizer,
-                **generation_params,
-            )
+        already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
+        
+        
+        if not already_terminated_sequences.all(): 
+            with torch.no_grad():
+                inputs_to_generate = inputs[already_terminated_sequences == False]
+                attention_mask = feature["attention_mask"][already_terminated_sequences == False]
+                tmp_outputs = self.lm.generate(
+                    inputs = inputs_to_generate,
+                    attention_mask = attention_mask,
+                    tokenizer=self.tokenizer,
+                    **generation_params,
+                )
+            outputs = torch.full((inputs.shape[0], tmp_outputs.shape[1]), self.tokenizer.pad_token_id, dtype = tmp_outputs.dtype, device = tmp_outputs.device)
+            outputs[already_terminated_sequences, :inputs.shape[1]] = inputs[already_terminated_sequences]
+            outputs[~already_terminated_sequences] = tmp_outputs
+            
+        else:
+            outputs = inputs
             
         if not self.use_peft_at_inference:
             self.lm.enable_adapter_layers()

@@ -5,7 +5,7 @@ _target_: transformers.GenerationConfig
 max_length: ${rl_algorithm.policy.max_output_generation_length}
 max_new_tokens: null
 min_length: 0
-min_new_tokens: null
+min_new_tokens: 0
 early_stopping: false
 max_time: null
 
