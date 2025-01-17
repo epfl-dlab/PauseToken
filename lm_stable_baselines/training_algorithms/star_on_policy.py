@@ -42,8 +42,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
             self._n_updates += 1
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
             next_observation = self.get_next_observation(data)
-            
-        
+                    
             if self.loss_computed_in_forward_pass:
 
                 if self.ft_on_action_only:

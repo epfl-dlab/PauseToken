@@ -90,7 +90,7 @@ class LLMBasePolicy(BasePolicy):
         self._build(lr_schedule)
         self.use_peft_at_inference = False
         
-        
+        self.ft_on_action_only = kwargs.get("ft_on_action_only", False)
         
     def _build(self, lr_schedule: Schedule = None) -> None:
         """ Build the policy and optimizer
@@ -217,30 +217,52 @@ class LLMBasePolicy(BasePolicy):
             raise ValueError("Observation type not supported")
         return feature
 
-    @staticmethod
-    def predict_values(obs: PyTorchObs) -> torch.Tensor:
+    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
         # return 0 for all values
         # this is only to handle timeouts or last environemnt steps by bootstraping with value function, it's used only in the
         # buffer during rollout generation at the last step when buffer is almost full, or when a sequence is not finished
         # always without gradients
         return torch.ones(obs.shape[0]) * 0
             
-    def forward(self, obs: PyTorchObs, labels = None) -> torch.Tensor:
-
+    def forward(self, obs: PyTorchObs, labels = None, return_hidden_state=False) -> torch.Tensor:
+        """
+        Forward pass in the policy. This is used to compute the loss in the training loop.
+        and called by the rl algorithm to sample and fill the rollout buffer.
+        """
+        # perform a rollout and get actions, and concatenated obs+acitons
         padded_obs = self.extract_features(obs)
-        next_obs, actions, padded_actions = self._predict(obs, return_dict= True).values()
+        next_obs, actions, _ = self._predict(obs, return_dict= True).values()
         right_padded_next_obs = self._move_padding_to_side(next_obs, left_padding=False)
+        max_len = (right_padded_next_obs>0).sum(dim=1).max().item()
+        right_padded_next_obs = right_padded_next_obs[:, :max_len]
 
         # Compute the log probabilities of the actions
+        if not self.ft_on_action_only:
+            # if the the model is being finetuned on the demonstrations too, then remove those from the obs and 
+            # append to the actions.
+            reduced_observations, augmented_actions = self.augment_actions_reduce_observations(right_padded_next_obs)
+            augmented_actions[augmented_actions == self.tokenizer.pad_token_id] = self.filler_token
+            actions = torch.ones_like(actions) * self.tokenizer.pad_token_id
+            actions[:, :augmented_actions.size(1)] = augmented_actions
+            obs = reduced_observations['input_ids']
+            obs[obs == self.tokenizer.pad_token_id] = self.filler_token
+
+        values, log_probs, entropy = self.evaluate_actions(padded_obs, actions) 
         action_start_indecies = (obs != self.filler_token).sum(dim=1) - 1
         logits = self.lm(right_padded_next_obs).logits
         logprobs = torch.log_softmax(logits, dim=-1)
         action_logprobs = self._compute_logprobs(logprobs[:, :-1, ...], right_padded_next_obs[:, 1:], action_start_indecies)
 
-        # Compute the values of the state! not actions my friend
-        values = self.predict_values(padded_obs['input_ids'])
+        
         return actions, values, action_logprobs
     
+    def evaluate_actions(self, obs, actions):
+
+        # Compute the values of the state! not actions my friend
+        values = self.predict_values(padded_obs['input_ids'])
+        return 0
+    
+
     def _compute_logprobs(self, log_probs, padded_seq, action_start_indecies, action_end_indices=None) -> torch.Tensor:
         # Create index offsets for actions within the concatenated sequence
         if action_end_indices == None:
@@ -257,7 +279,6 @@ class LLMBasePolicy(BasePolicy):
         logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(log_probs.dtype)
         
         return logprobs
-
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor, return_dict = False) -> torch.Tensor:
         # for on-policy replay buffer, we need to pad the actions to the max length of the action space, to append to
@@ -285,7 +306,6 @@ class LLMBasePolicy(BasePolicy):
     def enable_peft_at_inference(self):  
         self.use_peft_at_inference = True 
         
-    
     def set_generation_cfg(self, name: str):
         assert name in ["train", "test"], "Generation config name must be either 'train' or 'test'"
         self.generation_params_to_use = name
@@ -344,3 +364,21 @@ class LLMBasePolicy(BasePolicy):
             self.lm.train()
         self.tokenizer.padding_side = og_padding_side  
         return outputs
+    
+    def augment_actions_reduce_observations(self, next_observation):
+        actions_list = list(next_observation.cpu())
+        collated_data = self.data_collator(actions_list)
+        # removing the action piece from obersevations
+        reduced_observation, augmented_actions = collated_data["input_ids"].to(self.device), collated_data["labels"].to(self.device)
+        reduced_observation[augmented_actions != -100] = self.tokenizer.pad_token_id
+        max_obs_len = (reduced_observation>0).sum(dim=1).max().item()
+        reduced_observation = reduced_observation[:, :max_obs_len]
+        reduced_observation = {'input_ids': reduced_observation,
+                                    'attention_mask': reduced_observation != self.tokenizer.pad_token_id}
+        # attaching the action piece to the actions
+        augmented_actions[augmented_actions == -100] = self.tokenizer.pad_token_id
+        augmented_actions = self._move_padding_to_side(augmented_actions, left_padding=False)
+        max_len = (augmented_actions>0).sum(dim=1).max().item()
+        augmented_actions = augmented_actions[:, :max_len]
+
+        return reduced_observation, augmented_actions

@@ -42,6 +42,7 @@ class AbstractLMOnPolicy:
         self.loss_computed_in_forward_pass = loss_computed_in_forward_pass
         self.batch_size = batch_size
         self.use_base_model_for_learning = use_base_model_for_learning
+        
     
     def collect_rollouts(
         self,
@@ -157,7 +158,6 @@ class AbstractLMOnPolicy:
         path_to_policy = os.path.join(path, policy_name)
         self.policy.optimizer.load_state_dict(torch.load(path_to_policy))
 
-
     def get_next_observation(self, data):
         next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)
         #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
@@ -193,5 +193,23 @@ class AbstractLMOnPolicy:
         self._update_learning_rate(self.policy.optimizer)
         
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
-        
-        # Your training code here!
+        # Your training code here
+
+    def _augment_actions_and_reduce_observations(self, rollout_data):
+        next_observation = self.get_next_observation(rollout_data)["input_ids"]
+        actions_list = list(next_observation.cpu())
+        collated_data = self.data_collator(actions_list)
+        # removing the action piece from obersevations
+        reduced_observation, augmented_actions = collated_data["input_ids"].to(self.device), collated_data["labels"].to(self.device)
+        reduced_observation[augmented_actions != -100] = self.policy.tokenizer.pad_token_id
+        reduced_observation = reduced_observation[:, :rollout_data.observations["input_ids"].size(1)]
+        reduced_observation = {'input_ids': reduced_observation,
+                                    'attention_mask': reduced_observation != self.policy.tokenizer.pad_token_id}
+        # attaching the action piece to the actions
+        augmented_actions[augmented_actions == -100] = self.policy.tokenizer.pad_token_id
+        augmented_actions = self.policy._move_padding_to_side(augmented_actions, left_padding=False)
+        max_len = (augmented_actions>0).sum(dim=1).max().item()
+        augmented_actions = augmented_actions[:, :max_len]
+
+        observations = reduced_observation
+        actions = augmented_actions
