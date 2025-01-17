@@ -104,7 +104,6 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
         if gradient_accumulation_counter != 0:
             self.policy.optimizer.step()
             self.policy.optimizer.zero_grad()
-            self.update_baseline(gradient_accumulation_counter)
              
         self.logger.record("train/nll_loss", np.mean(nll_losses))
         self.logger.record("train/ratio", np.mean(ratios))
