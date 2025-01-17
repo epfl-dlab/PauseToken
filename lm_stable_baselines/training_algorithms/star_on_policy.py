@@ -41,57 +41,16 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
 
             self._n_updates += 1
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
-            next_observation = self.get_next_observation(data)
-                    
-            if self.loss_computed_in_forward_pass:
 
-                if self.ft_on_action_only:
-                    observations = data.observations
-                    action_start_indices = (observations['input_ids'] != self.policy.tokenizer.pad_token_id).sum(dim=1)
-                    labels = next_observation["input_ids"].clone()
-                    for idx in range(labels.size(0)):
-                        labels[idx, :action_start_indices[idx]] = -100
-                    labels[labels == self.policy.tokenizer.pad_token_id] = -100
-                else:
-                    labels = next_observation["input_ids"]
-                    labels_list = list(labels.cpu())
-                    collated_labels = self.data_collator(labels_list)
-                    labels = collated_labels["labels"].to(self.device) # check with self.policy.tokenizer.decode(labels[0][labels[0]>0])
-            else:
-                labels = None
-            kwargs = {}
-
-            input_ids = next_observation['input_ids'].to(self.device)
-            attention_mask=next_observation['attention_mask'].to(self.device)
-            labels = labels.to(self.device)
-
-            output = self.policy.lm(
-                input_ids=input_ids, 
-                attention_mask=attention_mask,
-                labels=labels if labels is not None else input_ids, #  should not do [:, 1:], it's taken care of.
-                **kwargs
-            )
-            if self.loss_computed_in_forward_pass:
-                nll_loss = output.loss
-                #if control token model you can also get these losses:
-                #control_token_loss = output.ctrl_tok_loss
-                #lm_loss = output.lm_loss
-            else:
-                raise NotImplementedError("To be implemented")
-                # nll_loss = self.policy.compute_nll_loss(output.logits, labels)
-                
-            # getting log_probs for importance sampling
-            old_log_probs = data.old_log_prob
-
-            logprobs = torch.log_softmax(output.logits, dim = -1)[:, :-1, :]
-            input_ending_ids = (data.observations['input_ids']!=0).sum(dim=-1) - 1
-            new_logprobs = self.policy._compute_logprobs(logprobs, input_ids[:, 1:], input_ending_ids)
-            ratio = torch.exp(new_logprobs - old_log_probs).detach() 
+            logprobs = self.policy.evaluate_actions(data.observations, data.actions)[1]
+            
+            ratio = torch.exp(logprobs - data.old_log_prob).detach() 
             ratios.append(ratio.mean().item())
             # Compute the loss
+            nll_loss = -logprobs.mean()
             nll_losses.append(nll_loss.item())
             self.policy.optimizer.zero_grad()
-    
+
             nll_loss.backward()
 
             gradient_accumulation_counter += 1
@@ -104,9 +63,10 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
             self.policy.optimizer.step()
             self.policy.optimizer.zero_grad()
             self.update_baseline(gradient_accumulation_counter)
-             
-        self.logger.record("train/nll_loss", np.mean(nll_losses))
-        self.logger.record("train/ratio", np.mean(ratios))
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        
+        if n_batches > 0:
+            self.logger.record("train/nll_loss", np.mean(nll_losses))
+            self.logger.record("train/ratio", np.mean(ratios))
+            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         
         

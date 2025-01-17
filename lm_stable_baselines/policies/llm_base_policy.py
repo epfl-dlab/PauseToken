@@ -91,6 +91,9 @@ class LLMBasePolicy(BasePolicy):
         self.use_peft_at_inference = False
         
         self.ft_on_action_only = kwargs.get("ft_on_action_only", False)
+
+        # dummy value head.
+        self.value_head = lambda x, attention_mask: torch.zeros(x[-1].size(0), device=x[-1].device)
         
     def _build(self, lr_schedule: Schedule = None) -> None:
         """ Build the policy and optimizer
@@ -110,52 +113,92 @@ class LLMBasePolicy(BasePolicy):
         self.lm.eval()
         torch.set_printoptions(sci_mode=False)
 
-
-    def _move_padding_to_side(self, actions, left_padding=False):
+    def forward(self, obs: PyTorchObs, labels = None, return_hidden_state=False) -> torch.Tensor:
         """
-        Moves padding (denoted by 0) in a batch of sequences to the specified side.
-
-        Args:
-            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
-                                    containing padded sequences with 0 as padding token.
-            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
-
-        Returns:
-            torch.Tensor: Tensor of the same size with padding moved to the specified side.
+        Forward pass in the policy. This is used to compute the loss in the training loop.
+        and called by the rl algorithm to sample and fill the rollout buffer.
         """
-        batch_size, _ = actions.shape
-        
-        # Create a tensor to store the rearranged output
-        rearranged_actions = torch.zeros_like(actions)
-        
-        for i in range(batch_size):
-            # Get non-zero elements (tokens) for each sequence
-            tokens = actions[i, actions[i] != 0]
-            if left_padding:
-                # Place the tokens in the rightmost part of the sequence for left-padding
-                rearranged_actions[i, -tokens.size(0):] = tokens
-            else:
-                # Place the tokens in the leftmost part of the sequence for right-padding
-                rearranged_actions[i, :tokens.size(0)] = tokens
-
-        return rearranged_actions
-
-    def obs_to_tensor(self, observation: np.ndarray) -> Tuple[PyTorchObs, bool]:    
-        """ Convert an observation to a PyTorch tensor
-        
-        :param observation: Observation
-        :type observation: np.ndarray
-        :return: Observation tensor and whether the observation is valid
-        :rtype: Tuple[PyTorchObs, bool]
-        """
-        assert isinstance(observation, np.ndarray), "Observation must be a numpy array"
-        obs_tensor = obs_as_tensor(observation, self.device)
-        return obs_tensor, True
+        # generate the actions, get the next_observation=obs+actions and cutaway the excessive pads
+        next_obs, actions, _ = self._predict(obs, return_dict= True).values()
+        # get as input EXACTLY what the rollout buffer will later give to the policy to be trained.
+        values, log_probs, entropy = self.evaluate_actions(obs, actions) 
+        return actions, values, log_probs
     
+    def evaluate_actions(self, obs, acts):
+        """
+        Evaluate actions. Used in the training loop to train the policy.
+        Returns:
+            - values: Predicted state values (for value loss).
+            - log_prob: Log probability of the actions (for policy gradient loss).
+            - entropy: Entropy of the policy (for exploration bonus).
+        """
+        # if there are filler tokens in the actions or observations, exchange them with pad tokens (filler tokens 
+        # are used to mask the actions in the observations
+        observations = self.extract_features(obs)
+        actions = self.extract_features(acts)
+        # Compute next observations and prepare for LM processing
+        next_obs = self.get_next_observation(observations, actions) # Assuming this is defined elsewhere
+        # forward pass through the model
+        outputs = self.lm(**next_obs, output_hidden_states=True)
+        logits = outputs.logits  # Forward pass through LM
+        all_logprobs = torch.log_softmax(logits, dim=-1)  # Convert logits to log-probabilities
+        
+        # if the model is being finetuned on the demonstrations too, then remove those from the obs and
+        # append to the actions.
+        if not self.ft_on_action_only:
+            reduced_observations, augmented_actions = self.augment_actions_reduce_observations(next_obs['input_ids'])
+            action_start_indices = (reduced_observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
+        else:
+            # Compute action log probabilities
+            action_start_indices = (observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
+            
+        log_probs = self._compute_logprobs(
+            all_logprobs[:, :-1, ...], next_obs['input_ids'][:, 1:], action_start_indices
+        )
+
+        # Compute values
+        raw_latent = outputs.hidden_states
+        # get observation mask in next_obs, only attend the obs!
+        obs_mask = next_obs['attention_mask'].clone()
+        for i in range(next_obs['input_ids'].size(0)):
+            obs_mask[i, action_start_indices[i]:] = 0
+        values = self.value_forward_pass(raw_latent, obs_mask)
+
+        entropy = - (log_probs * log_probs.exp()).sum(dim=-1).mean()
+
+        return values, log_probs, entropy
+    
+    def value_forward_pass(self, raw_latent, obs_mask):
+        # obs mask is the mask for the observations, whatever they are in the raw_latent...
+        # Compute values, 
+        # do not use predict values, it will be gradient less, and will do another forward pass through 
+        # the LM bc/ it takes observations as inputs.
+        latent = []
+        for i in range(len(raw_latent)):
+            # embeddings should be left padded, so we can query the value...
+            left_padded_embeds, left_padded_mask = self._move_obs_embedding_and_attention_mask_to_one_padding_side(raw_latent[i], obs_mask, left_padding=True)
+            latent.append(left_padded_embeds)
+        # Compute the values of the state! not actions my friend
+        values = self.value_head(latent, attention_mask=left_padded_mask)
+        return values
+    
+    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
+        # return 0 for all values
+        # this is only to handle timeouts or last environemnt steps by bootstraping with value function, it's used only in the
+        # buffer during rollout generation at the last step when buffer is almost full, or when a sequence is not finished
+        # **always without gradients**
+        if obs.ndim == 1:
+            obs = obs.unsqueeze(0)
+        observations = self.extract_features(obs)
+        raw_latents = self.lm(**observations, output_hidden_states=True).hidden_states
+        obs_mask = observations['attention_mask']
+        values = self.value_forward_pass(raw_latents, obs_mask)
+        return values
+
     def get_next_observation(self, observations, actions):
         #assumption: filler tokens have been removed
-        obs_padded_tensor = observations['input_ids']
-        actions_padded_tensor = actions
+        obs_padded_tensor = observations if isinstance(observations, torch.Tensor) else observations["input_ids"]
+        actions_padded_tensor = actions if isinstance(actions, torch.Tensor) else actions["input_ids"]
 
         next_obs = []
         #remove the filler tokens from the actions and observations
@@ -170,18 +213,6 @@ class LLMBasePolicy(BasePolicy):
                                               padding=True, padding_side="right").to(self.device)
 
         return new_observations
-    
-    def save_additional_modules(self, save_path):
-        """
-        Save additional modules (value head) to the save path.
-        """
-        pass
-
-    def load_additional_modules(self, load_path):
-        """
-        Load additional modules (value head) from the load path.
-        """
-        pass
         
     def compute_nll_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """ Compute the negative log likelihood loss
@@ -203,7 +234,6 @@ class LLMBasePolicy(BasePolicy):
         loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.filler_token)
         return loss_fct(shift_lm_logits, shift_lm_labels)
     
-    
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if (isinstance(obs, dict) and 'input_ids' in obs and 'attention_mask' not in obs) or isinstance(obs, torch.Tensor):
             # warnings.warn("Attention mask not provided, the padding mask will be automatically computed")
@@ -216,52 +246,6 @@ class LLMBasePolicy(BasePolicy):
         else:
             raise ValueError("Observation type not supported")
         return feature
-
-    def predict_values(self, obs: PyTorchObs) -> torch.Tensor:
-        # return 0 for all values
-        # this is only to handle timeouts or last environemnt steps by bootstraping with value function, it's used only in the
-        # buffer during rollout generation at the last step when buffer is almost full, or when a sequence is not finished
-        # always without gradients
-        return torch.ones(obs.shape[0]) * 0
-            
-    def forward(self, obs: PyTorchObs, labels = None, return_hidden_state=False) -> torch.Tensor:
-        """
-        Forward pass in the policy. This is used to compute the loss in the training loop.
-        and called by the rl algorithm to sample and fill the rollout buffer.
-        """
-        # perform a rollout and get actions, and concatenated obs+acitons
-        padded_obs = self.extract_features(obs)
-        next_obs, actions, _ = self._predict(obs, return_dict= True).values()
-        right_padded_next_obs = self._move_padding_to_side(next_obs, left_padding=False)
-        max_len = (right_padded_next_obs>0).sum(dim=1).max().item()
-        right_padded_next_obs = right_padded_next_obs[:, :max_len]
-
-        # Compute the log probabilities of the actions
-        if not self.ft_on_action_only:
-            # if the the model is being finetuned on the demonstrations too, then remove those from the obs and 
-            # append to the actions.
-            reduced_observations, augmented_actions = self.augment_actions_reduce_observations(right_padded_next_obs)
-            augmented_actions[augmented_actions == self.tokenizer.pad_token_id] = self.filler_token
-            actions = torch.ones_like(actions) * self.tokenizer.pad_token_id
-            actions[:, :augmented_actions.size(1)] = augmented_actions
-            obs = reduced_observations['input_ids']
-            obs[obs == self.tokenizer.pad_token_id] = self.filler_token
-
-        values, log_probs, entropy = self.evaluate_actions(padded_obs, actions) 
-        action_start_indecies = (obs != self.filler_token).sum(dim=1) - 1
-        logits = self.lm(right_padded_next_obs).logits
-        logprobs = torch.log_softmax(logits, dim=-1)
-        action_logprobs = self._compute_logprobs(logprobs[:, :-1, ...], right_padded_next_obs[:, 1:], action_start_indecies)
-
-        
-        return actions, values, action_logprobs
-    
-    def evaluate_actions(self, obs, actions):
-
-        # Compute the values of the state! not actions my friend
-        values = self.predict_values(padded_obs['input_ids'])
-        return 0
-    
 
     def _compute_logprobs(self, log_probs, padded_seq, action_start_indecies, action_end_indices=None) -> torch.Tensor:
         # Create index offsets for actions within the concatenated sequence
@@ -279,6 +263,60 @@ class LLMBasePolicy(BasePolicy):
         logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(log_probs.dtype)
         
         return logprobs
+    
+    def _predict(self, observation: PyTorchObs, deterministic: bool = False, return_dict: bool = False):
+        """
+        Get the action according to the policy for a given observation.
+
+        By default provides a dummy implementation -- not all BasePolicy classes
+        implement this, e.g. if they are a Critic in an Actor-Critic method.
+
+        :param observation:
+        :param deterministic: Whether to use stochastic or deterministic actions
+        :return: Taken action according to the policy
+        """
+        was_in_training = self.lm.training
+        assert self.generation_params_to_use is not None, \
+            "You've never set the generation config to use. Please set it using the set_generation_cfg method. Options are 'train' or 'test'"
+        generation_params = self.generation_params[self.generation_params_to_use]
+
+        # self.lm.eval()
+        og_padding_side = self.tokenizer.padding_side
+        self.tokenizer.padding_side = "left"
+        feature = self.extract_features(observation)
+        inputs = feature["input_ids"]
+        self.pre_predict(feature)
+
+        if not self.use_peft_at_inference:
+            self.lm.disable_adapter_layers()
+
+        already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
+        
+        if not already_terminated_sequences.all(): 
+            with torch.no_grad():
+                inputs_to_generate = inputs[already_terminated_sequences == False]
+                attention_mask = feature["attention_mask"][already_terminated_sequences == False]
+                tmp_outputs = self.lm.generate(
+                    inputs = inputs_to_generate,
+                    attention_mask = attention_mask,
+                    tokenizer=self.tokenizer,
+                    **generation_params,
+                )
+            outputs = torch.full((inputs.shape[0], tmp_outputs.shape[1]), self.tokenizer.pad_token_id, dtype = tmp_outputs.dtype, device = tmp_outputs.device)
+            outputs[already_terminated_sequences, :inputs.shape[1]] = inputs[already_terminated_sequences]
+            outputs[~already_terminated_sequences] = tmp_outputs
+            
+        else:
+            outputs = inputs
+            
+        if not self.use_peft_at_inference:
+            self.lm.enable_adapter_layers()
+            
+        outputs =  self.post_predict(inputs, outputs, return_dict = return_dict)
+        if was_in_training:
+            self.lm.train()
+        self.tokenizer.padding_side = og_padding_side  
+        return outputs
     
     def post_predict(self, inputs: torch.Tensor, outputs: torch.Tensor, return_dict = False) -> torch.Tensor:
         # for on-policy replay buffer, we need to pad the actions to the max length of the action space, to append to
@@ -309,76 +347,103 @@ class LLMBasePolicy(BasePolicy):
     def set_generation_cfg(self, name: str):
         assert name in ["train", "test"], "Generation config name must be either 'train' or 'test'"
         self.generation_params_to_use = name
-    
-    def _predict(self, observation: PyTorchObs, deterministic: bool = False, return_dict: bool = False):
-        """
-        Get the action according to the policy for a given observation.
 
-        By default provides a dummy implementation -- not all BasePolicy classes
-        implement this, e.g. if they are a Critic in an Actor-Critic method.
 
-        :param observation:
-        :param deterministic: Whether to use stochastic or deterministic actions
-        :return: Taken action according to the policy
-        """
-        was_in_training = self.lm.training
-        assert self.generation_params_to_use is not None, \
-            "You've never set the generation config to use. Please set it using the set_generation_cfg method. Options are 'train' or 'test'"
-        generation_params = self.generation_params[self.generation_params_to_use]
-
-        self.lm.eval()
-        og_padding_side = self.tokenizer.padding_side
-        self.tokenizer.padding_side = "left"
-        feature = self.extract_features(observation)
-        inputs = feature["input_ids"]
-        self.pre_predict(feature)
-
-        if not self.use_peft_at_inference:
-            self.lm.disable_adapter_layers()
-
-        already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
-        
-        
-        if not already_terminated_sequences.all(): 
-            with torch.no_grad():
-                inputs_to_generate = inputs[already_terminated_sequences == False]
-                attention_mask = feature["attention_mask"][already_terminated_sequences == False]
-                tmp_outputs = self.lm.generate(
-                    inputs = inputs_to_generate,
-                    attention_mask = attention_mask,
-                    tokenizer=self.tokenizer,
-                    **generation_params,
-                )
-            outputs = torch.full((inputs.shape[0], tmp_outputs.shape[1]), self.tokenizer.pad_token_id, dtype = tmp_outputs.dtype, device = tmp_outputs.device)
-            outputs[already_terminated_sequences, :inputs.shape[1]] = inputs[already_terminated_sequences]
-            outputs[~already_terminated_sequences] = tmp_outputs
-            
-        else:
-            outputs = inputs
-            
-        if not self.use_peft_at_inference:
-            self.lm.enable_adapter_layers()
-            
-        outputs =  self.post_predict(inputs, outputs, return_dict = return_dict)
-        if was_in_training:
-            self.lm.train()
-        self.tokenizer.padding_side = og_padding_side  
-        return outputs
-    
     def augment_actions_reduce_observations(self, next_observation):
         actions_list = list(next_observation.cpu())
         collated_data = self.data_collator(actions_list)
         # removing the action piece from obersevations
         reduced_observation, augmented_actions = collated_data["input_ids"].to(self.device), collated_data["labels"].to(self.device)
-        reduced_observation[augmented_actions != -100] = self.tokenizer.pad_token_id
+        reduced_observation[augmented_actions != self.filler_token] = self.tokenizer.pad_token_id
         max_obs_len = (reduced_observation>0).sum(dim=1).max().item()
         reduced_observation = reduced_observation[:, :max_obs_len]
         reduced_observation = {'input_ids': reduced_observation,
                                     'attention_mask': reduced_observation != self.tokenizer.pad_token_id}
         # attaching the action piece to the actions
-        augmented_actions[augmented_actions == -100] = self.tokenizer.pad_token_id
+        augmented_actions[augmented_actions == self.filler_token] = self.tokenizer.pad_token_id
         augmented_actions = self._move_padding_to_side(augmented_actions, left_padding=False)
         max_len = (augmented_actions>0).sum(dim=1).max().item()
         augmented_actions = augmented_actions[:, :max_len]
 
         return reduced_observation, augmented_actions
+    
+    def _move_padding_to_side(self, actions, left_padding=False):
+        """
+        Moves padding (denoted by 0) in a batch of sequences to the specified side.
+
+        Args:
+            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
+                                    containing padded sequences with 0 as padding token.
+            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
+
+        Returns:
+            torch.Tensor: Tensor of the same size with padding moved to the specified side.
+        """
+        batch_size, _ = actions.shape
+        
+        # Create a tensor to store the rearranged output
+        rearranged_actions = torch.zeros_like(actions)
+        
+        for i in range(batch_size):
+            # Get non-zero elements (tokens) for each sequence
+            tokens = actions[i, actions[i] != 0]
+            if left_padding:
+                # Place the tokens in the rightmost part of the sequence for left-padding
+                rearranged_actions[i, -tokens.size(0):] = tokens
+            else:
+                # Place the tokens in the leftmost part of the sequence for right-padding
+                rearranged_actions[i, :tokens.size(0)] = tokens
+
+        return rearranged_actions
+    
+    def _move_obs_embedding_and_attention_mask_to_one_padding_side(self, obs_embed, padding_mask, left_padding=True):
+        """
+        Moves padding (denoted by 0) in a batch of sequences to the specified side.
+
+        Args:
+            actions (torch.Tensor): Tensor of size (batch_size, sequence_length) 
+                                    containing padded sequences with 0 as padding token.
+            left_padding (bool): If True, moves padding to the left. If False, moves padding to the right.
+
+        Returns:
+            torch.Tensor: Tensor of the same size with padding moved to the specified side.
+        """
+        batch_size = obs_embed.shape[0]
+        length = padding_mask.sum(dim=1).max().item()
+        lengths = padding_mask.sum(dim=1)
+        
+        new_padding_mask = torch.zeros((batch_size, length), dtype=torch.bool, device=obs_embed.device)
+        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
+        for i in range(batch_size):
+            if left_padding:
+                padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone().detach()
+                new_padding_mask[i, -lengths[i]:] = 1
+            else:
+                padded_embeds[i, :lengths[i]] = obs_embed[i, padding_mask[i]==1].clone().detach()
+                new_padding_mask[i, :lengths[i]] = 1     
+        return padded_embeds, new_padding_mask
+
+    def obs_to_tensor(self, observation: np.ndarray) -> Tuple[PyTorchObs, bool]:    
+        """ Convert an observation to a PyTorch tensor
+        
+        :param observation: Observation
+        :type observation: np.ndarray
+        :return: Observation tensor and whether the observation is valid
+        :rtype: Tuple[PyTorchObs, bool]
+        """
+        assert isinstance(observation, np.ndarray), "Observation must be a numpy array"
+        obs_tensor = obs_as_tensor(observation, self.device)
+        return obs_tensor, True
+    
+
+    def save_additional_modules(self, save_path):
+        """
+        Save additional modules (value head) to the save path.
+        """
+        pass
+
+    def load_additional_modules(self, load_path):
+        """
+        Load additional modules (value head) from the load path.
+        """
+        pass
