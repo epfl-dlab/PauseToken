@@ -4,3 +4,4 @@ defaults:
 _target_: lm_stable_baselines.training_algorithms.star_on_policy.STaROnPolicy
 
 ft_on_action_only: False
+n_grad_accumulation_steps: 1
