@@ -263,7 +263,9 @@ class LMSBTrainer:
         
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
-            self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
+            if metric_name.endswith("mean"):
+                self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
+            # self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
         self.rl_algorithm.logger.record(f"{stage}/reward", mean_reward)
         #TODO: Save rollouts to file
         save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")

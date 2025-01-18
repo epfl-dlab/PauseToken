@@ -239,9 +239,12 @@ class LLMBasePolicy(BasePolicy):
             # warnings.warn("Attention mask not provided, the padding mask will be automatically computed")
             obs_to_pass = obs if isinstance(obs, torch.Tensor) else obs["input_ids"]
             device = obs_to_pass.device
-            dtype = obs_to_pass.dtype
-            obs_to_pass = [ obs[obs != self.filler_token].to(dtype) for obs in obs_to_pass]
+            obs_to_pass = [ obs[obs != self.filler_token] for obs in obs_to_pass]
             feature = self.tokenizer.pad({"input_ids": obs_to_pass}, return_tensors="pt", padding=True).to(device)
+
+            # empty actions will be float, we need to convert them to long
+            if feature["input_ids"].dtype == torch.float32:
+                feature["input_ids"] = feature["input_ids"].long()
         elif isinstance(obs, dict) and "input_ids" in obs and "attention_mask" in obs:
             feature = obs
         else:

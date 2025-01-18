@@ -1,5 +1,6 @@
 *wandb/
 scripts/disposable
+/scripts/commands.txt
 *thirdparty*
 notebooks/model_playgrounds/data
 notebooks/model_playgrounds/plots
