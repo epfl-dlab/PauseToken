@@ -45,6 +45,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         ls_advantages = []
         gradient_accumulation_counter = 0
         continue_training = True
+        self.prev_n_updates = self._n_updates
         # train for n_epochs epochs
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
@@ -164,8 +165,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
 
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
+        self.logger.record("train/n_updates", self._n_updates - self.prev_n_updates, exclude="tensorboard")
 

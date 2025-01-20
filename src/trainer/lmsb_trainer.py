@@ -191,7 +191,7 @@ class LMSBTrainer:
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
     
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
-        val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
+        # val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
         
         if hasattr(val_samps, "next_observations"):
             next_obs = val_samps.next_observations

@@ -18,4 +18,4 @@ squash_output: false
 filler_token: -100
 max_output_generation_length: 1024
 
-
+per_token_log_prob: false

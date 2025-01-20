@@ -1,9 +1,10 @@
-from lm_stable_baselines.training_algorithms import STaROnPolicy
+from lm_stable_baselines.training_algorithms.abstract_on_policy import AbstractLMOnPolicy
+from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
 import torch
-from torch.nn.functional import nll_loss
 import numpy as np
 # from torchviz import make_dot
-class ReinforceOnPolicy(STaROnPolicy):
+
+class ReinforceOnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
     
     def __init__(self, baseline_init_val=0.0 , baseline_lr=0.01, n_grad_accumulation_steps = 1, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -13,95 +14,7 @@ class ReinforceOnPolicy(STaROnPolicy):
         self.n_grad_accumulation_steps = n_grad_accumulation_steps
         self.accumulated_advantages = 0.0
     
-    def accumulate_advantages(self, rewards):
-        mean_advantages = (rewards - self.baseline).mean()
-        self.accumulated_advantages += mean_advantages
-    
-    def update_baseline(self, gradient_accumulation_counter):
-        #running average$
-        accumulated_advantages = self.accumulated_advantages/gradient_accumulation_counter
-        self.baseline = self.baseline + self.baseline_lr * accumulated_advantages
-        self.accumulated_advantages = 0.0
-        
-    def token_level_reinforce_loss(
-        lm_output,
-        labels: torch.LongTensor,
-        attention_mask: torch.LongTensor,
-        rewards: torch.FloatTensor,  
-    ):
-        raise NotImplementedError("Token level reinforce loss not implemented")
-    
-    def reinforce_loss(
-        self,
-        lm_output,
-        labels: torch.LongTensor,
-        attention_mask: torch.LongTensor,
-        rewards: torch.FloatTensor,         
-    ):
 
-        if hasattr(self.policy.lm, "compute_loss"):
-            
-            nll, _ , _ = self.policy.lm.compute_loss(
-                labels,
-                lm_logits=lm_output.lm_logits,
-                ctrl_tok_logits=lm_output.control_token_logits,
-                attention_mask=attention_mask,
-                reduce_mean=False,
-            )
-            advantage = (rewards - self.baseline)
-            policy_losses =  advantage.detach() * nll
-            policy_loss = policy_losses.mean()
-        
-        else:
-            raise NotImplementedError("Reinforce loss not implemented for non control token models Yet")
-            # nll = nll_loss(
-            #     lm_output.logits,
-            #     labels,
-            #     reduce=False,
-            #     reduction=None,
-            # )
-            #~~~ NLL loss ~~~~~
-        
-        # policy_loss = torch.cat(policy_loss).to(self.device).mean()
-        return policy_loss, nll.mean() , nll
-    
-    def make_labels_for_action_only(self,next_observations: torch.Tensor, actions: torch.Tensor, labels: torch.Tensor):
-        """
-        Returns the start and end indices of actions in the next_observations tensor.
-
-        Args:
-            next_observations (torch.Tensor): Tensor of shape (batch_size, k)
-            actions (torch.Tensor): Tensor of shape (batch_size, m)
-
-        Returns:
-            torch.Tensor: Start indices of the actions in next_observations.
-            torch.Tensor: End indices of the actions in next_observations.
-        """
-        batch_size, k = next_observations.shape
-        mask = torch.ones_like(next_observations, dtype=torch.bool)
-     
-
-        for i in range(batch_size):
-            obs = next_observations[i]
-            act = actions[i]
-            # Remove padding tokens
-            act = act[act != self.policy.tokenizer.pad_token_id]
-            m = len(act)
-            found_match = False
-            # Find the start index of the sequence in the observation
-            for j in range(k - m + 1):  # Slide across the observation
-                if torch.equal(obs[j:j + m], act):
-                    start_idx = j
-                    end_idx = j + m
-                    mask[i, start_idx : end_idx] = False
-                    found_match = True
-                    break
-            if not found_match:
-                raise ValueError(f"Action {act} not found in ${next_observations[i]}")
-        
-        labels = torch.where(mask.to(labels.device), -100, labels )
-        return labels
-    
     def train(self) -> None:
         
         if hasattr(self.policy.lm, "enable_adapter_layers"):
@@ -130,7 +43,7 @@ class ReinforceOnPolicy(STaROnPolicy):
         n_batches = self.rollout_buffer.data_size // self.batch_size
         self.policy.tokenizer.padding_side = "right"
         baseline_to_log = self.baseline
-        
+        prev_n_updates = self._n_updates
         gradient_accumulation_counter = 0
         for _ in range(n_batches):
             
@@ -223,4 +136,88 @@ class ReinforceOnPolicy(STaROnPolicy):
         self.logger.record("train/below_baseline_rewards", mean_below_baseline_rewards)
         self.logger.record("train/baseline", baseline_to_log)
         self.logger.record("train/portion_above_baseline", total_above_baseline/total_seen_samples if total_seen_samples > 0 else 0)
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/n_updates", self._n_updates - prev_n_updates, exclude="tensorboard")
+
+
+
+    def accumulate_advantages(self, rewards):
+        mean_advantages = (rewards - self.baseline).mean()
+        self.accumulated_advantages += mean_advantages
+    
+    def update_baseline(self, gradient_accumulation_counter):
+        #running average$
+        accumulated_advantages = self.accumulated_advantages/gradient_accumulation_counter
+        self.baseline = self.baseline + self.baseline_lr * accumulated_advantages
+        self.accumulated_advantages = 0.0
+    
+    def reinforce_loss(
+        self,
+        lm_output,
+        labels: torch.LongTensor,
+        attention_mask: torch.LongTensor,
+        rewards: torch.FloatTensor,         
+    ):
+
+        if hasattr(self.policy.lm, "compute_loss"):
+            
+            nll, _ , _ = self.policy.lm.compute_loss(
+                labels,
+                lm_logits=lm_output.lm_logits,
+                ctrl_tok_logits=lm_output.control_token_logits,
+                attention_mask=attention_mask,
+                reduce_mean=False,
+            )
+            advantage = (rewards - self.baseline)
+            policy_losses =  advantage.detach() * nll
+            policy_loss = policy_losses.mean()
+        
+        else:
+            raise NotImplementedError("Reinforce loss not implemented for non control token models Yet")
+            # nll = nll_loss(
+            #     lm_output.logits,
+            #     labels,
+            #     reduce=False,
+            #     reduction=None,
+            # )
+            #~~~ NLL loss ~~~~~
+        
+        # policy_loss = torch.cat(policy_loss).to(self.device).mean()
+        return policy_loss, nll.mean() , nll
+    
+    def make_labels_for_action_only(self,next_observations: torch.Tensor, actions: torch.Tensor, labels: torch.Tensor):
+        """
+        Returns the start and end indices of actions in the next_observations tensor.
+
+        Args:
+            next_observations (torch.Tensor): Tensor of shape (batch_size, k)
+            actions (torch.Tensor): Tensor of shape (batch_size, m)
+
+        Returns:
+            torch.Tensor: Start indices of the actions in next_observations.
+            torch.Tensor: End indices of the actions in next_observations.
+        """
+        batch_size, k = next_observations.shape
+        mask = torch.ones_like(next_observations, dtype=torch.bool)
+     
+
+        for i in range(batch_size):
+            obs = next_observations[i]
+            act = actions[i]
+            # Remove padding tokens
+            act = act[act != self.policy.tokenizer.pad_token_id]
+            m = len(act)
+            found_match = False
+            # Find the start index of the sequence in the observation
+            for j in range(k - m + 1):  # Slide across the observation
+                if torch.equal(obs[j:j + m], act):
+                    start_idx = j
+                    end_idx = j + m
+                    mask[i, start_idx : end_idx] = False
+                    found_match = True
+                    break
+            if not found_match:
+                raise ValueError(f"Action {act} not found in ${next_observations[i]}")
+        
+        labels = torch.where(mask.to(labels.device), -100, labels )
+        return labels
+    

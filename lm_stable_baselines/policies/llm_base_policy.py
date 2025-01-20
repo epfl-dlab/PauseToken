@@ -91,7 +91,7 @@ class LLMBasePolicy(BasePolicy):
         self.use_peft_at_inference = False
         
         self.ft_on_action_only = kwargs.get("ft_on_action_only", False)
-
+        self.per_token_log_prob = kwargs.get("per_token_log_prob", False)
         # dummy value head.
         self.value_head = lambda x, attention_mask: torch.zeros(x[-1].size(0), device=x[-1].device)
         
@@ -153,7 +153,8 @@ class LLMBasePolicy(BasePolicy):
             action_start_indices = (observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
             
         log_probs = self._compute_logprobs(
-            all_logprobs[:, :-1, ...], next_obs['input_ids'][:, 1:], action_start_indices
+            all_logprobs[:, :-1, ...], next_obs['input_ids'][:, 1:], 
+            action_start_indices, per_token_log_prob=self.per_token_log_prob
         )
 
         # Compute values
@@ -214,25 +215,25 @@ class LLMBasePolicy(BasePolicy):
 
         return new_observations
         
-    def compute_nll_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """ Compute the negative log likelihood loss
+    # def compute_nll_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    #     """ Compute the negative log likelihood loss
         
-        :param logits: Logits
-        :type logits: torch.Tensor
-        :param labels: Labels
-        :type labels: torch.Tensor
-        :return: Negative log likelihood loss
-        :rtype: torch.Tensor
-        """
-        shift_lm_logits = logits[..., :-1, :].contiguous()
-        shift_lm_labels = labels[..., 1:].contiguous()
-        # Flatten the tokens
-        shift_lm_logits = shift_lm_logits.view(-1, self.lm.config.vocab_size)
-        shift_lm_labels = shift_lm_labels.view(-1)
-        # Ensure tensors are on the same device
-        shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
-        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.filler_token)
-        return loss_fct(shift_lm_logits, shift_lm_labels)
+    #     :param logits: Logits
+    #     :type logits: torch.Tensor
+    #     :param labels: Labels
+    #     :type labels: torch.Tensor
+    #     :return: Negative log likelihood loss
+    #     :rtype: torch.Tensor
+    #     """
+    #     shift_lm_logits = logits[..., :-1, :].contiguous()
+    #     shift_lm_labels = labels[..., 1:].contiguous()
+    #     # Flatten the tokens
+    #     shift_lm_logits = shift_lm_logits.view(-1, self.lm.config.vocab_size)
+    #     shift_lm_labels = shift_lm_labels.view(-1)
+    #     # Ensure tensors are on the same device
+    #     shift_lm_labels = shift_lm_labels.to(shift_lm_logits.device)
+    #     loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.filler_token)
+    #     return loss_fct(shift_lm_logits, shift_lm_labels)
     
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if (isinstance(obs, dict) and 'input_ids' in obs and 'attention_mask' not in obs) or isinstance(obs, torch.Tensor):
@@ -251,7 +252,9 @@ class LLMBasePolicy(BasePolicy):
             raise ValueError("Observation type not supported")
         return feature
 
-    def _compute_logprobs(self, log_probs, padded_seq, action_start_indecies, action_end_indices=None) -> torch.Tensor:
+    def _compute_logprobs(self, log_probs, padded_seq,
+                          action_start_indecies, action_end_indices=None,
+                          per_token_log_prob=False) -> torch.Tensor:
         # Create index offsets for actions within the concatenated sequence
         if action_end_indices == None:
             action_end_indices = [None] * padded_seq.size(0)
@@ -265,6 +268,8 @@ class LLMBasePolicy(BasePolicy):
         # Gather log probabilities for the action tokens
         log_probs_seq = torch.gather(log_probs, 2, padded_seq.unsqueeze(-1)).squeeze(-1)
         logprobs = (log_probs_seq * action_mask).sum(dim = 1).to(log_probs.dtype)
+        if per_token_log_prob:
+            logprobs = logprobs / action_mask.sum(dim = 1).to(logprobs.dtype)
         
         return logprobs
     

@@ -36,7 +36,7 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
         n_batches = self.rollout_buffer.data_size // self.batch_size + (self.rollout_buffer.data_size % self.batch_size != 0)
         self.policy.tokenizer.padding_side = "right"
         gradient_accumulation_counter = 0
-
+        self.prev_n_updates = self._n_updates
         for _ in range(n_batches):
 
             self._n_updates += 1
@@ -68,6 +68,6 @@ class STaROnPolicy(AbstractLMOnPolicy,OnPolicyAlgorithm):
         if n_batches > 0:
             self.logger.record("train/nll_loss", np.mean(nll_losses))
             self.logger.record("train/ratio", np.mean(ratios))
-            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+            self.logger.record("train/n_updates", self._n_updates - self.prev_n_updates, exclude="tensorboard")
         
         

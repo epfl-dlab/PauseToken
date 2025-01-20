@@ -55,7 +55,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
 
         self._build(lr_schedule=lr_schedule)
-    
 
     def save_additional_modules(self, save_path):
         """
@@ -71,7 +70,6 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         """
         filename = os.path.join(load_path, "value_head.pth")
         self.value_head.load_state_dict(torch.load(filename))
-
 
     # def predict_values(self, obs) -> torch.Tensor:
     #     """
