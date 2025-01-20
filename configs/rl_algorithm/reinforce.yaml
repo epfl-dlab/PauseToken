@@ -1,5 +1,6 @@
 defaults:
   - on_policy
+  - override policy: llm_base_policy_value_model 
 
 _target_: lm_stable_baselines.training_algorithms.reinforce_on_policy.ReinforceOnPolicy
 n_grad_accumulation_steps: 1

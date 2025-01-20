@@ -4,7 +4,7 @@ defaults:
   - train/online_star/default
   - override /rl_algorithm/policy/model/peft_config: null
 
-run_name: "STaR_tiny_llama"
+run_name: "tiny_llama_curr"
 
 rl_algorithm:
   policy:

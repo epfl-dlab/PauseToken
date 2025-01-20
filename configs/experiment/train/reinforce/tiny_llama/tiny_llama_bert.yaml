@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - train/reinforce/default
+  - override /rl_algorithm/reward: gsm8k_answer_ll
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+
+run_name: "tiny_llama_bert"
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-12-16_14-35-04/final
+      value_head:
+        hidden_dim: 2048

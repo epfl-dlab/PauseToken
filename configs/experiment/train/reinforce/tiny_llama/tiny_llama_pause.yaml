@@ -1,10 +1,10 @@
 # @package _global_
 
 defaults:
-  - train/online_star/default
+  - train/reinforce/default
   - override /rl_algorithm/policy/model/peft_config: null
 
-run_name: "tiny_llama_pause"
+run_name: "STaR_tiny_llama_pause"
 
 rl_algorithm:
   policy:

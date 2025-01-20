@@ -3,13 +3,13 @@
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: reinforce
-  - override /rl_algorithm/policy: llm_base_policy
-  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/language_model: auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/value_head: ???
   - override /rl_algorithm/policy/model/peft_config: ???
-  - override /rl_algorithm/reward: gsm8k
+  - override /rl_algorithm/reward: ???
   - override /metrics: gsm8k
 
-name: "STaR_on_gsm8k"
+name: "REINFORCE_on_gsm8k"
 task_name: "train"
 run_name: ???
 
@@ -42,14 +42,13 @@ rl_algorithm:
   use_base_model_for_learning: false
   ent_coef: 0
   buffer:
-    advantage_threshold: 0
+    advantage_threshold: -1000000
     # model_dtype: torch.bfloat16   # Only if you want to use bfloat16 in model.
 
   policy:
     model:
       language_model:
         pretrained_model_name_or_path: ???
-      value_head: null
         
   reward:
     inverse_neg_log_likelihood: true

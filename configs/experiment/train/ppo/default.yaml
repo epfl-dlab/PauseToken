@@ -43,7 +43,7 @@ rl_algorithm:
   use_base_model_for_learning: false
   ent_coef: 0
   buffer:
-    advantage_threshold: 0
+    advantage_threshold: -1000000
     # model_dtype: torch.bfloat16   # Only if you want to use bfloat16 in model.
 
   policy:

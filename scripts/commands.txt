@@ -1,11 +1,4 @@
 python src/train.py experiment=train/online_star/tiny_llama/tiny_llama_curr run_name=tinyllama_curr \
 trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 \
-rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 trainer.n_outer_loops=2000 \
-rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8 trainer.num_val_samples=64 \
-rl_algorithm.policy.per_token_log_prob=True
-
-python src/train.py experiment=train/online_star/tiny_llama/tiny_llama_curr run_name=tinyllama_curr_e6 \
-trainer.n_steps_before_validation=8 rl_algorithm.n_steps=1 \
-rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 trainer.n_outer_loops=2000\
-rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8 \
-rl_algorithm.learning_rate=1e-6 trainer.num_val_samples=64 rl_algorithm.policy.per_token_log_prob=True
+rl_algorithm.n_envs=32 rl_algorithm.batch_size=4 trainer.n_outer_loops=2000 rl_algorithm.policy.per_token_log_prob=True \
+rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=8 trainer.num_val_samples=64 
