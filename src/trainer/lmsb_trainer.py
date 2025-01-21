@@ -25,7 +25,7 @@ class LMSBTrainer:
         rl_algorithm: BaseAlgorithm,
         n_steps_before_validation: int,
         n_outer_loops: int,
-        trainer_callbacks: List = [],
+        trainer_callbacks = None,
         learn_callbacks: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "run",
@@ -645,9 +645,8 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        for callback in self.trainer_callbacks:
-            callback.update_locals(locals())
-            callback.on_outer_loop_start()
+        self.trainer_callbacks.update_locals(locals())
+        self.trainer_callbacks.on_outer_loop_start()
         
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
@@ -660,8 +659,7 @@ class LMSBTrainer:
     def fit(self):
         self.current_outer_loop = 0
         while self.current_outer_loop < self.n_outer_loops:
-            for callback in self.trainer_callbacks:
-                callback.update_locals(locals())
+            self.trainer_callbacks.update_locals(locals())
             self.on_outer_loop_start()
             # Learn
             self.on_learn_start()
