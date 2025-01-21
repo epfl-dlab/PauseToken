@@ -1,0 +1,7 @@
+- _target_: lm_stable_baselines.callbacks.lm_callback.EnvironmentPortionBetaUpdate
+  init_alpha: 1.0
+  init_beta: 0.1
+  final_alpha: 0.1
+  final_beta: 1.0
+  warmup_timesteps: 2
+  total_timesteps: 10

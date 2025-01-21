@@ -293,6 +293,3 @@ class LanguageModelEnv(Env):
         """
         pass   
 
-    def set_portion(self, portion):
-        self.ground_truth_portion = portion
-

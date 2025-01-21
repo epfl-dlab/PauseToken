@@ -25,6 +25,7 @@ class LMSBTrainer:
         rl_algorithm: BaseAlgorithm,
         n_steps_before_validation: int,
         n_outer_loops: int,
+        trainer_callbacks: List = [],
         learn_callbacks: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "run",
@@ -39,7 +40,6 @@ class LMSBTrainer:
         do_sample_at_validation: bool = False,
         peft_config_name: str = "default",
         use_previous_policy_as_reward_model: bool = False,
-        idx_of_last_in_context_gt_reasoning_step_distributions: List[int] = None,
     ):
         self.learn_kwargs = {
             "total_timesteps": n_steps_before_validation,
@@ -53,7 +53,7 @@ class LMSBTrainer:
         self.n_outer_loops = n_outer_loops
         self.num_val_samples = num_val_samples
         self.logger = self.rl_algorithm.logger
-        
+        self.trainer_callbacks = trainer_callbacks
         self.current_outer_loop = 0
         self.metrics = metrics
         
@@ -72,11 +72,10 @@ class LMSBTrainer:
         self.peft_config_name = peft_config_name
         self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model
         
-        self.idx_of_last_in_context_gt_reasoning_step_distributions = idx_of_last_in_context_gt_reasoning_step_distributions
-        
         self.trainer_save_parameters_to_exclude = [
             'learn_kwargs',
             'rl_algorithm',
+            'trainer_callbacks',
             'n_outer_loops',
             'num_val_samples',
             'logger',
@@ -646,11 +645,9 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        if self.idx_of_last_in_context_gt_reasoning_step_distributions is not None:
-            progression = self.current_outer_loop / self.n_outer_loops
-            idx_to_chose = int(progression * len(self.idx_of_last_in_context_gt_reasoning_step_distributions))
-            distr = self.idx_of_last_in_context_gt_reasoning_step_distributions[idx_to_chose]
-            self.rl_algorithm.env.envs[0].update_idx_of_last_in_context_gt_reasoning_step_distr(distr)
+        for callback in self.trainer_callbacks:
+            callback.update_locals(locals())
+            callback.on_outer_loop_start()
         
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
@@ -663,7 +660,8 @@ class LMSBTrainer:
     def fit(self):
         self.current_outer_loop = 0
         while self.current_outer_loop < self.n_outer_loops:
-            
+            for callback in self.trainer_callbacks:
+                callback.update_locals(locals())
             self.on_outer_loop_start()
             # Learn
             self.on_learn_start()
