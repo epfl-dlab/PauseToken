@@ -1,10 +1,11 @@
 defaults:
   - dataset_from_file
 
-path: "data/gsm8k_jsonl/gsm8k/"
-    
+path: "data/prosqa/"
+
 files: 
   - "train"
+  - "val"
   - "test"
 
 file_type: "json"
@@ -17,5 +18,5 @@ output_label: "answer"
 additional_transformation:
   _target_: functools.partial
   _args_: 
-    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+    - ${get_method:src.utils.trainer_utils.prosqa_formatting_function}
   eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
