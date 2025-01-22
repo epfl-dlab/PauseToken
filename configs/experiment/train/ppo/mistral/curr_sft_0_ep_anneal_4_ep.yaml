@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - train/ppo/default
+  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/peft_config: mistral
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+
+
+run_name: "mistral_ppo_curr_sft_0ep_ann_4ep"
+
+trainer:
+  trainer_callbacks:
+    init_portion: 1.0
+    final_portion: 0.0
+    warmup_timesteps: 0
+    total_timesteps: 4
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1
+      value_head:
+        hidden_dim: 2048
+
+    generation:
+      train:
+        generation_config:
+          pad_token_id: 128002
+
+      test:
+        generation_config:
+          pad_token_id: 128002
+
+  
