@@ -1,5 +1,4 @@
 # @package _global_
-
 defaults:
   - override /data: gsm8k
   - override /rl_algorithm: reinforce
@@ -9,7 +8,7 @@ defaults:
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
-name: "STaR"
+name: "SFT"
 task_name: "train"
 run_name: ???
 
@@ -22,8 +21,9 @@ data:
   
 
 trainer:
-  learning_rate: 1e-6
-
+  trainer_callbacks:
+    init_portion: 1.0
+    final_portion: 1.0
   n_steps_before_validation: 6336
   n_outer_loops: 10
   progress_bar: true
@@ -37,9 +37,11 @@ trainer:
   disable_peft_first_inference: false
 
 rl_algorithm:
+  learning_rate: 1e-5
   n_steps: 9 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
+  n_grad_accumulation_steps: 1
   loss_computed_in_forward_pass: true
   use_base_model_for_learning: false
   ent_coef: 0
@@ -53,7 +55,7 @@ rl_algorithm:
         pretrained_model_name_or_path: ???
       value_head: null
     per_token_log_prob: true
-    
+        
   reward:
     inverse_neg_log_likelihood: true
     correctness_reward_weight: 1.0

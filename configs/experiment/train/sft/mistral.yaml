@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - train/sft/default
+  - override /rl_algorithm/policy/model/peft_config: mistral
+
+
+run_name: "mistral_sft"
+
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/llm_hub/Mistral-7B-v0.1

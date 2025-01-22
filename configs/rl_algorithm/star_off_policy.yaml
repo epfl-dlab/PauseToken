@@ -2,3 +2,4 @@ defaults:
   - off_policy
 
 _target_: lm_stable_baselines.training_algorithms.star_off_policy.STaROffPolicy
+n_grad_accumulation_steps: 1

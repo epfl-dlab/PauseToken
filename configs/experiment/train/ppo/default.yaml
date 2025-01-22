@@ -9,7 +9,7 @@ defaults:
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
 
-name: "ppo on gsm8k"
+name: "ppo-on-gsm8k"
 task_name: "train"
 run_name: ???
 
@@ -23,11 +23,11 @@ data:
 
 trainer:
   n_steps_before_validation: 6336
-  n_outer_loops: 100
+  n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
-  num_val_samples: 200
+  num_val_samples: 748
   save_top_k: 3
   metric_for_best_model: "val/accuracy"
   #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
@@ -35,6 +35,7 @@ trainer:
   disable_peft_first_inference: false
 
 rl_algorithm:
+  learning_rate: 1e-6
   n_steps: 1 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
@@ -49,13 +50,13 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-10-18_17-38-00/final
+        pretrained_model_name_or_path: ???
+    per_token_log_prob: true
       # value_head:
       #   value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/_dlabscratch1_baldwin_pause2_PauseToken_logs_sft_runs_2024-10-21_10-08-12_final.pth
   reward:
     inverse_neg_log_likelihood: true
     correctness_reward_weight: 1.0
-  
   
 test: true
 test_batch_size: 8
