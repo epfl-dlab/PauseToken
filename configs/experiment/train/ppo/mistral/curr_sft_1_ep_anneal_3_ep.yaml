@@ -22,15 +22,7 @@ rl_algorithm:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/mistral_sft_3epochs/46c676f406cb25ae87371f2ec501182d08c7799071ecbc82a1ff4edee925babe/ckpt-12672-0.472
       value_head:
-        hidden_dim: 2048
+        hidden_dim: 4096
 
-    generation:
-      train:
-        generation_config:
-          pad_token_id: 128002
-
-      test:
-        generation_config:
-          pad_token_id: 128002
 
   
