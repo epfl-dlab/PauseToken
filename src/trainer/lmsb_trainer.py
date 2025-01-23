@@ -199,8 +199,10 @@ class LMSBTrainer:
         
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
             mean_reward = val_samps.rewards.mean().item()
+            mean_return = val_samps.returns.mean().item()
         else:
             mean_reward = val_samps.advantages.mean().item()
+            mean_return = val_samps.returns.mean().item()
         
         
         texts = decode_and_strip_pad_tokens(
@@ -263,9 +265,10 @@ class LMSBTrainer:
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             if metric_name.endswith("mean"):
-                self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
+                self.rl_algorithm.logger.record(f"{metric_name}", metric_value)
             # self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
-        self.rl_algorithm.logger.record(f"{stage}/reward", mean_reward)
+        self.rl_algorithm.logger.record(f"{stage}/advantage", mean_reward)
+        self.rl_algorithm.logger.record(f"{stage}/return", mean_return)
         #TODO: Save rollouts to file
         save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
 
