@@ -2,6 +2,9 @@ from stable_baselines3.common.callbacks import BaseCallback
 from lm_stable_baselines.utils import add_filler_tokens
 import numpy as np
 from tqdm import tqdm
+
+from functools import partial
+
 class LMCallback(BaseCallback):
     def _on_step(self) -> bool:
         """
@@ -131,18 +134,17 @@ class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
             self.alpha = self.final_alpha
             self.beta = self.final_beta
 
-    def _sample_portion(self, size=1):
-        sample = np.random.beta(self.alpha, self.beta, size)
-        return sample
-    
+        # use partials to not define the function every time
+        
+        self.portion_dist = partial(np.random.default_rng().beta, a=self.alpha, b=self.beta,)
+
     def on_outer_loop_start(self):
         environments = self.locals['self'].rl_algorithm.env.envs
         self.current_step = self.locals['self'].current_outer_loop
         self.total_timesteps = self.locals['self'].n_outer_loops
         self.update()
-        portion = self._sample_portion(len(environments))
-        for env, p in zip(environments, portion):
-            env.set_portion(p)
+        for env in environments:
+            env.set_portion(self.portion_dist)
 
 
 class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):

@@ -19,3 +19,4 @@ filler_token: -100
 max_output_generation_length: 1024
 
 per_token_log_prob: false
+ft_on_action_only: false

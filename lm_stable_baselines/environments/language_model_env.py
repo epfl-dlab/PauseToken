@@ -87,6 +87,7 @@ class LanguageModelEnv(Env):
 
         self.reasoning_step_splitter = reasoning_step_splitter
         self.ground_truth_portion = ground_truth_portion if ground_truth_portion is not None else 0 #portion of the ground truth actions that are given to the agent, the rest should be predicted by 
+        self.ground_truth_portions = []
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -211,6 +212,8 @@ class LanguageModelEnv(Env):
         
         super().reset(seed=seed)
         #sample a new example
+        ground_truth_portion = self.sample_portion()
+        self.ground_truth_portions.append(ground_truth_portion)
         if self.require_dataset:
             #if we reached the end of the dataset, repermute the dataset
             if LanguageModelEnv.next_idx >= len(self.dataset_id_list):
@@ -235,7 +238,7 @@ class LanguageModelEnv(Env):
             
             reasoning_steps = reasoning_steps.split(self.reasoning_step_splitter)
             reasoning_length = len(reasoning_steps)
-            supervised_length = int(self.ground_truth_portion*reasoning_length)
+            supervised_length = int(ground_truth_portion*reasoning_length)
             reasoning_steps = self.reasoning_step_splitter.join(reasoning_steps[:supervised_length])
             input_text = input_text + reasoning_steps + self.reasoning_step_splitter
 
@@ -294,5 +297,40 @@ class LanguageModelEnv(Env):
         pass   
 
     def set_portion(self, portion):
-        self.ground_truth_portion = portion
+        self.ground_truth_portion_dist = portion
+        self.ground_truth_portions = []
 
+    def sample_portion(self):
+        if callable(self.ground_truth_portion_dist):
+            return self.ground_truth_portion_dist(size=1)
+        elif isinstance(self.ground_truth_portion_dist, float):
+            return self.ground_truth_portion_dist
+        else:
+            raise ValueError("ground_truth_portion_dist should be a float or a callable")
+        
+    def compute_portion_from_obs_actions(self, rollout_data) -> float:
+        #assumption: filler tokens have been removed
+        obs = rollout_data.observations["input_ids"]
+        actions = rollout_data.actions
+
+        obs = remove_filler_tokens(obs, self.tokenizer.pad_token_id)
+        actions = remove_filler_tokens(actions, self.tokenizer.pad_token_id)
+
+        obs = [self.tokenizer.decode(o, skip_special_tokens=True) for o in obs]
+        actions = [self.tokenizer.decode(a, skip_special_tokens=True) for a in actions]
+
+        action_steps = [a.split(self.reasoning_step_splitter) for a in actions]
+
+        observed_ratio = np.zeros(len(obs))
+        for i, ob in enumerate(obs):
+            if ANSWER_TEMPLATE in ob:
+                #keep only the reasoning steps after ANSWER_TEMPLATE
+                reasoning_steps_in_obs = (ob.split(ANSWER_TEMPLATE)[1]).split(self.reasoning_step_splitter)
+            else:
+                reasoning_steps_in_obs = ob.split(self.reasoning_step_splitter)
+
+            ratio = len(reasoning_steps_in_obs) / (len(action_steps[i]) + len(reasoning_steps_in_obs))
+            
+            observed_ratio[i] = ratio
+        
+        return ratio

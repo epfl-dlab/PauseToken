@@ -654,12 +654,14 @@ class LMSBTrainer:
         self.save_model()
         #save_checkpoint (opt, rl_alg)
         self.save_checkpoint()
- 
+        # trainer_callback_ratios = [self.rl_algorithm.env.envs[i].ground_truth_portions for i in range(self.rl_algorithm.n_envs)]
+        # log the ratios of the ground truth portions
+        # self.rl_algorithm.logger.record("train/mean_ground_truth_portions", np.mean(trainer_callback_ratios))
+        # self.rl_algorithm.logger.record("train/std_ground_truth_portions", np.std(trainer_callback_ratios))
      
     def fit(self):
         self.current_outer_loop = 0
         while self.current_outer_loop < self.n_outer_loops:
-            self.trainer_callbacks.update_locals(locals())
             self.on_outer_loop_start()
             # Learn
             self.on_learn_start()

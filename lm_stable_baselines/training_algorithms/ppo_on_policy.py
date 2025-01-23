@@ -4,6 +4,7 @@ from stable_baselines3.ppo.ppo import PPO
 import torch
 import numpy as np
 from stable_baselines3.common.utils import explained_variance
+import wandb
 
 
 class PPOOnPolicy(AbstractLMOnPolicy, PPO):
@@ -43,9 +44,9 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         clip_fractions = []
         ls_returns = []
         ls_advantages = []
+        ls_ratios = []
         gradient_accumulation_counter = 0
         continue_training = True
-        self.prev_n_updates = self._n_updates
         # train for n_epochs epochs
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
@@ -62,6 +63,10 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                     actions = rollout_data.actions.long().flatten()
                 
                 observations = rollout_data.observations
+
+                 # log action supervision:
+                train_ratios = [self.env.envs[0].compute_portion_from_obs_actions(rollout_data) for i in range(len(actions))]
+                ls_ratios.append(np.mean(train_ratios))
 
                 # Re-sample the noise matrix because the log_std has changed
                 if self.use_sde:
@@ -138,7 +143,6 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                     self.policy.optimizer.step()
                     self.policy.optimizer.zero_grad()
                     gradient_accumulation_counter = 0
-                
 
             self._n_updates += 1
             if not continue_training:
@@ -162,11 +166,12 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.logger.record("train/explained_variance", explained_var)
         self.logger.record("train/advantages", np.mean(ls_advantages))
         self.logger.record("train/returns", np.mean(ls_returns))
+        self.logger.record("train/supervised_action_ratios", np.mean(ls_ratios))
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
 
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
-        self.logger.record("train/n_updates", self._n_updates - self.prev_n_updates, exclude="tensorboard")
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
 
