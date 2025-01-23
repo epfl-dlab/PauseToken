@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - train/ppo/default
-  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/language_model:  auto_peft_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/policy/model/value_head: torch_transformer
 
