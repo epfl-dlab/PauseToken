@@ -31,7 +31,7 @@ class GSM8KCorrectnessReward(AbstractReward):
         
         #if the model output is invalid, return -1.0
         if pred_answer == INVALID_ANS:
-            return -1.0
+            return 0.0 # used to be -1.0
         #if the model output is correct, return 1.0 otherwise return 0.0
         return float(pred_answer == gt_answer)
     

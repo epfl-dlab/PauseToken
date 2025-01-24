@@ -52,6 +52,7 @@ class LanguageModelEnv(Env):
         max_actions=1,
         reasoning_step_splitter = ' ', # could be '\n' for example
         ground_truth_portion = 0, 
+        ft_on_action_only = False,
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -88,6 +89,8 @@ class LanguageModelEnv(Env):
         self.reasoning_step_splitter = reasoning_step_splitter
         self.ground_truth_portion = ground_truth_portion if ground_truth_portion is not None else 0 #portion of the ground truth actions that are given to the agent, the rest should be predicted by 
         self.ground_truth_portions = []
+
+        self.ft_on_action_only = ft_on_action_only
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -239,6 +242,8 @@ class LanguageModelEnv(Env):
             reasoning_steps = reasoning_steps.split(self.reasoning_step_splitter)
             reasoning_length = len(reasoning_steps)
             supervised_length = int(ground_truth_portion*reasoning_length)
+            if supervised_length == reasoning_length and self.ft_on_action_only:
+                supervised_length -= 1
             reasoning_steps = self.reasoning_step_splitter.join(reasoning_steps[:supervised_length])
             input_text = input_text + reasoning_steps + self.reasoning_step_splitter
 

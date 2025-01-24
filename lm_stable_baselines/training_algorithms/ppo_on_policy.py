@@ -4,7 +4,6 @@ from stable_baselines3.ppo.ppo import PPO
 import torch
 import numpy as np
 from stable_baselines3.common.utils import explained_variance
-import wandb
 
 
 class PPOOnPolicy(AbstractLMOnPolicy, PPO):
@@ -107,7 +106,9 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                         values - rollout_data.old_values, -clip_range_vf, clip_range_vf
                     )
                 # Value loss using the TD(gae_lambda) target
-                value_loss = torch.nn.functional.mse_loss(rollout_data.returns, values_pred)
+                # value_loss = torch.nn.functional.mse_loss(rollout_data.returns, values_pred)
+                # instead, cross entropy loss when returns are 0,1 
+                value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)                    
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration

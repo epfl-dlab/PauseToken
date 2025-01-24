@@ -5,11 +5,15 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
+python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_betaanneal_5_ep \
+        rl_algorithm.policy.ft_on_action_only=true rl_algorithm.ent_coef=0.1 rl_algorithm.vf_coef=1.0 \
+        run_name=tinyllama_beta_ftact_ent01_vf_01 trainer.progress_bar=false
 
-python src/train.py experiment=train/ppo/tiny_llama/tiny_llama_pause_bert trainer.n_steps_before_validation=4 \
-                                        rl_algorithm.n_steps=1 rl_algorithm.n_envs=4 rl_algorithm.batch_size=4 \
-                                        rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=1
 
+# 
+# python src/train.py experiment=train/ppo/tiny_llama/tiny_llama_pause_bert trainer.n_steps_before_validation=4 \
+#                                         rl_algorithm.n_steps=1 rl_algorithm.n_envs=4 rl_algorithm.batch_size=4 \
+#                                         rl_algorithm/reward=gsm8k rl_algorithm.n_grad_accumulation_steps=1
 
 # python src/train.py experiment=train/online_star_exp/pause rl_algorithm.n_steps=9 run_name=online_star_pause_9_step logger.notes="correct nll loss only actions"
 # python src/train.py experiment=train/online_star_exp/no_pause_peft rl_algorithm.n_steps=9 run_name=online_star_no_pause_9_step logger.notes="correct nll loss only actions correct val"

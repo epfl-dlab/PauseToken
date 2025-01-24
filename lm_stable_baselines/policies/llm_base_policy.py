@@ -13,6 +13,7 @@ import warnings
 import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens
 from lm_stable_baselines.utils import remove_filler_tokens
+import code
 
 class LLMBasePolicy(BasePolicy):
     """ Base policy for language models. This class is a subclass of BasePolicy and is used to handle language model policies.
