@@ -191,10 +191,13 @@ class LLMBasePolicy(BasePolicy):
         # **always without gradients**
         if obs.ndim == 1:
             obs = obs.unsqueeze(0)
-        observations = self.extract_features(obs)
-        raw_latents = self.lm(**observations, output_hidden_states=True).hidden_states
-        obs_mask = observations['attention_mask']
-        values = self.value_forward_pass(raw_latents, obs_mask)
+        # gonna return torch zeros, cause it only means in our bandit case that the sentence is too long!
+        return torch.zeros(obs.size(0), device=obs.device)
+        # normally it should be like this:
+        # observations = self.extract_features(obs)
+        # raw_latents = self.lm(**observations, output_hidden_states=True).hidden_states
+        # obs_mask = observations['attention_mask']
+        # values = self.value_forward_pass(raw_latents, obs_mask)
         return values
 
     def get_next_observation(self, observations, actions):

@@ -18,6 +18,7 @@ from peft import PeftModelForCausalLM
 import hashlib
 import json
 from typing import List
+import omegaconf
 
 class LMSBTrainer:
     def __init__(
@@ -25,8 +26,7 @@ class LMSBTrainer:
         rl_algorithm: BaseAlgorithm,
         n_steps_before_validation: int,
         n_outer_loops: int,
-        trainer_callbacks = None,
-        learn_callbacks: MaybeCallback = None,
+        callbacks={},
         log_interval: int = 1,
         tb_log_name: str = "run",
         progress_bar: bool = False,
@@ -41,6 +41,15 @@ class LMSBTrainer:
         peft_config_name: str = "default",
         use_previous_policy_as_reward_model: bool = False,
     ):
+        
+        # if it's omegaconf list (omegaconf.listconfig.ListConfig), then convert it to list
+        if isinstance(callbacks, omegaconf.dictconfig.DictConfig) or isinstance(callbacks, Dict):
+            learn_callbacks = []
+            for callback in callbacks.values():
+                learn_callbacks.append(callback)
+        else:
+            learn_callbacks = callbacks
+            
         self.learn_kwargs = {
             "total_timesteps": n_steps_before_validation,
             "callback": learn_callbacks,
@@ -53,7 +62,6 @@ class LMSBTrainer:
         self.n_outer_loops = n_outer_loops
         self.num_val_samples = num_val_samples
         self.logger = self.rl_algorithm.logger
-        self.trainer_callbacks = trainer_callbacks
         self.current_outer_loop = 0
         self.metrics = metrics
         
@@ -75,7 +83,6 @@ class LMSBTrainer:
         self.trainer_save_parameters_to_exclude = [
             'learn_kwargs',
             'rl_algorithm',
-            'trainer_callbacks',
             'n_outer_loops',
             'num_val_samples',
             'logger',
@@ -178,13 +185,15 @@ class LMSBTrainer:
                 )
 
         else:
+            val_callback = None
+            val_callback = self.rl_algorithm._init_callback(val_callback)
             rollout = self.rl_algorithm.collect_rollouts(
                 self.rl_algorithm.env,
-                callback=self.learn_kwargs["callback"],
+                callback=val_callback,
                 rollout_buffer=validation_buffer,
                 n_rollout_steps=n_steps+1
             )
-
+            
         ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
         samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
@@ -648,8 +657,8 @@ class LMSBTrainer:
             self.rl_algorithm.policy.lm.enable_adapter_layers()
 
     def on_outer_loop_start(self):
-        self.trainer_callbacks.update_locals(locals())
-        self.trainer_callbacks.on_outer_loop_start()
+        self.rl_algorithm.current_outer_loop = self.current_outer_loop
+        self.rl_algorithm.n_outer_loops = self.n_outer_loops
         
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  

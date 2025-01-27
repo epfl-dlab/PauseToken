@@ -1,6 +1,5 @@
 defaults:
-  - /callbacks@learn_callbacks: default
-  - /callbacks/portion_annealers@trainer_callbacks: linear
+  - callbacks: default
 
 _target_: src.trainer.lmsb_trainer.LMSBTrainer
 

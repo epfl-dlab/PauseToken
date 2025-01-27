@@ -51,7 +51,7 @@ class LanguageModelEnv(Env):
         enable_delta_reward = False,
         max_actions=1,
         reasoning_step_splitter = ' ', # could be '\n' for example
-        ground_truth_portion = 0, 
+        ground_truth_portion_dist = 0, 
         ft_on_action_only = False,
     ):
         super(LanguageModelEnv, self).__init__()
@@ -87,8 +87,7 @@ class LanguageModelEnv(Env):
         self.n_actions_taken = 0
 
         self.reasoning_step_splitter = reasoning_step_splitter
-        self.ground_truth_portion = ground_truth_portion if ground_truth_portion is not None else 0 #portion of the ground truth actions that are given to the agent, the rest should be predicted by 
-        self.ground_truth_portions = []
+        self.ground_truth_portion_dist = ground_truth_portion_dist #portion of the ground truth actions that are given to the agent, the rest should be predicted by 
 
         self.ft_on_action_only = ft_on_action_only
 
@@ -216,7 +215,6 @@ class LanguageModelEnv(Env):
         super().reset(seed=seed)
         #sample a new example
         ground_truth_portion = self.sample_portion()
-        self.ground_truth_portions.append(ground_truth_portion)
         if self.require_dataset:
             #if we reached the end of the dataset, repermute the dataset
             if LanguageModelEnv.next_idx >= len(self.dataset_id_list):
@@ -303,7 +301,6 @@ class LanguageModelEnv(Env):
 
     def set_portion(self, portion):
         self.ground_truth_portion_dist = portion
-        self.ground_truth_portions = []
 
     def sample_portion(self):
         if callable(self.ground_truth_portion_dist):

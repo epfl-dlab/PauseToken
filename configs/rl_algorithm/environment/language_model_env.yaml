@@ -6,6 +6,6 @@ filler_token: -100
 max_actions: 1
 
 reasoning_step_splitter: ' ' # Splitter for reasoning steps, it can be '\n' for GSM8K, or ' ' to simply split words
-ground_truth_portion: 0.4 # Portion of ground truth actions the environment pass as context. number between 0 and 1
+ground_truth_portion_dist: 0.0 # Portion of ground truth actions the environment pass as context. number between 0 and 1
 
 ft_on_action_only: ${rl_algorithm.policy.ft_on_action_only}

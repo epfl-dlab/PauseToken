@@ -5,9 +5,12 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
-python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_betaanneal_5_ep \
+python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta \
         rl_algorithm.policy.ft_on_action_only=true rl_algorithm.ent_coef=0.1 rl_algorithm.vf_coef=1.0 \
-        run_name=tinyllama_beta_ftact_ent01_vf_01 trainer.progress_bar=false
+        run_name=tinyllama_beta_ftact_ent01_vf_01 
+        
+        
+        # trainer.progress_bar=false
 
 
 # 

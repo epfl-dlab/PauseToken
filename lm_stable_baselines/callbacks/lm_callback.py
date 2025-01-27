@@ -79,30 +79,27 @@ class StarProgressBarCallback(BaseCallback):
         self.pbar.close()
 
 
-class EnvironmentPortionBaseUpdate():
+class EnvironmentPortionBaseUpdate(BaseCallback):
     """
     Update the portion of the environment actions that is used for training, linearly according to the current timestep.
     """
     
-    def __init__(self,):
-        self.locals = {}
-        self.globals = {}
+    def __init__(self) -> None:
+        super().__init__()
 
-    def on_outer_loop_start(self):
+    def _on_training_start(self) -> None:
+        self.update()
+
+    def _on_step(self) -> bool:
+        """
+        :return: If the callback returns False, training is aborted early.
+        """
+        self.update()
+        return True
+
+    def update(self,):
         raise NotImplementedError
 
-    def on_training_start(self, locals_, globals_) -> None:
-        # Those are reference and will be updated automatically
-        self.locals = locals_
-        self.globals = globals_
-
-    def update_locals(self, locals_) -> None:
-        """
-        Update the references to the local variables.
-
-        :param locals_: the local variables during rollout collection
-        """
-        self.locals.update(locals_)
 
 
 class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
@@ -116,35 +113,40 @@ class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
         self.init_beta = init_beta
         self.final_alpha = final_alpha
         self.final_beta = final_beta
-        self.warmup_timesteps = warmup_timesteps
-        self.total_timesteps = total_timesteps
-        self.alpha = self.init_alpha
-        self.beta = self.init_beta
-
+        self.n_outer_loops_to_warmup = warmup_timesteps
+        self.n_outer_loops_to_anneal = total_timesteps
+    
     def update(self,):
-        if self.current_step < self.warmup_timesteps:
+        self.current_outer_loop = self.locals['self'].current_outer_loop
+        # self.n_outerloop = self.locals['self'].n_outer_loops
+        self.total_steps_in_each_outerloop = self.locals['self']._total_timesteps
+        self.current_step = self.locals['self'].num_timesteps # this goes from 0 to total_timesteps
+        
+        current_total_step = self.current_outer_loop * self.total_steps_in_each_outerloop + self.current_step
+        total_total_step = self.n_outer_loops_to_anneal * self.total_steps_in_each_outerloop
+        total_warmup_step = self.n_outer_loops_to_warmup * self.total_steps_in_each_outerloop
+
+        if current_total_step < total_warmup_step:
             self.alpha = self.init_alpha
             self.beta = self.init_beta
-        elif self.current_step < self.total_timesteps:
+        elif current_total_step < total_total_step:
             self.alpha = self.init_alpha + \
-                (self.final_alpha - self.init_alpha) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+                (self.final_alpha - self.init_alpha) * (current_total_step - total_warmup_step) / (total_total_step - total_warmup_step)
             self.beta = self.init_beta + \
-                (self.final_beta - self.init_beta) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+                (self.final_beta - self.init_beta) * (current_total_step - total_warmup_step) / (total_total_step - total_warmup_step)
         else:
             self.alpha = self.final_alpha
             self.beta = self.final_beta
-
-        # use partials to not define the function every time
+        self.locals['self'].logger.record(f"{self.locals['self'].env.envs[0].stage}/alpha", self.alpha)
+        self.locals['self'].logger.record(f"{self.locals['self'].env.envs[0].stage}/beta", self.beta)
         
+        # use partials to not define the function every time
         self.portion_dist = partial(np.random.default_rng().beta, a=self.alpha, b=self.beta,)
-
-    def on_outer_loop_start(self):
-        environments = self.locals['self'].rl_algorithm.env.envs
-        self.current_step = self.locals['self'].current_outer_loop
-        self.total_timesteps = self.locals['self'].n_outer_loops
-        self.update()
+        environments = self.locals['self'].env.envs
         for env in environments:
             env.set_portion(self.portion_dist)
+        
+        
 
 
 class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):
@@ -175,3 +177,77 @@ class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):
         self.update()
         for env in environments:
             env.set_portion(self.portion)
+
+
+
+# old callbacks that worked on outerloops.
+# class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
+#     """
+#     Update the portion of the environment actions that is used for training, linearly according to the current timestep.
+#     """
+    
+#     def __init__(self, init_alpha, init_beta, final_alpha, final_beta, warmup_timesteps, total_timesteps):
+#         super(EnvironmentPortionBetaUpdate, self).__init__()
+#         self.init_alpha = init_alpha
+#         self.init_beta = init_beta
+#         self.final_alpha = final_alpha
+#         self.final_beta = final_beta
+#         self.warmup_timesteps = warmup_timesteps
+#         self.total_timesteps = total_timesteps
+#         self.alpha = self.init_alpha
+#         self.beta = self.init_beta
+
+#     def update(self,):
+#         if self.current_step < self.warmup_timesteps:
+#             self.alpha = self.init_alpha
+#             self.beta = self.init_beta
+#         elif self.current_step < self.total_timesteps:
+#             self.alpha = self.init_alpha + \
+#                 (self.final_alpha - self.init_alpha) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+#             self.beta = self.init_beta + \
+#                 (self.final_beta - self.init_beta) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+#         else:
+#             self.alpha = self.final_alpha
+#             self.beta = self.final_beta
+
+#         # use partials to not define the function every time
+        
+#         self.portion_dist = partial(np.random.default_rng().beta, a=self.alpha, b=self.beta,)
+
+#     def on_outer_loop_start(self):
+#         environments = self.locals['self'].rl_algorithm.env.envs
+#         self.current_step = self.locals['self'].current_outer_loop
+#         self.total_timesteps = self.locals['self'].n_outer_loops
+#         self.update()
+#         for env in environments:
+#             env.set_portion(self.portion_dist)
+
+
+# class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):
+#     """
+#     Update the portion of the environment actions that is used for training, linearly according to the current timestep.
+#     """
+    
+#     def __init__(self, init_portion, final_portion, warmup_timesteps, total_timesteps):
+#         super(EnvironmentPortionLinearUpdate, self).__init__()
+#         self.init_portion = init_portion
+#         self.final_portion = final_portion
+#         self.warmup_timesteps = warmup_timesteps
+#         self.total_timesteps = total_timesteps
+
+#     def update(self,):
+#         if self.current_step < self.warmup_timesteps:
+#             self.portion = self.init_portion
+#         elif self.current_step < self.total_timesteps:
+#             self.portion = self.init_portion + \
+#                 (self.final_portion - self.init_portion) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+#         else:
+#             self.portion = self.final_portion
+    
+#     def on_outer_loop_start(self):
+#         environments = self.locals['self'].rl_algorithm.env.envs
+#         self.current_step = self.locals['self'].current_outer_loop
+#         self.total_timesteps = self.locals['self'].n_outer_loops
+#         self.update()
+#         for env in environments:
+#             env.set_portion(self.portion)

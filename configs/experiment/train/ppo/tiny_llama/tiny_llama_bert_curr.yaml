@@ -5,7 +5,7 @@ defaults:
   - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/reward: gsm8k_answer_ll
   - override /rl_algorithm/policy/model/value_head: torch_transformer
-  - override /callbacks/portion_annealers@trainer.trainer_callbacks: beta
+  - override /callbacks/portion_annealers@trainer.learn_callbacks: beta
 
 
 run_name: "tiny_llama_ppo_curriculum_ppo_beta_curr_sft_1ep_ann_5ep"
