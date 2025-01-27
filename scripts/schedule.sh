@@ -5,9 +5,19 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
-python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta \
-        rl_algorithm.policy.ft_on_action_only=true rl_algorithm.ent_coef=0.1 rl_algorithm.vf_coef=1.0 \
-        run_name=tinyllama_beta_ftact_ent01_vf_01 
+
+
+python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta rl_algorithm.policy.ft_on_action_only=true \
+rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 run_name=llama1B_ppo_beta_ftact_truerl2unif \
+trainer.callbacks.portion_annealers.init_alpha=1.0 trainer.callbacks.portion_annealers.final_alpha=0.1 \
+trainer.callbacks.portion_annealers.init_beta=1.0 trainer.callbacks.portion_annealers.final_beta=20.0 \
+trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=10 \
+rl_algorithm.policy.value_function_only_on_question=false \
+rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=/dlabscratch1/amani/PauseToken/logs/checkpoints/ppo-on-gsm8k/llama1B_ppo_beta_ftact_truerl2unif/1fc40e3d10b3af03207ca78c9d581e043f260fa583f6aa82a74f46c491f25e1f/ckpt-44352-0.283
+
+# python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta \
+#         rl_algorithm.policy.ft_on_action_only=true rl_algorithm.ent_coef=0.1 rl_algorithm.vf_coef=1.0 \
+#         run_name=tinyllama_beta_ftact_ent01_vf_01 
         
         
         # trainer.progress_bar=false

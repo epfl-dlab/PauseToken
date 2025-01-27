@@ -92,6 +92,9 @@ class LLMBasePolicy(BasePolicy):
         self.use_peft_at_inference = False
         
         self.ft_on_action_only = kwargs.get("ft_on_action_only", False)
+        self.ft_on_question_too = kwargs.get("ft_on_questions_too", False)
+        self.value_function_only_on_question = kwargs.get("value_function_only_on_question", False)
+        self.use_same_model_for_value = kwargs.get("use_same_model_for_value", True)
         self.per_token_log_prob = kwargs.get("per_token_log_prob", False)
         # dummy value head.
         self.value_head = lambda x, attention_mask: torch.zeros(x[-1].size(0), device=x[-1].device)
@@ -146,9 +149,11 @@ class LLMBasePolicy(BasePolicy):
         
         # if the model is being finetuned on the demonstrations too, then remove those from the obs and
         # append to the actions.
+        reduced_observations, augmented_actions = self.augment_actions_reduce_observations(next_obs['input_ids'])
         if not self.ft_on_action_only:
-            reduced_observations, augmented_actions = self.augment_actions_reduce_observations(next_obs['input_ids'])
             action_start_indices = (reduced_observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
+        elif self.ft_on_question_too:
+            action_start_indices = torch.zeros(observations['input_ids'].size(0), device=observations['input_ids'].device, dtype=torch.long)
         else:
             # Compute action log probabilities
             action_start_indices = (observations['input_ids'] != self.tokenizer.pad_token_id).sum(dim=1) - 1
@@ -159,15 +164,23 @@ class LLMBasePolicy(BasePolicy):
         )
 
         # Compute values
-        raw_latent = outputs.hidden_states
+        if self.use_same_model_for_value:
+            raw_latent = outputs.hidden_states
+        else:
+            raw_latent = self.value_lm(**observations, output_hidden_states=True).hidden_states
+        
         # get observation mask in next_obs, only attend the obs!
-        obs_mask = next_obs['attention_mask'].clone()
-        for i in range(next_obs['input_ids'].size(0)):
-            obs_mask[i, action_start_indices[i]:] = 0
+        obs_mask = torch.ones(raw_latent[-1].size(0), raw_latent[-1].size(1), device=raw_latent[-1].device, dtype=torch.bool)
+        if self.value_function_only_on_question:
+            for i in range(obs_mask.size(0)):
+                obs_length_i = reduced_observations['attention_mask'][i].sum().item()
+                obs_mask[i, obs_length_i:] = 0
+        else:    
+            for i in range(obs_mask.size(0)):
+                obs_mask[i, action_start_indices[i]:] = 0
+       
         values = self.value_forward_pass(raw_latent, obs_mask)
-
         entropy = - (log_probs * log_probs.exp()).sum(dim=-1).mean()
-
         return values, log_probs, entropy
     
     def value_forward_pass(self, raw_latent, obs_mask):
@@ -198,7 +211,7 @@ class LLMBasePolicy(BasePolicy):
         # raw_latents = self.lm(**observations, output_hidden_states=True).hidden_states
         # obs_mask = observations['attention_mask']
         # values = self.value_forward_pass(raw_latents, obs_mask)
-        return values
+        #return values
 
     def get_next_observation(self, observations, actions):
         #assumption: filler tokens have been removed

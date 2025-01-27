@@ -20,3 +20,6 @@ max_output_generation_length: 1024
 
 per_token_log_prob: false
 ft_on_action_only: false
+ft_on_question_too: false
+value_function_only_on_question: false
+use_same_model_for_value: true
