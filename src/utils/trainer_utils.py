@@ -20,6 +20,19 @@ ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
 
 
+def prosqa_formatting_function(example, eos_token):
+    inputs = []
+    outputs = []
+    for i in range(len(example["input"])):
+        prompt = example["input"][i]
+        cot = example["steps"][i]
+        joined_cot = "\n".join(cot)
+        input = f"{QUESTION_TEMPLATE}{prompt}\n\n{ANSWER_TEMPLATE}"
+        output = f"{joined_cot}\n#### {example['output'][i]}{eos_token}"
+        inputs.append(input)
+        outputs.append(output)
+    return {"input": inputs, "output": outputs}
+
 def inference_formatting_function(example, eos_token):
     inputs = []
     outputs = []

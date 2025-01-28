@@ -130,8 +130,6 @@ class LMSBTrainer:
         
         self.rl_algorithm.env.set_stage(stage, read_sequentially = read_sequentially)
         
-        # Reset env for new stage
-        self.rl_algorithm._last_obs = self.rl_algorithm.env.reset()  # type: ignore[assignment]
         # Retrieve unnormalized observation for saving into the buffer
         if self.rl_algorithm._vec_normalize_env is not None:
             self._last_original_obs = self._vec_normalize_env.get_original_obs()

@@ -35,6 +35,7 @@ class LanguageModelEnv(Env):
     gt_array: np.ndarray = None
     last_gt_pos: int = 0
     idx_of_last_in_context_gt_reasoning_step_distr = None
+    n_rollouts_per_sample = 1
     
     
     def __init__(
@@ -53,6 +54,7 @@ class LanguageModelEnv(Env):
         reasoning_step_splitter = ' ', # could be '\n' for example
         ground_truth_portion_dist = 0, 
         ft_on_action_only = False,
+        n_rollouts_per_sample = 1,
     ):
         super(LanguageModelEnv, self).__init__()
 
@@ -90,6 +92,7 @@ class LanguageModelEnv(Env):
         self.ground_truth_portion_dist = ground_truth_portion_dist #portion of the ground truth actions that are given to the agent, the rest should be predicted by 
 
         self.ft_on_action_only = ft_on_action_only
+        LanguageModelEnv.n_rollouts_per_sample = n_rollouts_per_sample
 
     @classmethod
     def reprermute_dataset_id_list(cls):
@@ -98,6 +101,17 @@ class LanguageModelEnv(Env):
         else:
             cls.dataset_id_list = np.random.permutation(len(LanguageModelEnv.dataset[cls.stage]))
         cls.next_idx = 0
+
+       
+        if cls.stage == "train":
+            new_dataset_id_list = []
+            for item in cls.dataset_id_list:
+                for _ in range(cls.n_rollouts_per_sample):
+                    new_dataset_id_list.append(item)
+
+            cls.dataset_id_list = new_dataset_id_list
+            # repeat the dataset_id_list n_rollouts_per_sample times
+
         # TODO: check if this is necessary
         # NICKY: 
         #   I don't think we nee this. We want dataset_id_list to be a static variable that is shared across all instances of the class
@@ -228,9 +242,9 @@ class LanguageModelEnv(Env):
 
         input_sample = LanguageModelEnv.dataset[LanguageModelEnv.stage][id]
         input_text = input_sample["input"]
-
+        
         #  add self.ground_truth_portion of the chain of thought tokens (or actions if self.reasoning_step_splitter is not None) to the observation
-        if LanguageModelEnv.stage == "train":
+        if LanguageModelEnv.stage == "train" and idx % LanguageModelEnv.n_rollouts_per_sample != 0:
             if ANSWER_TEMPLATE in input_sample["output"]:
                 #keep only the reasoning steps after ANSWER_TEMPLATE
                 reasoning_steps = input_sample["output"].split(ANSWER_TEMPLATE)[1]

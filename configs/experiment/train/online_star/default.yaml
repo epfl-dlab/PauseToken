@@ -13,16 +13,7 @@ name: "STaR"
 task_name: "train"
 run_name: ???
 
-data:
-  additional_transformation:
-    _target_: functools.partial
-    _args_: 
-      - ${get_method:src.utils.trainer_utils.inference_formatting_function}
-    eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
-  
-
 trainer:
-  learning_rate: 1e-6
 
   n_steps_before_validation: 6336
   n_outer_loops: 10
@@ -37,6 +28,8 @@ trainer:
   disable_peft_first_inference: false
 
 rl_algorithm:
+  learning_rate: 1e-6
+
   n_steps: 9 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
   batch_size: 4 # number of rollouts to be used in each training step
@@ -53,6 +46,7 @@ rl_algorithm:
         pretrained_model_name_or_path: ???
       value_head: null
     per_token_log_prob: true
+    ft_on_action_only: false
     
   reward:
     inverse_neg_log_likelihood: true

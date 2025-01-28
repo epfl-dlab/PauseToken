@@ -1,0 +1,11 @@
+is_correctdefaults:
+  - default
+
+test:
+  accuracy:
+    _target_: src.reward.pros_qa.is_correct
+    
+# At the moment, val is only supported for src/train.py (not src/trl_train.py)
+val:
+  accuracy:
+    _target_: src.reward.pros_qa.is_correct

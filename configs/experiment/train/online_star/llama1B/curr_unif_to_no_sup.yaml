@@ -3,16 +3,22 @@ defaults:
   - train/online_star/default
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null
-  - override /trainer/callbacks/portion_annealers: linear
 
-run_name: "LLama1B_star_baseline_1ep_sft"
+
+run_name: "LLama1B_star_curriculum_unif_to_no_sup_20ep"
 
 trainer:
+  n_outer_loops: 20
+
   callbacks:
     portion_annealers:
-      init_portion: 0.0
-      final_portion: 0.0
-  
+      init_alpha: 0.1
+      init_beta: 50.0
+      final_alpha: 1.0
+      final_beta: 1.0
+      warmup_timesteps: 0
+      total_timesteps: 18
+ 
 
 rl_algorithm:
   policy:
@@ -22,6 +28,7 @@ rl_algorithm:
       value_head:
         hidden_dim: 2048
 
+
     generation:
       train:
         generation_config:
@@ -30,6 +37,3 @@ rl_algorithm:
       test:
         generation_config:
           pad_token_id: 128002
-
-
-  
