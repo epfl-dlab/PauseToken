@@ -8,14 +8,14 @@ defaults:
 
 run_name: "llama1B_ppo_uniform_curr_sft_1ep_ann_5ep"
 
-trainer:
-  trainer_callbacks:
-    init_alpha: 1.0
-    init_beta: 1.0
-    final_alpha: 1.0
-    final_beta: 1.0
-    warmup_timesteps: 2
-    total_timesteps: 10
+# trainer:
+#   trainer_callbacks:
+#     init_alpha: 1.0
+#     init_beta: 1.0
+#     final_alpha: 1.0
+#     final_beta: 1.0
+#     warmup_timesteps: 2
+#     total_timesteps: 10
 
 rl_algorithm:
   policy:

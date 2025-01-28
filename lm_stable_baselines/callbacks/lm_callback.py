@@ -154,29 +154,51 @@ class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):
     Update the portion of the environment actions that is used for training, linearly according to the current timestep.
     """
     
-    def __init__(self, init_portion, final_portion, warmup_timesteps, total_timesteps):
+    def __init__(self, lower_bound_init_portion, lower_bound_final_portion, upper_bound_init_portion, upper_bound_final_portion, warmup_timesteps, total_timesteps):
         super(EnvironmentPortionLinearUpdate, self).__init__()
-        self.init_portion = init_portion
-        self.final_portion = final_portion
-        self.warmup_timesteps = warmup_timesteps
-        self.total_timesteps = total_timesteps
+        self.lower_bound_init_portion = lower_bound_init_portion
+        self.lower_bound_final_portion = lower_bound_final_portion
+        self.upper_bound_init_portion = upper_bound_init_portion
+        self.upper_bound_final_portion = upper_bound_final_portion
+        self.n_outer_loops_to_warmup = warmup_timesteps
+        self.n_outer_loops_to_anneal = total_timesteps
+
+        self.lower_bound = self.lower_bound_init_portion
+        self.upper_bound = self.upper_bound_init_portion
+
+        assert self.lower_bound_init_portion <= self.upper_bound_init_portion, "Initial portion must be less than or equal to final portion"
+        assert self.lower_bound_final_portion <= self.upper_bound_final_portion, "Initial portion must be less than or equal to final portion"
 
     def update(self,):
-        if self.current_step < self.warmup_timesteps:
-            self.portion = self.init_portion
-        elif self.current_step < self.total_timesteps:
-            self.portion = self.init_portion + \
-                (self.final_portion - self.init_portion) * (self.current_step - self.warmup_timesteps) / (self.total_timesteps - self.warmup_timesteps)
+        self.current_outer_loop = self.locals['self'].current_outer_loop
+        # self.n_outerloop = self.locals['self'].n_outer_loops
+        self.total_steps_in_each_outerloop = self.locals['self']._total_timesteps
+        self.current_step = self.locals['self'].num_timesteps # this goes from 0 to total_timesteps
+        
+        current_total_step = self.current_outer_loop * self.total_steps_in_each_outerloop + self.current_step
+        total_total_step = self.n_outer_loops_to_anneal * self.total_steps_in_each_outerloop
+        total_warmup_step = self.n_outer_loops_to_warmup * self.total_steps_in_each_outerloop
+
+        if current_total_step < total_warmup_step:
+            self.lower_bound = self.lower_bound_init_portion
+            self.upper_bound = self.upper_bound_init_portion
+        elif current_total_step < total_total_step:
+            self.lower_bound = self.lower_bound_init_portion + \
+                (self.lower_bound_final_portion - self.lower_bound_init_portion) * (current_total_step - total_warmup_step) / (total_total_step - total_warmup_step)
+            self.upper_bound = self.upper_bound_init_portion + \
+                (self.upper_bound_final_portion - self.upper_bound_init_portion) * (current_total_step - total_warmup_step) / (total_total_step - total_warmup_step)
         else:
-            self.portion = self.final_portion
-    
-    def on_outer_loop_start(self):
-        environments = self.locals['self'].rl_algorithm.env.envs
-        self.current_step = self.locals['self'].current_outer_loop
-        self.total_timesteps = self.locals['self'].n_outer_loops
-        self.update()
+            self.lower_bound = self.lower_bound_final_portion
+            self.upper_bound = self.upper_bound_final_portion
+
+        self.locals['self'].logger.record(f"{self.locals['self'].env.envs[0].stage}/lower_bound", self.lower_bound)
+        self.locals['self'].logger.record(f"{self.locals['self'].env.envs[0].stage}/upper_bound", self.upper_bound)
+
+        self.portion_dist = partial(np.random.default_rng().uniform, low=self.lower_bound, high=self.upper_bound,)
+        environments = self.locals['self'].env.envs 
         for env in environments:
-            env.set_portion(self.portion)
+            env.set_portion(self.portion_dist)
+
 
 
 

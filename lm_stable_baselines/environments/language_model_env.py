@@ -244,7 +244,7 @@ class LanguageModelEnv(Env):
         input_text = input_sample["input"]
         
         #  add self.ground_truth_portion of the chain of thought tokens (or actions if self.reasoning_step_splitter is not None) to the observation
-        if LanguageModelEnv.stage == "train" and idx % LanguageModelEnv.n_rollouts_per_sample != 0:
+        if LanguageModelEnv.stage == "train" and (idx % LanguageModelEnv.n_rollouts_per_sample != 0  or LanguageModelEnv.n_rollouts_per_sample == 1):
             if ANSWER_TEMPLATE in input_sample["output"]:
                 #keep only the reasoning steps after ANSWER_TEMPLATE
                 reasoning_steps = input_sample["output"].split(ANSWER_TEMPLATE)[1]

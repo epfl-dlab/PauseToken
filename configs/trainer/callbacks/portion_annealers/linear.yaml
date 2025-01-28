@@ -1,5 +1,7 @@
 _target_: lm_stable_baselines.callbacks.lm_callback.EnvironmentPortionLinearUpdate
-init_portion: 1.0
-final_portion: 0.0
-warmup_timesteps: 2
+lower_bound_init_portion: 0.0
+lower_bound_final_portion: 0.0
+upper_bound_init_portion: 1.0
+upper_bound_final_portion: 1.0
+warmup_timesteps: 0
 total_timesteps: 10

@@ -8,15 +8,15 @@ defaults:
 
 run_name: "llama1B_ppo_beta_rl2sup"
 
-trainer:
-  callbacks:
-    portion_annealers:
-      init_alpha: 0.1
-      init_beta: 50.0
-      final_alpha: 1.0
-      final_beta: 1.0
-      warmup_timesteps: 0
-      total_timesteps: 10
+# trainer:
+#   callbacks:
+#     portion_annealers:
+#       init_alpha: 0.1
+#       init_beta: 50.0
+#       final_alpha: 1.0
+#       final_beta: 1.0
+#       warmup_timesteps: 0
+#       total_timesteps: 10
 
 rl_algorithm:
   ent_coef: 0.0
