@@ -152,6 +152,8 @@ class LMSBTrainer:
         else:
             raise ValueError(f"Invalid buffer class: {buffer_class}, valid buffer classes are: {LMReplayBuffer}, {LMRolloutBuffer}")
         
+        self.rl_algorithm._last_obs = self.rl_algorithm.env.reset()
+        
         validation_buffer = buffer_class(
             buffer_size,
             self.rl_algorithm.observation_space,
