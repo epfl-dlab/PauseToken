@@ -14,6 +14,8 @@ import numpy as np
 from lm_stable_baselines.utils import add_filler_tokens
 from lm_stable_baselines.utils import remove_filler_tokens
 import code
+from copy import deepcopy
+from transformers.trainer import _is_peft_model
 
 class LLMBasePolicy(BasePolicy):
     """ Base policy for language models. This class is a subclass of BasePolicy and is used to handle language model policies.
@@ -98,6 +100,14 @@ class LLMBasePolicy(BasePolicy):
         self.per_token_log_prob = kwargs.get("per_token_log_prob", False)
         # dummy value head.
         self.value_head = lambda x, attention_mask: torch.zeros(x[-1].size(0), device=x[-1].device)
+
+        # if the model is not lora, then we need to save the base model with peft disabled and frozen
+        if not _is_peft_model(self.lm):
+            self.base_lm = deepcopy(self.lm) # this is the base model, it will be used for training the policy
+            self.base_lm.eval().requires_grad_(False)
+        else: 
+            self.base_lm = None
+
         
     def _build(self, lr_schedule: Schedule = None) -> None:
         """ Build the policy and optimizer
@@ -128,7 +138,7 @@ class LLMBasePolicy(BasePolicy):
         values, log_probs, entropy = self.evaluate_actions(obs, actions) 
         return actions, values, log_probs
     
-    def evaluate_actions(self, obs, acts):
+    def evaluate_actions(self, obs, acts, lm=None):
         """
         Evaluate actions. Used in the training loop to train the policy.
         Returns:
@@ -138,12 +148,14 @@ class LLMBasePolicy(BasePolicy):
         """
         # if there are filler tokens in the actions or observations, exchange them with pad tokens (filler tokens 
         # are used to mask the actions in the observations
+        if lm is None:
+            lm = self.lm
         observations = self.extract_features(obs)
         actions = self.extract_features(acts)
         # Compute next observations and prepare for LM processing
         next_obs = self.get_next_observation(observations, actions) # Assuming this is defined elsewhere
         # forward pass through the model
-        outputs = self.lm(**next_obs, output_hidden_states=True)
+        outputs = lm(**next_obs, output_hidden_states=True)
         logits = outputs.logits  # Forward pass through LM
         all_logprobs = torch.log_softmax(logits, dim=-1)  # Convert logits to log-probabilities
         

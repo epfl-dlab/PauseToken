@@ -17,7 +17,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                                     batch_size=batch_size, 
                                     use_base_model_for_learning=use_base_model_for_learning)
         self.n_grad_accumulation_steps = kwargs.get("n_grad_accumulation_steps", 1)
-    
+        self.base_kl_coef = kwargs.get("base_kl_coef", 0.05)
+
     def collect_rollouts(self, *args, **kwargs):
         # Override if LM-specific logic is necessary
         return AbstractLMOnPolicy.collect_rollouts(self, *args, **kwargs)
@@ -39,7 +40,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
             clip_range_vf = self.clip_range_vf(self._current_progress_remaining)  # type: ignore[operator]
 
         entropy_losses = []
-        pg_losses, value_losses = [], []
+        pg_losses, value_losses, base_kl_losses = [], [], []
         clip_fractions = []
         ls_returns = []
         ls_advantages = []
@@ -71,7 +72,21 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                 if self.use_sde:
                     self.policy.reset_noise(self.batch_size)
 
+                with torch.no_grad():
+                    if self.policy.base_lm is not None:
+                        _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, self.policy.base_lm)
+                    else:
+                        # it's a peft model! simply remove the peft.
+                        self.policy.lm.disable_adapter_layers()
+                        _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, 
+                                                                        self.policy.lm)
+                        self.policy.lm.enable_adapter_layers()
+                
                 values, log_prob, entropy = self.policy.evaluate_actions(observations, actions)
+
+                base_kl = torch.mean(torch.exp(base_log_prob) * (base_log_prob - log_prob))
+                base_kl_losses.append(base_kl.item())
+                
                 values = values.flatten()
                 # Normalize advantage
                 advantages = rollout_data.advantages
@@ -120,8 +135,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
 
                 entropy_losses.append(entropy_loss.item())
 
-                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
-
+                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss + self.base_kl_coef * base_kl
+                
                 # Calculate approximate form of reverse KL Divergence for early stopping
                 # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
                 # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419

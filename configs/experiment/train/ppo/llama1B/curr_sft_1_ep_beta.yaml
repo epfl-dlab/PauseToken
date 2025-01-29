@@ -8,7 +8,6 @@ defaults:
 
 run_name: "llama1B_ppo_beta_rl2sup"
 
-# trainer:
 #   callbacks:
 #     portion_annealers:
 #       init_alpha: 0.1
@@ -19,8 +18,9 @@ run_name: "llama1B_ppo_beta_rl2sup"
 #       total_timesteps: 10
 
 rl_algorithm:
-  ent_coef: 0.0
+  ent_coef: 0.1
   vf_coef: 1.0
+  base_kl_coef: 0.1
   policy:
     ft_on_action_only: true
 

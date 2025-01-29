@@ -1,0 +1,25 @@
+defaults:
+  - model/language_model: gpt2
+  - model/tokenizer: auto_tokenizer
+  - model/peft_config: default
+  - generation@generation.train: train_default
+  - generation@generation.test: test_default
+
+_target_: lm_stable_baselines.policies.LLMBasePolicy
+
+
+learning_rate: 1e-5
+features_extractor_class: ${get_class_from_name:stable_baselines3.common.torch_layers.FlattenExtractor}
+features_extractor_kwargs: null
+normalize_images: false
+optimizer_class: ${get_class_from_name:torch.optim.Adam}
+optimizer_kwargs: null
+squash_output: false
+filler_token: -100
+max_output_generation_length: 1024
+
+per_token_log_prob: false
+ft_on_action_only: false
+ft_on_question_too: false
+value_function_only_on_question: false
+use_same_model_for_value: true

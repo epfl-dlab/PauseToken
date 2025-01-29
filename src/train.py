@@ -93,6 +93,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         cfg.rl_algorithm.policy.model.language_model,
         cfg.rl_algorithm.policy.model.get("peft_config")
     )
+    # if cfg.rl_algorithm.policy.get("copy_lm_as_base_model", False):
+        # freeze the model and load it
+        # base_language_model = deepcopy(language_model)
+        # = class_lm.from_pretrained(output_dir, **kwargs).requires_grad_(False)
 
     
     # Add control tokens to tokenizer if the language model is a control token wrapper

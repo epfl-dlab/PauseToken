@@ -78,7 +78,7 @@ class LMSBTrainer:
         self.do_sample_at_validation = do_sample_at_validation
         
         self.peft_config_name = peft_config_name
-        self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model
+        self.use_previous_policy_as_reward_model = use_previous_policy_as_reward_model       
         
         self.trainer_save_parameters_to_exclude = [
             'learn_kwargs',
