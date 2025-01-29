@@ -2,6 +2,7 @@ import argparse
 from peft import AutoPeftModelForCausalLM
 import shutil
 import os
+from transformers import AutoTokenizer
 
 
 if __name__ == "__main__":
@@ -10,6 +11,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model = AutoPeftModelForCausalLM.from_pretrained(args.model_path, device_map="cpu")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
     # Merge and unload the model
     print("merging and unloading the model...")
     model = model.merge_and_unload()
@@ -18,6 +20,7 @@ if __name__ == "__main__":
     tmp_dir = args.model_path + "_tmp"
     print("Saving merged model to temporary directory...")
     model.save_pretrained(tmp_dir)
+    tokenizer.save_pretrained(tmp_dir)
     print(f"Model temporary saved in {tmp_dir}")
 
     print("Removing original model...")
