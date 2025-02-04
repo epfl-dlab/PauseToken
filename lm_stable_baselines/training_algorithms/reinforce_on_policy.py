@@ -38,6 +38,7 @@ class ReinforceOnPolicy(AbstractLMOnPolicy, OnPolicyAlgorithm):
         ls_advantages = []
         value_losses = []
         entropy_losses = []
+        ls_ratios = []
 
         self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         n_batches = self.rollout_buffer.data_size // self.batch_size + (self.rollout_buffer.data_size % self.batch_size != 0)
@@ -51,6 +52,10 @@ class ReinforceOnPolicy(AbstractLMOnPolicy, OnPolicyAlgorithm):
             data = self.rollout_buffer.sample_batch(self.batch_size, env=self._vec_normalize_env)
             actions = data.actions
             observations = data.observations
+
+             # log action supervision:
+            train_ratios = [self.env.envs[0].compute_portion_from_obs_actions(data) for i in range(len(actions))]
+            ls_ratios.append(np.mean(train_ratios))
             # forward pass through the model
             values, log_prob, entropy = self.policy.evaluate_actions(observations, actions)
             ratio = torch.exp(log_prob - data.old_log_prob).detach() 
@@ -105,6 +110,7 @@ class ReinforceOnPolicy(AbstractLMOnPolicy, OnPolicyAlgorithm):
 
 
         if n_batches > 0:
+            self.logger.record("train/supervised_action_ratios", np.mean(ls_ratios))
             self.logger.record("train/pg_loss", np.mean(pg_losses))
             self.logger.record("train/value_loss", np.mean(value_losses))
             self.logger.record("train/entropy_loss", np.mean(entropy_losses))

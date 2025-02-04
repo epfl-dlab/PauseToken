@@ -7,6 +7,8 @@ defaults:
   - override /rl_algorithm/policy/model/peft_config: ???
   - override /rl_algorithm/reward: gsm8k
   - override /metrics: gsm8k
+  - override /trainer/callbacks/portion_annealers: linear
+
 
 name: "SFT"
 task_name: "train"
@@ -14,9 +16,13 @@ run_name: ???
   
 
 trainer:
-  trainer_callbacks:
-    init_portion: 1.0
-    final_portion: 1.0
+  callbacks:
+    portion_annealers:
+      lower_bound_init_portion: 1.0
+      lower_bound_final_portion: 1.0
+      upper_bound_init_portion: 1.0
+      upper_bound_final_portion: 1.0
+
   n_steps_before_validation: 6336
   n_outer_loops: 10
   progress_bar: true
