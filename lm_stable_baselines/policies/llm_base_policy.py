@@ -451,7 +451,7 @@ class LLMBasePolicy(BasePolicy):
         lengths = padding_mask.sum(dim=1)
         
         new_padding_mask = torch.zeros((batch_size, length), dtype=torch.bool, device=obs_embed.device)
-        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device)
+        padded_embeds = torch.zeros((batch_size, length, obs_embed.shape[-1]), device=obs_embed.device, dtype=obs_embed.dtype)
         for i in range(batch_size):
             if left_padding:
                 padded_embeds[i, -lengths[i]:] = obs_embed[i, padding_mask[i]==1].clone().detach()

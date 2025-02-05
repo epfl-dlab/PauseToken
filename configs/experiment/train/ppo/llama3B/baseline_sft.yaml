@@ -1,0 +1,45 @@
+# @package _global_
+defaults:
+  - train/ppo/default
+  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /trainer/callbacks/portion_annealers: linear
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+
+name: "LLama3B-ppo-on-gsm8k"
+run_name: "baseline"
+
+trainer:
+  callbacks:
+    portion_annealers:
+      lower_bound_init_portion: 0.0
+      lower_bound_final_portion: 0.0
+      upper_bound_init_portion: 0.0
+      upper_bound_final_portion: 0.0
+  
+
+rl_algorithm:
+  ent_coef: 0.01
+  vf_coef: 0.1
+  base_kl_coef: 0.01
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/llama3B_sft_1_ep_true/f41e5567ac21e71a8caad4a52708e1b74ee6e6d576f76d38475b7f9712632d40/ckpt-12672-0.414
+        torch_dtype: 
+          _target_: src.utils.hydra_custom_resolvers.get_module_attr
+          module_and_attr: torch.bfloat16
+      value_head:
+        hidden_dim: 3072
+
+    generation:
+      train:
+        generation_config:
+          pad_token_id: 128002
+
+      test:
+        generation_config:
+          pad_token_id: 128002
+
+
+  
