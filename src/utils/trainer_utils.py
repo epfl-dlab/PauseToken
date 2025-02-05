@@ -13,6 +13,8 @@ from src.utils import (
     RankedLogger,
 )
 from trl import SFTTrainer
+from sympy.parsing.latex import parse_latex
+import warnings
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -110,6 +112,57 @@ def extract_answer(completion: str) -> str:
         return match_str
     else:
         return INVALID_ANS
+    
+def extract_boxed_answers(text, pattern =  r'\boxed{' ):
+    """Extracts all \boxed{} contents from a LaTeX string, handling nested braces correctly."""
+    results = []
+    start = 0  
+
+    while True:
+        start = text.find(pattern, start)
+        if start == -1:
+            break  # No more \boxed{} found
+        
+        # Extract the content inside \boxed{}
+        brace_count = 1
+        content_start = start + len(pattern)
+        i = content_start
+        while i < len(text) and brace_count > 0:
+            if text[i] == "{":
+                brace_count += 1
+            elif text[i] == "}":
+                brace_count -= 1
+            i += 1
+
+        if brace_count == 0:
+            #include the \boxed{} in the answer
+            answer = text[start:i]
+            results.append(answer)  # Extract content inside \boxed{}
+            start = i  # Move past this \boxed{}
+        else:
+            break  # Unmatched braces (shouldn't happen in valid LaTeX)
+
+    return results[-1] if results else None
+    
+    
+def extract_math_answer(completion: str, splitter = "####") -> str:
+    if splitter not in completion:
+        return INVALID_ANS
+    boxed_answer = extract_boxed_answers(completion.split(splitter)[-1].strip())
+    if boxed_answer:
+        return boxed_answer
+    return INVALID_ANS
+
+def are_latex_expressions_equal(expr1, expr2):
+    """Check if two LaTeX expressions are mathematically equivalent."""
+    with warnings.catch_warnings(action="ignore"):
+        try:
+            expr1_ = parse_latex(expr1)
+            expr2_ = parse_latex(expr2)
+            return expr1_.equals(expr2_)
+        except:
+            return expr1 == expr2
+    
 
 def decode_and_strip_special_tokens(input_ids: Union[int, List[int], np.ndarray, torch.Tensor], tokenizer: PreTrainedTokenizer) -> str:
     """ Strip special tokens from a text

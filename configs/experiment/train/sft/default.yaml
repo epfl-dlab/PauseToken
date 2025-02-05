@@ -22,6 +22,8 @@ trainer:
       lower_bound_final_portion: 1.0
       upper_bound_init_portion: 1.0
       upper_bound_final_portion: 1.0
+      warmup_timesteps: 0
+      total_timesteps: 10
 
   n_steps_before_validation: 6336
   n_outer_loops: 10

@@ -1,0 +1,21 @@
+defaults:
+  - dataset_from_file
+
+path: "data/MATH_json"
+    
+files: 
+  - "train"
+  - "test"
+
+file_type: "json"
+
+train_val_test_split: [0.9, 0.1, -1]
+
+input_label: "problem"
+output_label: "solution"
+
+additional_transformation:
+  _target_: functools.partial
+  _args_: 
+    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+  eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}

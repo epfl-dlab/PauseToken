@@ -49,7 +49,7 @@ class GSM8KCorrectnessReward(AbstractReward):
         :return: Minimum reward value
         :rtype: float
         """
-        return -1.0
+        return 0.0
     
 class GSM8KFinalAnswerLogLikelihoodReward(AbstractReward):
     def __init__(
