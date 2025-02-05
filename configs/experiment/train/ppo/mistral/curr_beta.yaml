@@ -6,18 +6,27 @@ defaults:
   - override /rl_algorithm/policy/model/value_head: torch_transformer
   - override /trainer/callbacks/portion_annealers: beta
 
+name: "mistral-ppo-on-gsm8k"
+run_name: "beta_on_sft1"
 
-run_name: "mistral_ppo_beta_curr_sft_1ep_ann_5ep"
 
+rl_algorithm:
+  
 
 rl_algorithm:
   ent_coef: 0.1
   vf_coef: 1.0
   base_kl_coef: 0.1
+  learning_rate: 1e-6
+  batch_size: 2 # number of rollouts to be used in each training step
+  n_envs: 24
+  n_grad_accumulation_steps: 8
+
   policy:
+    per_token_log_prob: true
     model:
       language_model:
-        pretrained_model_name_or_path: ,,,
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/mistral_sft_3epochs/46c676f406cb25ae87371f2ec501182d08c7799071ecbc82a1ff4edee925babe/ckpt-12672-0.472
       value_head:
         hidden_dim: 4096
 

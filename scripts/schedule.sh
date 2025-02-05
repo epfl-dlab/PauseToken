@@ -5,14 +5,14 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
+python src/train.py experiment=train/ppo/llama3B/baseline_sft rl_algorithm.policy.ft_on_action_only=false \
+run_name=llama3b_baseline_baseKLloss \
+rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=20 \
 
 
-python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta rl_algorithm.policy.ft_on_action_only=true \
-rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 run_name=llama1B_ppo_beta_ftact_truerl2unif \
-trainer.callbacks.portion_annealers.init_alpha=1.0 trainer.callbacks.portion_annealers.final_alpha=0.1 \
-trainer.callbacks.portion_annealers.init_beta=50.0 trainer.callbacks.portion_annealers.final_beta=10.0 \
-trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=10
 
+
+# python src/train.py experiment=train/ppo/mistral/curr_sft_1_ep_beta rl_algorithm.policy.ft_on_action_only=true  rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01  run_name=mistral_ppo_beta_ftact_truerl2unif_baseKLloss  trainer.n_outer_loops=20  trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.1  trainer.callbacks.portion_annealers.init_beta=50.0 trainer.callbacks.portion_annealers.final_beta=5.0  trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=10
 
 
 # python src/train.py experiment=train/ppo/llama1B/curr_sft_1_ep_beta \

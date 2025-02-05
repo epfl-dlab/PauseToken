@@ -81,6 +81,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                         _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, 
                                                                         self.policy.lm)
                         self.policy.lm.enable_adapter_layers()
+                # base_log_prob = torch.zeros_like(rollout_data.old_log_prob)
                 
                 values, log_prob, entropy = self.policy.evaluate_actions(observations, actions)
 
@@ -122,8 +123,13 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                     )
                 # Value loss using the TD(gae_lambda) target
                 # value_loss = torch.nn.functional.mse_loss(rollout_data.returns, values_pred)
+                
                 # instead, cross entropy loss when returns are 0,1 
-                value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)                    
+                if values_pred.dtype == torch.bfloat16:
+                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns.to(torch.bfloat16))
+                else:
+                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)
+                                  
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration
@@ -183,6 +189,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.logger.record("train/advantages", np.mean(ls_advantages))
         self.logger.record("train/returns", np.mean(ls_returns))
         self.logger.record("train/supervised_action_ratios", np.mean(ls_ratios))
+        self.logger.record("train/base_kl_loss", np.mean(base_kl_losses))
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
 

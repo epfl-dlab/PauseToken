@@ -53,6 +53,7 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         )
 
         self.value_head = hydra.utils.instantiate(kwargs['model']['value_head'], _recursive_=False).to(next(self.lm.parameters()).dtype)
+        print(next(self.lm.parameters()).dtype)
 
         self._build(lr_schedule=lr_schedule)
 

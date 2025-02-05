@@ -1,6 +1,6 @@
 
 defaults: 
-  - portion_annealers: beta
+  - portion_annealers: null
 
 buffer_callback: 
   _target_: lm_stable_baselines.callbacks.lm_callback.LMCallback

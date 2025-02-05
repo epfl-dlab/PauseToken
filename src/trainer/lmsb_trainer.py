@@ -659,6 +659,15 @@ class LMSBTrainer:
     def on_outer_loop_start(self):
         self.rl_algorithm.current_outer_loop = self.current_outer_loop
         self.rl_algorithm.n_outer_loops = self.n_outer_loops
+
+        # find the env_portion_annealer callback and set the portion_dist to the initial portion_dist
+        for callback in self.learn_kwargs['callback']:
+            if hasattr(callback, "portion_dist"):
+                init_sup_portion_dist = callback.portion_dist
+                break
+        for env in self.rl_algorithm.env.envs:
+            env.ground_truth_portion_dist = init_sup_portion_dist
+
         
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  

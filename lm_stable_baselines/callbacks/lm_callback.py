@@ -101,7 +101,6 @@ class EnvironmentPortionBaseUpdate(BaseCallback):
         raise NotImplementedError
 
 
-
 class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
     """
     Update the portion of the environment actions that is used for training, linearly according to the current timestep.
@@ -115,6 +114,8 @@ class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
         self.final_beta = final_beta
         self.n_outer_loops_to_warmup = warmup_timesteps
         self.n_outer_loops_to_anneal = total_timesteps
+
+        self.portion_dist = partial(np.random.default_rng().beta, a=self.init_alpha, b=self.init_beta,)
     
     def update(self,):
         self.current_outer_loop = self.locals['self'].current_outer_loop
@@ -145,6 +146,8 @@ class EnvironmentPortionBetaUpdate(EnvironmentPortionBaseUpdate):
         environments = self.locals['self'].env.envs
         for env in environments:
             env.set_portion(self.portion_dist)
+
+        
         
         
 
@@ -168,6 +171,8 @@ class EnvironmentPortionLinearUpdate(EnvironmentPortionBaseUpdate):
 
         assert self.lower_bound_init_portion <= self.upper_bound_init_portion, "Initial portion must be less than or equal to final portion"
         assert self.lower_bound_final_portion <= self.upper_bound_final_portion, "Initial portion must be less than or equal to final portion"
+
+        self.portion_dist = partial(np.random.default_rng().uniform, low=self.lower_bound, high=self.upper_bound,)
 
     def update(self,):
         self.current_outer_loop = self.locals['self'].current_outer_loop
