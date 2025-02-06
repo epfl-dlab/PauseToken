@@ -33,7 +33,10 @@ class MathCorrectnessReward(AbstractReward):
         if pred_answer == INVALID_ANS:
             return 0.0 # used to be -1.0
         #if the model output is correct, return 1.0 otherwise return 0.0
-        return float(are_latex_expressions_equal(gt_answer, pred_answer))
+        are_equal = are_latex_expressions_equal(gt_answer, pred_answer)
+        if are_equal is None:
+            return 0.0
+        return float(are_equal)
     
     def get_max_reward(self):
         """ Get the maximum reward value (1.0)

@@ -242,7 +242,6 @@ class LanguageModelEnv(Env):
 
         input_sample = LanguageModelEnv.dataset[LanguageModelEnv.stage][id]
         input_text = input_sample["input"]
-        
         #  add self.ground_truth_portion of the chain of thought tokens (or actions if self.reasoning_step_splitter is not None) to the observation
         if LanguageModelEnv.stage == "train" and (idx % LanguageModelEnv.n_rollouts_per_sample != 0  or LanguageModelEnv.n_rollouts_per_sample == 1):
             if ANSWER_TEMPLATE in input_sample["output"]:
@@ -267,7 +266,7 @@ class LanguageModelEnv(Env):
         self.current_state = batch_encoding["input_ids"].reshape(-1).tolist()
         self.n_actions_taken = 0
         if len(self.current_state) > self.max_tokens:
-            warnings.warn(f"The sampled input text here below is longer than max_tokens ({len(self.current_state)} > {self.max_tokens}): \n {self.input_text} \n Another example will be sampled")
+            warnings.warn(f"The sampled input text here below is longer than max_tokens ({len(self.current_state)} > {self.max_tokens}): \n {input_text} \n Another example will be sampled")
             return self.reset(seed=seed, options=options)
         
         #return the observation and info

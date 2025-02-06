@@ -9,6 +9,8 @@ import re
 import numpy as np
 import os
 import json
+import contextlib
+
 from src.utils import (
     RankedLogger,
 )
@@ -41,6 +43,17 @@ def inference_formatting_function(example, eos_token):
     for i in range(len(example["input"])):
         prompt = example["input"][i]
         input = f"{QUESTION_TEMPLATE}{prompt}\n\n{ANSWER_TEMPLATE}"
+        output = f"{example['output'][i]}{eos_token}"
+        inputs.append(input)
+        outputs.append(output)
+    return {"input": inputs, "output": outputs}
+
+def math_inference_formatting_function(example, eos_token):
+    inputs = []
+    outputs = []
+    for i in range(len(example["input"])):
+        prompt = example["input"][i]
+        input = f"{QUESTION_TEMPLATE}{prompt}\n\n {ANSWER_TEMPLATE} "
         output = f"{example['output'][i]}{eos_token}"
         inputs.append(input)
         outputs.append(output)
@@ -146,20 +159,24 @@ def extract_boxed_answers(text, pattern =  r'\boxed{' ):
     
     
 def extract_math_answer(completion: str, splitter = "####") -> str:
-    if splitter not in completion:
+    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
+        if splitter not in completion:
+            return INVALID_ANS
+        boxed_answer = extract_boxed_answers(completion.split(splitter)[-1].strip())
+        if boxed_answer is not None:
+            return boxed_answer
         return INVALID_ANS
-    boxed_answer = extract_boxed_answers(completion.split(splitter)[-1].strip())
-    if boxed_answer:
-        return boxed_answer
-    return INVALID_ANS
 
 def are_latex_expressions_equal(expr1, expr2):
     """Check if two LaTeX expressions are mathematically equivalent."""
-    with warnings.catch_warnings(action="ignore"):
+    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
         try:
             expr1_ = parse_latex(expr1)
             expr2_ = parse_latex(expr2)
-            return expr1_.equals(expr2_)
+            equals = expr1_.equals(expr2_)
+            if equals is None:
+                return False
+            return equals
         except:
             return expr1 == expr2
     

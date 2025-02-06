@@ -17,5 +17,5 @@ output_label: "solution"
 additional_transformation:
   _target_: functools.partial
   _args_: 
-    - ${get_method:src.utils.trainer_utils.inference_formatting_function}
+    - ${get_method:src.utils.trainer_utils.math_inference_formatting_function}
   eos_token: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},[eos_token]}
