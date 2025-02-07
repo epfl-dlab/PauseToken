@@ -274,8 +274,8 @@ class LanguageModelEnv(Env):
         self.truncated = False
         self.done = False
 
-        LanguageModelEnv.gt_array[ self.gt_id , :len(self.output_text)] = self.output_text
-        LanguageModelEnv.gt_array[ self.gt_id , len(self.output_text):] = -100
+        # LanguageModelEnv.gt_array[ self.gt_id , :len(self.output_text)] = self.output_text
+        # LanguageModelEnv.gt_array[ self.gt_id , len(self.output_text):] = -100
         
         if self.enable_delta_reward:
             self.last_reward = self.reward(self.current_state, self.output_text)

@@ -22,6 +22,8 @@ class BaseCtrlTokConfig(PretrainedConfig):
         control_token_to_id: Dict[str,int] = {},
         ctrl_token_head_temperature: float = 1.0,
         detach_ctrl_tok_clf = False,
+        add_ctrl_tok_to_lm_head = True,
+        add_ctrl_tok_to_embeddings = True,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -31,6 +33,8 @@ class BaseCtrlTokConfig(PretrainedConfig):
         self.num_control_tokens = len(control_token_to_id)
         self.detach_ctrl_tok_clf = detach_ctrl_tok_clf
         self.ctrl_token_head_temperature = ctrl_token_head_temperature
+        self.add_ctrl_tok_to_lm_head = add_ctrl_tok_to_lm_head
+        self.add_ctrl_tok_to_embeddings = add_ctrl_tok_to_embeddings
         
         
 @dataclass
@@ -103,8 +107,12 @@ class BaseControlTokenWrapper(PreTrainedModel):
         )
         self.control_token_to_id = config.control_token_to_id
         
-        self._resize_input_embeds()
-        self._resize_language_model_head()
+        if self.config.add_ctrl_tok_to_embeddings:
+            self._resize_input_embeds()
+        if self.config.add_ctrl_tok_to_lm_head:
+            self._resize_language_model_head()
+        else:
+            self.config.vocab_size = self.get_original_vocab_size()
         
         self.lm_head_ctrl_token_id = self.config.vocab_size #the last token is the control token for the language model head
         ############################################
@@ -415,7 +423,9 @@ class BaseControlTokenWrapper(PreTrainedModel):
                     
     def get_original_vocab_size(self):
         """ Get the original vocabulary size of the language model """
-        return self.language_model.get_input_embeddings().original_embedding.weight.shape[0]
+        if isinstance(self.language_model.get_input_embeddings(), ExtendedEmbedding):
+            return self.language_model.get_input_embeddings().original_embedding.weight.shape[0]
+        return self.language_model.get_input_embeddings().weight.shape[0]
     
     def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str):
         """ Define the execution function for your control tokens here.
@@ -561,8 +571,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         return loss, lm_loss, ctrl_tok_loss
     
-    def forward_(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None ,*args, **kwargs):
-        
+    def forward_(self, input_ids: torch.LongTensor = None, inputs_embeds: torch.Tensor = None, attention_mask: Optional[torch.Tensor] = None ,*args, **kwargs):
+
+        assert (input_ids is not None and inputs_embeds is None) or (input_ids is None and inputs_embeds is not None), "Either input_ids or input_embeds should be provided (but not both)"
+
         if "return_dict" not in kwargs or kwargs["return_dict"] is None:
             kwargs["return_dict"] = True
             
@@ -573,6 +585,7 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         outputs = self.language_model(
             input_ids=input_ids,
+            inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             *args,
             **kwargs
@@ -620,10 +633,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         return lprobs
         
-    def forward(self,input_ids: torch.LongTensor = None , attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, *args, **kwargs):
+    def forward(self,input_ids: torch.LongTensor = None , inputs_embeds = None, attention_mask: Optional[torch.Tensor] = None, labels: Optional[torch.Tensor] = None, *args, **kwargs):
         reduce_mean = kwargs.pop("reduce_mean",True)
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
-            self.forward_(input_ids, attention_mask, *args, **kwargs)
+            self.forward_(input_ids, inputs_embeds, attention_mask, *args, **kwargs)
         
         if labels is not None:
             
