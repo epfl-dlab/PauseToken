@@ -22,6 +22,9 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
 
             thought_mask = (token_ids >= self.vocab_size)
             thought_indices = np.where(thought_mask)[0]
+
+            if len(thought_indices) == 0:
+                return super().decode(token_ids, *args, **kwargs)
             
             text_components = []
             for i, thought_index in enumerate(thought_indices):
