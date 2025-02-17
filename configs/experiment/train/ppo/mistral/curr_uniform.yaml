@@ -4,21 +4,20 @@ defaults:
   - override /rl_algorithm/policy/model/language_model:  auto_peft_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/policy/model/value_head: torch_transformer
-  - override /trainer/callbacks/portion_annealers: linear
+  - override /trainer/callbacks/portion_annealers: uniform
 
 name: "mistral-ppo-on-gsm8k"
-run_name: "mistral_ppo_uniform_curr_sft_1ep_ann_5ep"
+run_name: "uniform"
 
 trainer:
   callbacks:
     portion_annealers:
       lower_bound_init_portion: 0.0
       lower_bound_final_portion: 0.0
-      upper_bound_init_portion: 1.0
-      upper_bound_final_portion: 1.0
+      upper_bound_init_portion: 0.0
+      upper_bound_final_portion: 0.0
       warmup_timesteps: 0
       total_timesteps: 10
-
 
 rl_algorithm:
   ent_coef: 0.1
@@ -26,7 +25,7 @@ rl_algorithm:
   base_kl_coef: 0.1
   learning_rate: 1e-6
   batch_size: 2 # number of rollouts to be used in each training step
-  n_envs: 24
+  n_envs: 16
   n_grad_accumulation_steps: 8
   policy:
     per_token_log_prob: true
