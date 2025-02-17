@@ -175,7 +175,7 @@ def are_latex_expressions_equal(expr1, expr2):
             expr2_ = parse_latex(expr2)
             equals = expr1_.equals(expr2_)
             if equals is None:
-                return False
+                return expr1 == expr2
             return equals
         except:
             return expr1 == expr2
