@@ -1,8 +1,8 @@
 # @package _global_
 defaults:
   - train/ppo/default
-  - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
-  - override /rl_algorithm/policy/model/peft_config: mistral
+  - override /rl_algorithm/policy/model/language_model:  auto_peft_for_causal_lm
+  - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/policy/model/value_head: torch_transformer
   - override /trainer/callbacks/portion_annealers: beta
 
@@ -10,7 +10,15 @@ name: "mistral-ppo-on-gsm8k"
 run_name: "beta_on_sft1"
 
 
-rl_algorithm:
+trainer:
+  callbacks:
+    portion_annealers:
+      init_alpha: 0.1
+      init_beta: 50.0
+      final_alpha: 1.0
+      final_beta: 1.0
+      warmup_timesteps: 0
+      total_timesteps: 20
   
 
 rl_algorithm:
