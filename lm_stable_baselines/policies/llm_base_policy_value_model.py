@@ -71,6 +71,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         """
         filename = os.path.join(load_path, "value_head.pth")
         self.value_head.load_state_dict(torch.load(filename)).to(next(self.lm.parameters()).dtype)
+    
+    
 
     # def predict_values(self, obs) -> torch.Tensor:
     #     """
