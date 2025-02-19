@@ -32,12 +32,11 @@ class LMDummyVecEnv(DummyVecEnv):
         for key in self.keys:    
             if key is None:
                 #get the length of the observation and save it in the buffer
-                len_obs = obs.shape[-1]
+                len_obs = obs.shape[0]
                 
             else:
                 #get the length of the observation and save it in the buffer
-                len_obs = obs[key].shape[-1]
-
+                len_obs = obs[key].shape[0]
             self.buf_obs[key][env_idx][:len_obs] = obs
             self.buf_obs[key][env_idx][len_obs:] = self.filler_token
             

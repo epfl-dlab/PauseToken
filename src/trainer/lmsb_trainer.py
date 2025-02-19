@@ -659,7 +659,7 @@ class LMSBTrainer:
     def on_outer_loop_start(self):
         self.rl_algorithm.current_outer_loop = self.current_outer_loop
         self.rl_algorithm.n_outer_loops = self.n_outer_loops
-
+        init_sup_portion_dist = 0.0
         # find the env_portion_annealer callback and set the portion_dist to the initial portion_dist
         for callback in self.learn_kwargs['callback']:
             if hasattr(callback, "portion_dist"):

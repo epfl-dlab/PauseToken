@@ -32,10 +32,9 @@ class ThoughtPerturbatorConfig(BaseCtrlTokConfig):
         thought_token_id_token_name: str = "<|thought|>",
         **kwargs
     ):
-        if kwargs.get("control_token_to_id") is not None:
-            kwargs["control_token_to_id"][thought_token_id] = thought_token_id_token_name
-        else:
-            kwargs["control_token_to_id"] = {thought_token_id: thought_token_id_token_name}
+        if kwargs.get("control_token_to_id") is None:
+            kwargs["control_token_to_id"] = {}
+   
         kwargs["add_ctrl_tok_to_lm_head"] = False
         kwargs["add_ctrl_tok_to_embeddings"] = False
         super().__init__(**kwargs)
@@ -45,9 +44,12 @@ class ThoughtPerturbatorConfig(BaseCtrlTokConfig):
 class ThoughtPerturbator(BaseControlTokenWrapper):
     config_class = ThoughtPerturbatorConfig
 
-    def __init__(self, thought_embedding_head: DictConfig, **kwargs):
+    def __init__(self, thought_embedding_head: Union[DictConfig, torch.nn.Module], **kwargs):
         super().__init__(**kwargs)
-        self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype)
+        if isinstance(thought_embedding_head, torch.nn.Module):
+            self.thought_embedding_head = thought_embedding_head.to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
+        else:
+            self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
     
     def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str, **kwargs):
         """ Execute function of pause token. Returns CTRL_TOKEN_LABEL anywhere the pause token is present in the labels tensor and LM_HEAD_LABEL elsewhere. 

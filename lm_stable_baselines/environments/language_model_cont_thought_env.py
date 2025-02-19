@@ -9,6 +9,7 @@ import warnings
 import torch
 from torch import LongTensor, FloatTensor, Tensor
 from src.utils.constants import ANSWER_TEMPLATE
+from lm_stable_baselines.utils import hash_ids_and_hidden_states, unhash_ids_and_hidden_states
 
 class LanguageModelContThoughtEnv(Env):
     """Environment for language models with continuous hidden state outputs.
@@ -85,24 +86,17 @@ class LanguageModelContThoughtEnv(Env):
             LanguageModelContThoughtEnv.reprermute_dataset_id_list()
 
         # Define observation and action spaces for both discrete tokens and continuous hidden states
-        self.observation_space = spaces.Dict({
-            'input_ids': spaces.MultiDiscrete([tokenizer.vocab_size] * max_tokens),
-            'hidden_states': spaces.Box(
-                low=-np.inf, high=np.inf, 
-                shape=(max_tokens, hidden_size),
+        self.observation_space = spaces.Box(
+                low=np.finfo(np.float32).min, high=np.finfo(np.float32).max,
+                shape=(max_tokens, hidden_size + 1),
                 dtype=np.float32
             )
-        })
 
-        self.action_space = spaces.Dict({
-            'input_ids': spaces.MultiDiscrete([tokenizer.vocab_size] * max_tokens),
-            'hidden_states': spaces.Box(
-                low=-np.inf, high=np.inf,
-                shape=(max_tokens, hidden_size),
+        self.action_space = spaces.Box(
+                low=np.finfo(np.float32).min, high=np.finfo(np.float32).max,
+                shape=(max_tokens, hidden_size + 1),
                 dtype=np.float32
             )
-        })
-
         self.current_state = {
             'input_ids': [],
             'hidden_states': []
@@ -131,27 +125,30 @@ class LanguageModelContThoughtEnv(Env):
         """Update current observation with new action"""
         if isinstance(curr_obs['input_ids'], list):
             curr_obs['input_ids'].extend(action['input_ids'])
-            curr_obs['hidden_states'].extend(action['hidden_states'])
-        elif isinstance(curr_obs['input_ids'], torch.tensor):
-            curr_obs['input_ids'] = torch.cat([curr_obs['input_ids'], action['input_ids']], dim=0)
-            curr_obs['hidden_states'] = torch.cat([curr_obs['hidden_states'], action['hidden_states']], dim=0)
+            curr_obs['hidden_states'] = np.concatenate([curr_obs['hidden_states'], action['hidden_states']], axis=0)
+        # elif isinstance(curr_obs['input_ids'], torch.tensor):
+        #     curr_obs['input_ids'] = torch.cat([curr_obs['input_ids'], action['input_ids']], dim=0)
+        #     curr_obs['hidden_states'] = torch.cat([curr_obs['hidden_states'], action['hidden_states']], dim=0)
         else:
             raise NotImplementedError
         return curr_obs
 
     def step(self, action: Dict[str, np.ndarray]) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
         """Take a step in the environment with both discrete and continuous actions"""
+       
         self.n_actions_taken += 1
+        act_dict = unhash_ids_and_hidden_states(action)
+        input_ids = act_dict['input_ids']
+        hidden_states = act_dict['hidden_states']
         
         # Clean and process actions
         clean_action = {
-            'input_ids': remove_filler_tokens(action['input_ids'], self.filler_token).squeeze(-1).tolist(),
-            'hidden_states': action['hidden_states'][action['input_ids'] != self.filler_token]
+            'input_ids': remove_filler_tokens(input_ids, self.filler_token).squeeze(-1).tolist(),
+            'hidden_states': hidden_states[input_ids != self.filler_token]
         }
         
         self.current_state = self._step(self.current_state, clean_action)
         observation, reward, terminated, truncated, info = self._get_obs()
-        
         if self.enable_delta_reward:
             reward = reward - self.last_reward
             self.last_reward = reward
@@ -214,6 +211,7 @@ class LanguageModelContThoughtEnv(Env):
             reasoning_steps = self.reasoning_step_splitter.join(reasoning_steps[:supervised_length])
             input_text = input_text + reasoning_steps + self.reasoning_step_splitter
 
+        self.output_text = self.tokenizer(input_sample["output"], return_tensors="np", padding=True, truncation=True)["input_ids"].reshape(-1).tolist()
         
         # Encode input text
         batch_encoding = self.tokenizer(
@@ -224,15 +222,18 @@ class LanguageModelContThoughtEnv(Env):
         )
         
         # Initialize hidden states with zeros
-        hidden_states = np.zeros((len(batch_encoding["input_ids"][0]), self.hidden_size), dtype=np.float32)
+        hidden_states = np.full((batch_encoding["input_ids"].shape[1], self.hidden_size), self.filler_token, dtype=np.float32)
         
         self.current_state = {
             'input_ids': batch_encoding["input_ids"].reshape(-1).tolist(),
             'hidden_states': hidden_states
         }
         
-        self.output_text = input_sample["output"]
         self.n_actions_taken = 0
+        #return the observation and info
+        self.terminated = False
+        self.truncated = False
+        self.done = False
 
         if len(self.current_state['input_ids']) > self.max_tokens:
             warnings.warn(f"Input text too long ({len(self.current_state['input_ids'])} > {self.max_tokens})")
@@ -240,16 +241,16 @@ class LanguageModelContThoughtEnv(Env):
 
         if self.enable_delta_reward:
             self.last_reward = self.reward(self.current_state, self.output_text)
-
-        return self.current_state, {}
+        observation = hash_ids_and_hidden_states(np.array(self.current_state["input_ids"]), self.current_state["hidden_states"])
+        return observation, {}
 
     def _get_obs(self) -> Tuple[Dict[str, np.ndarray], float, bool, bool, Dict[str, Any]]:
         """Get current observation, reward and done flags"""
         is_terminated = self.is_terminated(self.current_state)
         is_truncated = self.is_truncated(self.current_state)
-        reward = self.reward(self.current_state, self.output_text)
-        
-        return self.current_state, reward, is_terminated, is_truncated, {}
+        reward = self.reward(self.current_state["input_ids"], self.output_text)
+        observation = hash_ids_and_hidden_states(np.array(self.current_state["input_ids"]), self.current_state["hidden_states"])
+        return observation, reward, is_terminated, is_truncated, {}
 
     def render(self) -> str:
         """Render current state as text"""

@@ -21,7 +21,7 @@ def instantiate_model(cfg, peft_config=None):
         model_cfg = OmegaConf.to_container(cfg, resolve=True)
     else:
         model_cfg = copy.deepcopy(cfg)
-    
+
     target_exists = "_target_" in model_cfg 
     method_calls = model_cfg.pop("post_instanciation_method_calls", [])
     
@@ -138,7 +138,6 @@ def instantiate_rl_algorithm(rl_cfg, lm, tokenizer, environment, logger=None):
         data_collator = hydra.utils.instantiate(data_collator)
     
     cp["policy_kwargs"] = {**cp["policy_kwargs"],**{"generation_params": instantiate_generation_params(cp["policy_kwargs"]["generation"])}}
-    
     rl_alg = hydra.utils.instantiate(cp, _recursive_=False)
     if not hasattr(rl_alg, "policy"):
         rl_alg._setup_model()

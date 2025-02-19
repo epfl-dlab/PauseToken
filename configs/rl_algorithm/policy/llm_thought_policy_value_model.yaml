@@ -1,0 +1,6 @@
+defaults:
+  - llm_base_policy
+  - model/value_head: mlp # mlp or torch_transformer
+
+_target_: lm_stable_baselines.policies.llm_thought_policy_value_model.LLMThoughtPolicyValueModel
+

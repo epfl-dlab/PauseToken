@@ -98,13 +98,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # base_language_model = deepcopy(language_model)
         # = class_lm.from_pretrained(output_dir, **kwargs).requires_grad_(False)
 
-    
     # Add control tokens to tokenizer if the language model is a control token wrapper
     if isinstance(language_model, BaseControlTokenWrapper):
         # Add new tokens to tokenizer
         new_tokens = []
         for token_name, token_id in sorted(language_model.config.control_token_to_id.items(), key=lambda x: x[1]):
-            
             new_tokens.append(
                 AddedToken(
                     token_name, 

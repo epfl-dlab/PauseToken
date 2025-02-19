@@ -1,0 +1,74 @@
+# @package _global_
+
+defaults:
+  - override /data: gsm8k
+  - override /rl_algorithm: ppo
+  - override /rl_algorithm/policy: llm_thought_policy_value_model
+  - override /rl_algorithm/policy/model/value_head: torch_transformer
+  - override /rl_algorithm/policy/model/language_model:  thought_perturbation_model
+  - override /rl_algorithm/policy/model/tokenizer:  thought_tokenizer
+  - override /rl_algorithm/policy/model/peft_config: null
+  - override /rl_algorithm/environment: language_model_cont_thought_env
+  - override /rl_algorithm/buffer: lm_continous_rollout_buffer
+  - override /rl_algorithm/reward: gsm8k
+  - override /metrics: gsm8k
+  - override /trainer/callbacks/portion_annealers: null
+
+
+name: "thought-ppo-on-gsm8k"
+task_name: "train"
+run_name: debug
+  
+
+trainer:
+  n_steps_before_validation: 6336
+  n_outer_loops: 10
+  progress_bar: true
+  # learn_callbacks:
+  #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
+  num_val_samples: 748
+  save_top_k: 3
+  metric_for_best_model: "val/accuracy"
+  #whether the metric for the best model is min or max (True = min (the lower the better), False = max (the higher the better))
+  metric_for_best_model_mode_is_min: false
+  disable_peft_first_inference: false
+
+rl_algorithm:
+      
+  learning_rate: 1e-6
+  n_steps: 1 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 4 # number of rollouts to be used in each training step
+  n_grad_accumulation_steps: 8
+  loss_computed_in_forward_pass: true
+  use_base_model_for_learning: false
+  ent_coef: 0
+  buffer:
+    advantage_threshold: -1000000
+    # model_dtype: torch.bfloat16   # Only if you want to use bfloat16 in model.
+
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/meta-llama_Llama-3.2-1B     
+      value_head:
+        hidden_dim: 2048
+    generation:
+      train:
+        generation_config:
+          return_dict_in_generate: True
+          pad_token_id: 128002
+      test:
+        generation_config:
+          return_dict_in_generate: True
+          pad_token_id: 128002
+    per_token_log_prob: true
+      # value_head:
+      #   value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/_dlabscratch1_baldwin_pause2_PauseToken_logs_sft_runs_2024-10-21_10-08-12_final.pth
+  reward:
+    inverse_neg_log_likelihood: true
+    correctness_reward_weight: 1.0
+  
+test: true
+test_batch_size: 8
+test_formatting_func: null

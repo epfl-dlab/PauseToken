@@ -27,7 +27,6 @@ class BaseCtrlTokConfig(PretrainedConfig):
         **kwargs
     ):
         super().__init__(**kwargs)
-        assert len(control_token_to_id) > 0, "control_token_to_id should be a list of at least one control token id"
         
         self.control_token_to_id = control_token_to_id
         self.num_control_tokens = len(control_token_to_id)
@@ -83,7 +82,7 @@ class SequenceClassifierOutputWithPastForCtrlTokens(ModelOutput):
 class BaseControlTokenWrapper(PreTrainedModel):
     config_class = BaseCtrlTokConfig
     
-    def __init__(self,config: BaseCtrlTokConfig, language_model: PreTrainedModel = None):
+    def __init__(self,config: BaseCtrlTokConfig, language_model: PreTrainedModel = None, **kwargs):
         super().__init__(config)
         
         ########## Loading Language Model ##########

@@ -12,7 +12,7 @@ class LMCallback(BaseCallback):
         """
         
         arrays_to_reshape = ["actions", "buffer_actions", "new_obs"]
-        max_len = len(self.locals["self"].action_space)
+        max_len = self.locals["self"].action_space.shape[0]
         filler_token = self.locals["self"].policy.filler_token
         for key in arrays_to_reshape:
             if key in self.locals:

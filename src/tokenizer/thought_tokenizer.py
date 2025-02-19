@@ -4,41 +4,61 @@ import numpy as np
 import torch
 import re
 def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = "</th>"):
+    
     """Dynamically create a subclass of the tokenizer and return an instance."""
-    class ThoughtTokenizerWrapper(tokenizer.__class__):
+    class ThoughtTokenizerWrapper:
         
-        def __init__(self, *args,  start_tag: str = "<|", end_tag: str = "|>", **kwargs):
+        def __init__(self, tokenizer,  start_tag: str = "<|", end_tag: str = "|>"):
             # Call the parent's __init__ with the tokenizer's config
-            super().__init__(*args, **kwargs)
+            self.tokenizer = tokenizer
             self.start_tag = start_tag
             self.end_tag = end_tag
+            
+        def __len__(self):
+            return len(self.tokenizer)
+
+        def __getattr__(self, name):
+            """Delegate all attribute and method access to the wrapped tokenizer, except overridden methods."""
+            return getattr(self.tokenizer, name)
+        
+        def __setattr__(self, name, value):
+            """Set attributes on self, but if they don't exist, set them on the tokenizer."""
+            if name in ["tokenizer", "start_tag", "end_tag"]:  # Internal attributes
+                self.__dict__[name] = value
+            else:
+                setattr(self.tokenizer, name, value)  # Forward to tokenizer
 
         def decode(self, token_ids, *args, **kwargs):
             """Override decode while calling the original method."""
+            skip_special_tokens= kwargs.get("skip_special_tokens", False)
+            
             if isinstance(token_ids, torch.Tensor):
                 token_ids = token_ids.cpu().numpy()
             elif isinstance(token_ids, List):
                 token_ids = np.array(token_ids)
 
-            thought_mask = (token_ids >= self.vocab_size)
+            thought_mask = (token_ids >= len(self.tokenizer))
             thought_indices = np.where(thought_mask)[0]
 
             if len(thought_indices) == 0:
-                return super().decode(token_ids, *args, **kwargs)
+                return self.tokenizer.decode(token_ids, *args, **kwargs)
             
             text_components = []
             for i, thought_index in enumerate(thought_indices):
                 if i == 0 and thought_index > 0:
-                    text_components.append(super().decode(token_ids[:thought_index], *args, **kwargs))
-                elif ((thought_indices[i-1] +1) - thought_index) > 0:
-                    text_components.append(super().decode(token_ids[thought_indices[i-1] + 1:thought_index], *args, **kwargs))
+                    text_components.append(self.tokenizer.decode(token_ids[:thought_index], *args, **kwargs))
+                elif ((thought_index -thought_indices[i-1] +1)) > 0:
+                    text_components.append(self.tokenizer.decode(token_ids[thought_indices[i-1] + 1:thought_index], *args, **kwargs))
          
-                thought_token = super().decode(token_ids[thought_index:thought_index+1] - self.vocab_size, *args, **kwargs)
-        
-                text_components.append(f"{self.start_tag}{thought_token}{self.end_tag}")
+                thought_token = self.tokenizer.decode(token_ids[thought_index:thought_index+1] - len(self.tokenizer), *args, **kwargs)
+            
+                if not skip_special_tokens:
+                    thought_token = f"{self.start_tag}{thought_token}{self.end_tag}"
+                
+                text_components.append(thought_token)
 
             if thought_indices[-1] < len(token_ids):
-                text_components.append(super().decode(token_ids[thought_indices[-1] + 1:], *args, **kwargs))
+                text_components.append(self.tokenizer.decode(token_ids[thought_indices[-1] + 1:], *args, **kwargs))
 
             final_text = "".join(text_components)
             
@@ -86,16 +106,16 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                     word = match[2]
                     word = word.replace(self.start_tag, "").replace(self.end_tag, "")
                     if len(all_text[last_end:start]) > 0:
-                        tokenized_output = super().__call__(all_text[last_end:start], padding=False)
+                        tokenized_output = self.tokenizer.__call__(all_text[last_end:start], padding=False)
                         ls_tokenized_text.extend(tokenized_output["input_ids"])
                         ls_attention_mask.extend(tokenized_output["attention_mask"])
-                    tokenized_word_output = super().__call__(word, padding=False)
+                    tokenized_word_output = self.tokenizer.__call__(word, padding=False)
                     assert len(tokenized_word_output["input_ids"]) == 1, f"A thought can only be associated to a single token"
-                    ls_tokenized_text.append(tokenized_word_output["input_ids"][0] + self.vocab_size)
+                    ls_tokenized_text.append(tokenized_word_output["input_ids"][0] + len(self.tokenizer))
                     ls_attention_mask.append(tokenized_word_output["attention_mask"][0])
                     last_end = end
                 if last_end < len(all_text):
-                    tokenized_output = super().__call__(all_text[last_end:], padding=False)
+                    tokenized_output = self.tokenizer.__call__(all_text[last_end:], padding=False)
                     ls_tokenized_text.extend(tokenized_output["input_ids"])
                     ls_attention_mask.extend(tokenized_output["attention_mask"])
 
@@ -118,7 +138,7 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
 
             return result
                 
-    return ThoughtTokenizerWrapper(start_tag=start_tag, end_tag=end_tag, **tokenizer.init_kwargs, )
+    return ThoughtTokenizerWrapper(start_tag=start_tag, end_tag=end_tag,tokenizer=tokenizer) 
 
 
 def test_tokenizer():
@@ -133,7 +153,7 @@ def test_tokenizer():
     print("Exp1: ")
     print(" Original: ", test)
     print(" text -> tok", result_text_to_tok["input_ids"])
-    print(" mask", (result_text_to_tok["input_ids"] >= tokenizer.vocab_size))
+    print(" mask", (result_text_to_tok["input_ids"] >= len(tokenizer)))
     print(" tok --> text: ", result_tok_to_text)
 
 
@@ -143,7 +163,7 @@ def test_tokenizer():
     print("Exp1: ")
     print(" Original: ", test)
     print(" text -> tok", result_text_to_tok["input_ids"])
-    print(" mask", (result_text_to_tok["input_ids"] >= tokenizer.vocab_size))
+    print(" mask", (result_text_to_tok["input_ids"] >= len(tokenizer)))
     print(" tok --> text: ", result_tok_to_text)
 
 if __name__ == "__main__":

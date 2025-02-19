@@ -1,1 +1,2 @@
 from lm_stable_baselines.environments.language_model_env import LanguageModelEnv
+from lm_stable_baselines.environments.language_model_cont_thought_env import LanguageModelContThoughtEnv

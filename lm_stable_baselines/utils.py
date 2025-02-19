@@ -1,11 +1,92 @@
 import re
 import numpy as np
 import torch
-from typing import Union, List
+from typing import Union, List, Dict
 from transformers import PreTrainedTokenizer
 from functools import partial
 import warnings
 
+
+def remove_filler_tokens_from_hashed_array(combined_tensor: torch.FloatTensor, filler_token: int) -> Dict[str, torch.Tensor]:
+    """ Remove filler tokens from the combined tensor
+    
+    :param combined_tensor: Combined tensor
+    :type combined_tensor: torch.FloatTensor
+    :param filler_token: Filler token
+    :type filler_token: int
+    :return: Dictionary containing hidden states and input ids
+    :rtype: Dict[str, torch.Tensor]
+    """
+    tensor_dict = unhash_ids_and_hidden_states(combined_tensor)
+    input_ids = tensor_dict["input_ids"]
+    #find postion of filler tokens in input_ids
+    filler_positions = (input_ids == filler_token)
+    return [tensor[~filler_position] for tensor, filler_position in zip(combined_tensor, filler_positions)]
+
+def pad_hidden_states(hidden_states: torch.FloatTensor, attention_mask: torch.LongTensor, filler_token: int, padding_side: str) -> torch.FloatTensor:
+    """ Pad hidden states to make them of length max_seq_len
+    
+    :param hidden_states: Hidden states
+    :type hidden_states: torch.FloatTensor
+    :param max_seq_len: Maximum sequence length
+    :type max_seq_len: int
+    :param filler_token: Filler token
+    :type filler_token: int
+    :param padding_side: Padding side
+    :type padding_side: str
+    :return: Padded hidden states
+    :rtype: torch.FloatTensor
+    """
+    seq_len_per_batch = (attention_mask.bool()).sum(dim = -1)
+    
+    if isinstance(hidden_states, np.ndarray):
+        padded_hidden_states = np.full(
+            (hidden_states.shape[0], attention_mask.shape[1], hidden_states.shape[2]),
+            filler_token,
+            dtype = hidden_states.dtype
+        )
+    elif isinstance(hidden_states, torch.Tensor):
+        padded_hidden_states = torch.full(
+            (hidden_states.shape[0], attention_mask.shape[1], hidden_states.shape[2]),
+            filler_token,
+            device = hidden_states.device,
+            dtype = hidden_states.dtype
+        )
+    else:
+        raise ValueError("Array must be either a numpy array or a torch tensor")
+    for idx, seq_len in enumerate(seq_len_per_batch):
+        if seq_len == 0:
+            continue
+        elif padding_side == "right":
+            padded_hidden_states[idx, :seq_len] = hidden_states[idx, :seq_len]
+        else:
+            padded_hidden_states[idx, -seq_len:] = hidden_states[idx, :seq_len]
+    return padded_hidden_states
+
+def hash_ids_and_hidden_states(input_ids: Union[np.ndarray, torch.LongTensor], hidden_states: Union[np.ndarray, torch.FloatTensor]) -> Union[np.ndarray, torch.FloatTensor]:
+    # hidden_states -> (bs, seq_len, hidden_dim)
+    # input_ids -> (bs, seq_len, 1)
+    if isinstance(input_ids, torch.Tensor):
+        cat_method = partial(torch.cat, dim = -1)
+        input_ids = input_ids.unsqueeze(-1)
+        tensors = (hidden_states, input_ids)
+    elif isinstance(input_ids, np.ndarray):
+        cat_method = partial(np.concatenate, axis = -1)
+        input_ids = input_ids[..., np.newaxis]
+        tensors = [hidden_states, input_ids]
+    else:
+        raise ValueError("Array must be either a numpy array or a torch tensor")
+    
+    combined_tensor = cat_method(tensors)
+    return combined_tensor
+
+def unhash_ids_and_hidden_states(combined_tensor: Union[np.ndarray, torch.FloatTensor]) -> Dict[str, Union[np.ndarray, torch.FloatTensor]]:
+    if isinstance(combined_tensor, torch.Tensor):
+        return {"hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].long()}
+    elif isinstance(combined_tensor, np.ndarray):
+        return {"hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].astype(int)}
+    else:
+        raise ValueError("Array must be either a numpy array or a torch tensor")
 
 def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Tensor, List[torch.Tensor]]:
     """ Remove filler tokens from the obs tensor. Function usually used before padding
@@ -29,7 +110,7 @@ def remove_filler_tokens(obs: torch.Tensor, filler_token: int) -> Union[torch.Te
     return [ob[ob != filler_token] for ob in obs]
 
 
-def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, filler_token: int)-> Union[np.ndarray, torch.Tensor]:
+def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, filler_token: int, dim = -1)-> Union[np.ndarray, torch.Tensor]:
     """ Add filler tokens to the array to make it of length max_tokens
     
     :param array: Array to add filler tokens to
@@ -42,24 +123,28 @@ def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, f
     :rtype: np.array
     """
     if isinstance(array, torch.Tensor):
-        cat_method = partial(torch.cat, dim = -1)
+        cat_method = partial(torch.cat, dim = dim)
         create_tensor_method = partial(torch.full, device = array.device)
     elif isinstance(array, np.ndarray):
-        cat_method = partial(np.concatenate, axis = -1)
+        cat_method = partial(np.concatenate, axis = dim)
         create_tensor_method = np.full
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
     
-    if array.shape[-1] > max_tokens:
+    if array.shape[dim] > max_tokens:
         warnings.warn(
             f"Array is already longer than max_tokens (max_tokens: {max_tokens}, your array length: {array.shape[-1]}). \
                 Array will be truncated. If this is not the desired behavior, consider increasing the max_tokens parameter")
         array = array[..., :max_tokens]
+    
+    elif array.shape[dim] < max_tokens:
+        array_shape = list(array.shape)[:dim]
+        next_dim = max_tokens - array.shape[dim]
+        array_shape.append(next_dim)
+        if dim < len(array.shape) - 1 and dim != -1 :
+            array_shape.extend(list(array.shape)[dim + 1:])
         
-    if array.shape[-1] < max_tokens:
-        array_shape = list(array.shape)[:-1]
-        last_dim = max_tokens - array.shape[-1]
-        filler_tensor = create_tensor_method(tuple(array_shape + [last_dim]), filler_token)
+        filler_tensor = create_tensor_method(array_shape, filler_token)
         
         array = cat_method([array, filler_tensor])
 

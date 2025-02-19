@@ -26,10 +26,7 @@ import copy
 class AbstractLMOnPolicy:
     
     def __init__(self, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False):
-        
-        assert all([isinstance(myenv, LanguageModelEnv) for myenv in self.env.envs]), "All environments must \
-                                                                                            be of type LanguageModelEnv"
-        
+          
         # setting filler tokens
         all_filler_token = [myenv.filler_token for myenv in self.env.envs]
         assert all([filler_token == all_filler_token[0] for filler_token in all_filler_token]), "All environments must \

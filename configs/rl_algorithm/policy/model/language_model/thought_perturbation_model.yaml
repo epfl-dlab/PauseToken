@@ -1,0 +1,32 @@
+defaults:
+  - .@language_model: auto_model_for_causal_lm
+
+_target_: src.model.components.control_token_wrappers.ThoughtPerturbator
+
+pretrained_model_name_or_path: ???
+
+language_model:
+  pretrained_model_name_or_path:  ${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}
+
+config:
+  _target_: src.model.components.control_token_wrappers.ThoughtPerturbatorConfig
+  thought_token_id: ${get_obj_attr:${rl_algorithm.policy.model.tokenizer},['vocab_size']}
+  thought_token_id_token_name: <|thought|> 
+  ctrl_token_head_temperature: 1.0
+  detach_ctrl_tok_clf: false
+
+
+thought_embedding_head:
+  _target_: src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer
+  hidden_dim: 2048
+  transformer_config: 
+    _target_: transformers.GPT2Model
+    config: 
+      _target_: transformers.GPT2Config
+      vocab_size: 0
+      n_embd: 2048
+      n_layer: 1
+      n_head: 1
+      n_positions: 1025
+
+post_instanciation_method_calls: []
