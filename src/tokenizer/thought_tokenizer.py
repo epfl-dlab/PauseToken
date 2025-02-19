@@ -3,8 +3,8 @@ from typing import List, Union
 import numpy as np
 import torch
 import re
+
 def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = "</th>"):
-    
     """Dynamically create a subclass of the tokenizer and return an instance."""
     class ThoughtTokenizerWrapper:
         
@@ -30,12 +30,14 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
 
         def decode(self, token_ids, *args, **kwargs):
             """Override decode while calling the original method."""
-            skip_special_tokens= kwargs.get("skip_special_tokens", False)
+            skip_special_tokens = kwargs.get("skip_special_tokens", False)
             
             if isinstance(token_ids, torch.Tensor):
                 token_ids = token_ids.cpu().numpy()
             elif isinstance(token_ids, List):
                 token_ids = np.array(token_ids)
+            elif isinstance(token_ids, int):
+                token_ids = np.array([token_ids])
 
             thought_mask = (token_ids >= len(self.tokenizer))
             thought_indices = np.where(thought_mask)[0]
@@ -44,25 +46,48 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                 return self.tokenizer.decode(token_ids, *args, **kwargs)
             
             text_components = []
-            for i, thought_index in enumerate(thought_indices):
-                if i == 0 and thought_index > 0:
-                    text_components.append(self.tokenizer.decode(token_ids[:thought_index], *args, **kwargs))
-                elif ((thought_index -thought_indices[i-1] +1)) > 0:
-                    text_components.append(self.tokenizer.decode(token_ids[thought_indices[i-1] + 1:thought_index], *args, **kwargs))
-         
-                thought_token = self.tokenizer.decode(token_ids[thought_index:thought_index+1] - len(self.tokenizer), *args, **kwargs)
-            
-                if not skip_special_tokens:
-                    thought_token = f"{self.start_tag}{thought_token}{self.end_tag}"
-                
-                text_components.append(thought_token)
+            current_thought_start = None
+            current_thought_tokens = []
 
-            if thought_indices[-1] < len(token_ids):
-                text_components.append(self.tokenizer.decode(token_ids[thought_indices[-1] + 1:], *args, **kwargs))
+            # Handle text before first thought token
+            if thought_indices[0] > 0:
+                text_components.append(self.tokenizer.decode(token_ids[:thought_indices[0]], *args, **kwargs))
 
-            final_text = "".join(text_components)
-            
-            return final_text
+            for i, idx in enumerate(thought_indices):
+                if current_thought_start is None:
+                    current_thought_start = idx
+                    current_thought_tokens = [token_ids[idx] - len(self.tokenizer)]
+                elif idx == thought_indices[i-1] + 1:
+                    # Consecutive thought token
+                    current_thought_tokens.append(token_ids[idx] - len(self.tokenizer))
+                else:
+                    # Gap in thought tokens, decode previous group
+                    thought_text = self.tokenizer.decode(current_thought_tokens, *args, **kwargs)
+                    if not skip_special_tokens:
+                        thought_text = f"{self.start_tag}{thought_text}{self.end_tag}"
+                    text_components.append(thought_text)
+                    
+                    # Add text between thought groups
+                    if idx > thought_indices[i-1] + 1:
+                        text_components.append(self.tokenizer.decode(
+                            token_ids[thought_indices[i-1]+1:idx], *args, **kwargs))
+                    
+                    # Start new thought group
+                    current_thought_start = idx
+                    current_thought_tokens = [token_ids[idx] - len(self.tokenizer)]
+
+            # Handle final thought group
+            thought_text = self.tokenizer.decode(current_thought_tokens, *args, **kwargs)
+            if not skip_special_tokens:
+                thought_text = f"{self.start_tag}{thought_text}{self.end_tag}"
+            text_components.append(thought_text)
+
+            # Handle text after last thought token
+            if thought_indices[-1] < len(token_ids) - 1:
+                text_components.append(self.tokenizer.decode(
+                    token_ids[thought_indices[-1]+1:], *args, **kwargs))
+
+            return "".join(text_components)
 
         def batch_decode(self, sequences, *args, **kwargs):
             """Override batch_decode while calling the original method."""

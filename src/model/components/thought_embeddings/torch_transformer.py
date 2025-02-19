@@ -16,7 +16,7 @@ class ThoughtTransformer(torch.nn.Module):
         if attention_mask is None:
             attention_mask = torch.ones((last_hidden_states.size(0), last_hidden_states.size(1)), device=last_hidden_states.device)
             
-        thoughts = self.model(inputs_embeds=last_hidden_states, attention_mask=attention_mask).last_hidden_state
+        thoughts = self.model(inputs_embeds=last_hidden_states, attention_mask=attention_mask).last_hidden_state / self.hidden_dim
         
         return thoughts
     
