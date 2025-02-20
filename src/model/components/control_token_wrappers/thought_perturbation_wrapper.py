@@ -198,7 +198,12 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # forward pass to get next token
             outputs = self(**model_inputs, return_dict=True)
 
-            last_hidden_states = outputs.hidden_states[-1]
+            # since we use past key/values, the forward pass outputs is only the last hidden states, which needs to be
+            # appended to the prior ones.
+            if last_hidden_states is not None:
+                last_hidden_states = torch.cat([last_hidden_states, outputs.hidden_states[-1]], dim=1)
+            else:
+                last_hidden_states = outputs.hidden_states[-1]
 
             # synced_gpus: don't waste resources running the code we don't need; kwargs must be updated before skipping
             model_kwargs = self._update_model_kwargs_for_generation(
@@ -212,10 +217,10 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # Clone is needed to avoid keeping a hanging ref to outputs.logits which may be very large for first iteration
             # (the clone itself is always small)
             next_token_logits = outputs.logits.clone()[:, -1, :].float()
-            next_token_logits = next_token_logits.to(input_ids.device)
+            # next_token_logits = next_token_logits.to(input_ids.device)
 
             next_control_token_logits = outputs.control_token_logits.clone()[:, -1, :].float()
-            next_control_token_logits = next_control_token_logits.to(input_ids.device)
+            # next_control_token_logits = next_control_token_logits.to(input_ids.device)
 
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
@@ -415,7 +420,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
 
         #Add thoughts to input embeddings in the case there are any thoughts to be added
         if thought_mask.any():
-            thought_perturbance = self.thought_embedding_head(thought_hidden_states)
+            thought_perturbance = self.thought_embedding_head(thought_hidden_states, attention_mask=attention_mask[:, :-1])
             # Can happen that it's not the same shape if calling generate (past_key_values make that you only pass the last embedding/ input id)
             _ , seq_len, _ = inputs_embeds.size()
             thought_perturbance = thought_mask.unsqueeze(-1)[:,-seq_len:,:] * thought_perturbance[:,:seq_len,:]
