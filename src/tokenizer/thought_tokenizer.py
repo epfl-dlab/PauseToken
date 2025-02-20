@@ -8,11 +8,12 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
     """Dynamically create a subclass of the tokenizer and return an instance."""
     class ThoughtTokenizerWrapper:
         
-        def __init__(self, tokenizer,  start_tag: str = "<|", end_tag: str = "|>"):
+        def __init__(self, tokenizer,  start_tag: str = "<|", end_tag: str = "|>", no_thought_tags = True):
             # Call the parent's __init__ with the tokenizer's config
             self.tokenizer = tokenizer
             self.start_tag = start_tag
             self.end_tag = end_tag
+            self.no_thought_tags = no_thought_tags
             
         def __len__(self):
             return len(self.tokenizer)
@@ -30,6 +31,7 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
 
         def decode(self, token_ids, *args, **kwargs):
             """Override decode while calling the original method."""
+
             skip_special_tokens = kwargs.get("skip_special_tokens", False)
             
             if isinstance(token_ids, torch.Tensor):
@@ -38,6 +40,10 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                 token_ids = np.array(token_ids)
             elif isinstance(token_ids, int):
                 token_ids = np.array([token_ids])
+
+            if self.no_thought_tags:
+                token_ids[token_ids >= len(self.tokenizer)] = token_ids[token_ids >= len(self.tokenizer)] - len(self.tokenizer)
+                return self.tokenizer.decode(token_ids, *args, **kwargs)
 
             thought_mask = (token_ids >= len(self.tokenizer))
             thought_indices = np.where(thought_mask)[0]
@@ -98,6 +104,10 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
             if len(sequences.shape) == 1:
                 sequences = sequences.reshape(-1, 1)
 
+            if self.no_thought_tags:
+                sequences[sequences >= len(self.tokenizer)] = sequences[sequences >= len(self.tokenizer)] - len(self.tokenizer)
+                return self.tokenizer.batch_decode(sequences, *args, **kwargs)
+
             return [self.decode(sequence, *args, **kwargs) for sequence in sequences]
         
         def find_tag_positions(self, text: str) -> list:
@@ -108,6 +118,8 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
 
         def __call__(self, text, **kwargs):
             """Override __call__ while calling the original method."""
+            if self.no_thought_tags:
+                return self.tokenizer.__call__(text, **kwargs)
             # typing.Union[str, typing.List[str], typing.List[typing.List[str]]] = None
             if isinstance(text, str):
                 all_matches = [self.find_tag_positions(text)]
