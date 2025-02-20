@@ -50,9 +50,13 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/public/llm_weights/meta-llama_Llama-3.2-1B     
+        pretrained_model_name_or_path:  /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/llama3B_sft_1_ep_true/f41e5567ac21e71a8caad4a52708e1b74ee6e6d576f76d38475b7f9712632d40/ckpt-12672-0.414
+        thought_embedding_head:
+          hidden_dim: 3072
+
       value_head:
-        hidden_dim: 2048
+        hidden_dim: 3072
+      
     generation:
       train:
         generation_config:
