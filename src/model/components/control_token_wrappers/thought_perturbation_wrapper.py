@@ -50,7 +50,8 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             self.thought_embedding_head = thought_embedding_head.to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
         else:
             self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
-    
+        self.thought_mode = kwargs.pop("thought_mode", "always")
+        
     def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str, **kwargs):
         """ Execute function of pause token. Returns CTRL_TOKEN_LABEL anywhere the pause token is present in the labels tensor and LM_HEAD_LABEL elsewhere. 
         This function is used to determine whether each token in the input sequence is a control token (or part of a control token) or not. It's also used to determine the loss of the model.
@@ -66,6 +67,10 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
     def thought_perturbator_forward(self, latent, attention_mask):
         perturbated_thoughts = self.value_head(latent, attention_mask=attention_mask)
         return perturbated_thoughts
+    
+    def set_thought_mode(self, thought_mode):
+        assert thought_mode in ["always", "never", "prob"], "Thought mode should be one of ['always', 'never', 'prob']"
+        self.thought_mode = thought_mode
 
     @torch.no_grad()
     def generate(
@@ -243,10 +248,16 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
                 # TODO (joao): this OP throws "skipping cudagraphs due to ['incompatible ops']", find solution
                 next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
                 next_ctrl_tok = torch.multinomial(ctrl_tok_probs, num_samples=1).squeeze(1)
+                
             else:
                 next_tokens = torch.argmax(next_token_scores, dim=-1)
                 next_ctrl_tok = torch.argmax(next_control_token_logits, dim=-1)
 
+            if self.thought_mode == "never":
+                next_ctrl_tok = torch.ones_like(next_ctrl_tok)
+            elif self.thought_mode == "always":
+                next_ctrl_tok = torch.zeros_like(next_ctrl_tok)
+            
             # finished sentences should have their next token be a padding token
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)

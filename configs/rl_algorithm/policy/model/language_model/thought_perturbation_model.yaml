@@ -4,7 +4,7 @@ defaults:
 _target_: src.model.components.control_token_wrappers.ThoughtPerturbator
 
 pretrained_model_name_or_path: ???
-
+thought_mode: always
 language_model:
   pretrained_model_name_or_path:  ${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}
 
@@ -24,9 +24,9 @@ thought_embedding_head:
     config: 
       _target_: transformers.GPT2Config
       vocab_size: 0
-      n_embd: 2048
-      n_layer: 1
-      n_head: 1
+      n_embd: ${...hidden_dim}
+      n_layer: 8
+      n_head: 8
       n_positions: 1025
 
 post_instanciation_method_calls: []

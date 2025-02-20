@@ -11,6 +11,13 @@ from stable_baselines3.common.type_aliases import RolloutBufferSamples
 
 
 class LMContinousRolloutBuffer(LMRolloutBuffer):
+    
+    def reset(self) -> None:
+        super().reset()
+        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.float32) + self.filler_token
+        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.float32) +self.filler_token
+        self.above_threshold_indices = None
+        self.data_size = 0
 
     def remove_filler_tokens_and_pad(self, tensor, batch_inds,):
         
@@ -56,7 +63,6 @@ class LMContinousRolloutBuffer(LMRolloutBuffer):
         # convert log_prob, value to float 32 (problematic when model is in float 16)
         log_prob = log_prob.float()
         value = value.float()
-        
         super().add(obs, action, reward, episode_start, value, log_prob)
         
     def _get_samples(self, batch_inds, env: Optional[VecNormalize] = None, padding='right') -> RolloutBufferSamples:

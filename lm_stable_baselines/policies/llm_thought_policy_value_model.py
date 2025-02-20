@@ -7,7 +7,13 @@ from lm_stable_baselines.utils import add_filler_tokens,unhash_ids_and_hidden_st
 
 class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
-        features = unhash_ids_and_hidden_states(obs)
+        if isinstance(obs, dict):
+            if "thought_hidden_states" in obs:
+                return obs
+            else:
+                features = obs
+        else:
+            features = unhash_ids_and_hidden_states(obs)
         
         obs_to_pass = features["input_ids"]
         device = obs_to_pass.device

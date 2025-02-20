@@ -222,7 +222,7 @@ class LanguageModelContThoughtEnv(Env):
         )
         
         # Initialize hidden states with zeros
-        hidden_states = np.full((batch_encoding["input_ids"].shape[1], self.hidden_size), self.filler_token, dtype=np.float32)
+        hidden_states = np.full((batch_encoding["input_ids"].shape[1], self.hidden_size), 0, dtype=np.float32)
         
         self.current_state = {
             'input_ids': batch_encoding["input_ids"].reshape(-1).tolist(),
@@ -273,8 +273,8 @@ class LanguageModelContThoughtEnv(Env):
     def compute_portion_from_obs_actions(self, rollout_data) -> float:
         #assumption: filler tokens have been removed
         obs = rollout_data.observations["input_ids"]
-        actions = rollout_data.actions
-
+        actions = rollout_data.actions["input_ids"]
+        
         obs = remove_filler_tokens(obs, self.tokenizer.pad_token_id)
         actions = remove_filler_tokens(actions, self.tokenizer.pad_token_id)
 

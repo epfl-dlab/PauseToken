@@ -64,7 +64,7 @@ class LMRolloutBuffer(RolloutBuffer):
     def reset(self) -> None:
         super().reset()
         self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=np.int64) + self.filler_token
-        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.int64) +self.filler_token
+        self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.int64) + self.filler_token
         self.above_threshold_indices = None
         self.data_size = 0
 
@@ -77,7 +77,7 @@ class LMRolloutBuffer(RolloutBuffer):
 
     def to_torch(self, array: Union[np.ndarray, torch.Tensor, transformers.BatchEncoding, dict], copy: bool = True) -> Union[torch.Tensor, transformers.BatchEncoding]:
         if isinstance(array, transformers.BatchEncoding,) or isinstance(array, dict):
-            return {k: v.to(self.device) for k,v in array.items()}
+            return {k: self.to_torch(v).to(self.device) for k,v in array.items()}
         elif isinstance(array, torch.Tensor):
             return array.to(self.device)
         return super().to_torch(array, copy)
