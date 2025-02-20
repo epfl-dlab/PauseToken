@@ -118,6 +118,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             assert token_id == tokenizer.convert_tokens_to_ids(token_name), \
                 f"Token id mismatch for token {token_name}! Expected {token_id} but tokenizer tokenized it as {tokenizer.convert_tokens_to_ids(token_name)}"
     
+    # if the language model is predicting thoughts, the eos is going to be shifted too! the generation has to stop
+    # when the soft EOS is predicted
+    if language_model.thought_mode=='always':
+        cfg.rl_algorithm.policy.generation.train.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
+        cfg.rl_algorithm.policy.generation.test.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
+
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
     )

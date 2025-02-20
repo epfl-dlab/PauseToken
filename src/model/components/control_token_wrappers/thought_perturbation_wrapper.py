@@ -267,7 +267,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-
+            
             condition = (next_ctrl_tok == 0)
             next_tokens = torch.where( condition.bool(), next_tokens + self.language_model.config.vocab_size, next_tokens)
             next_mask = condition.long()[:, None]
