@@ -195,6 +195,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             model_inputs.update({"output_hidden_states": output_hidden_states} if output_hidden_states else {})
             model_inputs.update({"thought_hidden_states": last_hidden_states})
             model_inputs.update({"thought_mask": thought_mask})
+            model_inputs.update({"thought_attention_mask": model_inputs['attention_mask'][:, :-1]})
             # forward pass to get next token
             outputs = self(**model_inputs, return_dict=True)
 
@@ -396,6 +397,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             attention_mask: torch.LongTensor = None,
             thought_hidden_states: torch.Tensor = None,
             thought_mask: torch.LongTensor = None,
+            thought_attention_mask: torch.LongTensor = None,
             labels: Optional[torch.Tensor] = None,
             *args,
             **kwargs
@@ -420,7 +422,8 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
 
         #Add thoughts to input embeddings in the case there are any thoughts to be added
         if thought_mask.any():
-            thought_perturbance = self.thought_embedding_head(thought_hidden_states, attention_mask=attention_mask[:, :-1])
+            thought_attention_mask = attention_mask if thought_attention_mask is None else thought_attention_mask 
+            thought_perturbance = self.thought_embedding_head(thought_hidden_states, attention_mask=thought_attention_mask)
             # Can happen that it's not the same shape if calling generate (past_key_values make that you only pass the last embedding/ input id)
             _ , seq_len, _ = inputs_embeds.size()
             thought_perturbance = thought_mask.unsqueeze(-1)[:,-seq_len:,:] * thought_perturbance[:,:seq_len,:]
