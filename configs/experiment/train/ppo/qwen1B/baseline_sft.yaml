@@ -5,7 +5,7 @@ defaults:
   - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/policy/model/value_head: torch_transformer
 
-name: "LLama1B-ppo-on-gsm8k"
+name: "Qwen1B-ppo-on-gsm8k"
 run_name: "baseline_1ep_sft"
 
 trainer:
@@ -20,15 +20,17 @@ rl_algorithm:
       language_model:
         pretrained_model_name_or_path: ???
       value_head:
-        hidden_dim: 2048
+        hidden_dim: 3584
 
     generation:
       train:
         generation_config:
-          pad_token_id: 128002
+          pad_token_id: 151655
+          bos_token_id: null
 
       test:
         generation_config:
-          pad_token_id: 128002
+          pad_token_id: 151655
+          bos_token_id: null
 
   

@@ -1,4 +1,4 @@
-# PauseToken
+# LM Stable Baselines
 
 ## Installation
 
@@ -17,6 +17,247 @@
     pip install -r pip_requirements.txt
     ```
 
+## Data
+
+You can download the the data here (it's just the MATH dataset in a special format and gsm8k): https://drive.google.com/file/d/1kRv4X3ZDlKj9-4Rf5E5MqzqQWJooX340/view?usp=sharing
+
+Once you've downloaded it, unzip it, create a data folder and put it in there. Your data folder should be here:
+```
+PauseToken
+|
+|-> data/
+    |-> MATH_json/
+        |-> train.json
+        |-> test.json
+    |-> gsm8k_jsonl/
+        |-> train.json
+        |-> test.json
+|-> src/
+    |-> model/
+    ....
+...
+```
+
+## Training Curriculum
+
+### Step 1: Warming up model with round of SFT
+
+Here's a template on how to run sft:
+
+```bash
+# OPTIONS
+## <MODEL-NAME>: mistral, llama1B , llama3B 
+## <DATA>: gsm8k , math , pros_qa
+## <REWARD>: gsm8k , math , pros_qa
+## <METRIC>: gsm8k , math , pros_qa
+## <NUM_VAL_SAMPLES>: 748 (for gsm8k), 750 (for math), 300 (for pros_qa)
+
+
+python src/train.py experiment=train/sft/<MODEL-NAME> data=<DATA> metrics=<METRIC> rl_algorithm/reward=<REWARD> trainer.num_val_samples=<NUM_VAL_SAMPLES> trainer.n_outer_loops=1 run_name=<YOUR-RUN-NAME-HERE>
+```
+
+So for example if I want to run sft for mistral on gsm8k:
+```bash
+python src/train.py experiment=train/sft/mistral data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=sft_mistral_gsm8k
+```
+
+For the sake of being fully clear (and because there are a few exceptions) I'll explicitely write all the warm up runs we did
+
+#### All Mistral SFT Runs
+```bash
+# Mistral on gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/mistral data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_mistral_gsm8k
+# Mistral on Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/mistral data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_mistral_math rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.n_envs=16
+```
+
+<!-- #### All llama1B SFT Runs
+```bash
+# llama1B on gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/llama1B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_llama1B_gsm8k
+# llama1B on Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/llama1B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_llama1B_math rl_algorithm.policy.max_output_generation_length=2048
+# llama 1B on pros_qa
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/llama1B data=pros_qa metrics=pros_qa rl_algorithm/reward=pros_qa trainer.num_val_samples=300 trainer.n_outer_loops=1 run_name=warmup_llama1B_pros_qa
+
+``` -->
+
+#### All llama3B SFT Runs
+```bash
+# llama3B on gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/llama3B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_llama3B_gsm8k
+# llama3B on Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-PATH-TO-MODEL> experiment=train/sft/llama3B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_llama3B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
+#### All Qwen1.5B SFT Runs
+```bash
+# llama3B on gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-1.5B experiment=train/sft/qwen1B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_qwen1B_gsm8k
+# llama3B on Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-1.5B experiment=train/sft/qwen1B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_qwen1B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
+#### All Qwen7B SFT Runs
+```bash
+# llama3B on gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-7B experiment=train/sft/qwen7B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_qwen7B_gsm8k
+# llama3B on Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-7B experiment=train/sft/qwen7B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_qwen7B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
+
+### Step 2: Running Curriculum and the baselines:
+
+Here's a template on how to run Curriculum and it's baseline
+
+```bash
+## <MODEL-NAME>: mistral, llama1B , llama3B 
+## <DATA>: gsm8k , math , pros_qa
+## <REWARD>: gsm8k , math , pros_qa
+## <METRIC>: gsm8k , math , pros_qa
+## <NUM_VAL_SAMPLES>: 748 (for gsm8k), 750 (for math), 300 (for pros_qa)
+
+# Baseline
+python src/train.py experiment=train/ppo/<MODEL-NAME>/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true run_name=<RUN-NAME> rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=<DATA> rl_algorithm/reward=<REWARD> metrics=<METRIC> trainer.num_val_samples=<NUM_VAL_SAMPLES> rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY>
+
+# Curriculum with Beta
+python src/train.py experiment=train/ppo/<MODEL-NAME>/curr_beta rl_algorithm.policy.ft_on_action_only=true run_name=<RUN-NAME> rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=10 data=<DATA> rl_algorithm/reward=<REWARD> metrics=<METRIC> trainer.num_val_samples=<NUM_VAL_SAMPLES> rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY>
+
+
+# Curriculum with Uniform Distribution
+python src/train.py experiment=train/ppo/<MODEL-NAME>/curr_uniform rl_algorithm.policy.ft_on_action_only=true run_name=<RUN-NAME> rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=<NUM_VAL_SAMPLES> rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY>
+```
+
+For the sake of being perfectly clear, I'll show how to run all 
+
+#### All Mistral Runs
+
+```bash
+
+### PPO Baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=mistral-on-gsm8k run_name=mistral_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=mistral-on-math run_name=mistral_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=1800
+
+
+### Curriculum with Beta
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/curr_beta rl_algorithm.policy.ft_on_action_only=true name=mistral-on-gsm8k run_name=mistral_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/curr_beta rl_algorithm.policy.ft_on_action_only=true name=mistral-on-math run_name=mistral_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=1800
+
+
+### Curriculum with Uniform
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=mistral-on-gsm8k run_name=mistral_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/mistral/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=mistral-on-math run_name=mistral_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=1800
+
+
+### SFT As baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/mistral data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=50 run_name=sft_mistral_gsm8k
+#  Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/mistral data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=50 run_name=sft_mistral_math rl_algorithm.policy.max_output_generation_length=1800 rl_algorithm.n_envs=16
+```
+
+
+#### All LLama3B Runs
+```bash
+
+### PPO Baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-gsm8k run_name=llama3B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-math run_name=llama3B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Beta
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-gsm8k run_name=llama3B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-math run_name=llama3B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Uniform
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-gsm8k run_name=llama3B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/llama3B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=llama3B-on-math run_name=llama3B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### SFT As baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/llama3B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=50 run_name=sft_llama3B_gsm8k
+#  Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/llama3B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=50 run_name=sft_llama3B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
+
+#### All Qwen1B Runs
+```bash
+
+### PPO Baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-gsm8k run_name=qwen1B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-math run_name=qwen1B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Beta
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-gsm8k run_name=qwen1B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-math run_name=qwen1B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Uniform
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-gsm8k run_name=qwen1B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen1B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=qwen1B-on-math run_name=qwen1B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### SFT As baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/qwen1B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=50 run_name=sft_qwen1B_gsm8k
+#  Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/qwen1B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=50 run_name=sft_qwen1B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
+#### All Qwen7B Runs
+```bash
+
+### PPO Baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-gsm8k run_name=qwen7B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/baseline_sft trainer.n_outer_loops=50 rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-math run_name=qwen7B_rl_baseline_ppo rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Beta
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-gsm8k run_name=qwen7B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/curr_beta rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-math run_name=qwen7B_beta_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.init_alpha=5.0 trainer.callbacks.portion_annealers.final_alpha=0.05 trainer.callbacks.portion_annealers.init_beta=5.0 trainer.callbacks.portion_annealers.final_beta=10.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### Curriculum with Uniform
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-gsm8k run_name=qwen7B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=gsm8k rl_algorithm/reward=gsm8k metrics=gsm8k trainer.num_val_samples=748
+# math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/ppo/qwen7B/curr_uniform rl_algorithm.policy.ft_on_action_only=true name=qwen7B-on-math run_name=qwen7B_unif_curr_ppo rl_algorithm.ent_coef=0.01 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 trainer.n_outer_loops=50 trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 trainer.callbacks.portion_annealers.upper_bound_final_portion=0.0 trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=50 data=math rl_algorithm/reward=math metrics=math trainer.num_val_samples=750 rl_algorithm.n_envs=16 rl_algorithm.n_steps=2 rl_algorithm.batch_size=2 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.policy.model.value_head.transformer_config.config.n_positions=2048
+
+
+### SFT As baselines ###
+# gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/qwen7B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=50 run_name=sft_qwen7B_gsm8k
+#  Math
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=<PATH-TO-THE-WARMED-UP-POLICY> experiment=train/sft/qwen7B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=50 run_name=sft_qwen7B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
+```
+
 <!-- 2. Installing pytorch. I haven't found a version that works for both on runai and on iccluster 🥲 (something with the `trl` library causes problems)so here's my solution:
     - **If you're on Runai**, install the following requirements for torch:
         ```
@@ -32,7 +273,7 @@
     ``` -->
 
 
-## Data Generation
+<!-- ## Data Generation
 
 To generate a pause token augmented dataset, you can tweek the following parameters:
 
@@ -64,7 +305,7 @@ In order to start your RL training with a decent policy, you need to fine-tune y
 - <u>Path to Model After Step 2</u>: INSERT `/dlabscratch1/baldwin/pause2/PauseToken/logs/sft/runs/2024-08-28_14-17-32/final`
 <!-- - <u>Path to Model After Step 3</u>: INSERT `TODO: INSERT PATH HERE` -->
 
-#### STEP 1 - Fine-Tune a LM on GSM8K dataset without pause token:
+<!-- #### STEP 1 - Fine-Tune a LM on GSM8K dataset without pause token:
 ```bash
 python src/trl_train.py experiment=trl_train/step_1_sft
 ```
@@ -84,7 +325,7 @@ python src/trl_train.py experiment=trl_train/step_1_sft
 #### STEP 3 - Fine-Tune both the LM and pauseon GSM8K with pause token "<|pause|>":
 ```bash -->
 
-### RL Training Step
+<!-- ### RL Training Step
 
 
 #### Onpolicy algorithms (STaR_on_policy, ppo, a2c, etc.)
@@ -127,4 +368,4 @@ rl_algorithm:
     - Q-learning ([Souce of inspiration](https://github.com/Sea-Snell/Implicit-Language-Q-Learning))
 - Actor Critic methods
 
-
+ -->
