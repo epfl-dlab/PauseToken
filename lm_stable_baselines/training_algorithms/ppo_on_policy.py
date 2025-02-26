@@ -52,7 +52,6 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
             approx_kl_divs = []
             # Do a complete pass on the rollout buffer
             for rollout_data in self.rollout_buffer.get(self.batch_size):
-                breakpoint()
                 actions = rollout_data.actions
                 # for obs, act in zip(rollout_data.observations["input_ids"], actions):
                 #     print("obs: \n", self.policy.tokenizer.decode(obs, skip_special_tokens=True))
