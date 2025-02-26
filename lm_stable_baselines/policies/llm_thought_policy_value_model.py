@@ -144,7 +144,8 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
 
             # shifting the hidden states one to the right, because the thought of M(x_<t) is generates x_t and is summed with x_t to get x_t+1
             tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
-            hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
+            with torch.no_grad():
+                hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
             
             if already_terminated_sequences.any():
                 already_term_seq_hidden_states = self.lm.forward(inputs[already_terminated_sequences], attention_mask = feature["attention_mask"][already_terminated_sequences]).hidden_states[-1]

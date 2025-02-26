@@ -4,14 +4,21 @@ defaults:
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null
   - override /rl_algorithm/policy/model/value_head: torch_transformer
+  - override /trainer/callbacks/portion_annealers: linear
 
-name: "LLama1B-ppo-on-gsm8k"
+
+name: "Qwen1B-ppo-on-gsm8k"
 run_name: "baseline_1ep_sft"
 
 trainer:
-  trainer_callbacks:
-    init_portion: 0.0
-    final_portion: 0.0
+  callbacks:
+    portion_annealers:
+      lower_bound_init_portion: 0.0
+      lower_bound_final_portion: 0.0
+      upper_bound_init_portion: 0.0
+      upper_bound_final_portion: 0.0
+      warmup_timesteps: 0
+      total_timesteps: 10
  
 
 rl_algorithm:
@@ -20,15 +27,17 @@ rl_algorithm:
       language_model:
         pretrained_model_name_or_path: ???
       value_head:
-        hidden_dim: 2048
+        hidden_dim: 1536
 
     generation:
       train:
         generation_config:
-          pad_token_id: 128002
+          pad_token_id: 151655
+          bos_token_id: null
 
       test:
         generation_config:
-          pad_token_id: 128002
+          pad_token_id: 151655
+          bos_token_id: null
 
   

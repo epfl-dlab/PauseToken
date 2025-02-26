@@ -1,0 +1,25 @@
+# @package _global_
+defaults:
+  - train/sft/default
+  - override /rl_algorithm/policy/model/peft_config: qwen
+
+
+run_name: "qwen_7B_sft"
+
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: Qwen/Qwen2.5-Math-7B
+
+    generation:
+      train:
+        generation_config:
+          pad_token_id: 151655
+          bos_token_id: null
+
+      test:
+        generation_config:
+          pad_token_id: 151655
+          bos_token_id: null
