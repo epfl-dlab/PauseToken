@@ -77,7 +77,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
-    if tokenizer.pad_token is None:
+    if tokenizer.pad_token is None or tokenizer.pad_token == tokenizer.eos_token:
         if tokenizer.unk_token is not None:
             log.warning("No padding token found! Setting padding token to unk token.")
             tokenizer.pad_token = tokenizer.unk_token
@@ -120,7 +120,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     
     # if the language model is predicting thoughts, the eos is going to be shifted too! the generation has to stop
     # when the soft EOS is predicted
-    if language_model.thought_mode=='always':
+    if hasattr(language_model, "thought_mode") and language_model.thought_mode=='always':
         cfg.rl_algorithm.policy.generation.train.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
         cfg.rl_algorithm.policy.generation.test.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
 
