@@ -6,6 +6,11 @@ import torch
 from lm_stable_baselines.utils import add_filler_tokens,unhash_ids_and_hidden_states, pad_hidden_states, hash_ids_and_hidden_states, remove_filler_tokens, remove_filler_tokens_from_hashed_array
 
 class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # self.eos_token_id = ( len(self.tokenizer) + self.tokenizer.eos_token_id) if self.lm.thought_mode=='always' else self.tokenizer.eos_token_id
+
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if isinstance(obs, dict):
             if "thought_hidden_states" in obs:
@@ -97,7 +102,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             "You've never set the generation config to use. Please set it using the set_generation_cfg method. Options are 'train' or 'test'"
         generation_params = self.generation_params[self.generation_params_to_use]
 
-        # self.lm.eval()
+        self.lm.eval()
         og_padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = "left"
         feature = self.extract_features(observation)
@@ -107,7 +112,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         if not self.use_peft_at_inference:
             self.lm.disable_adapter_layers()
 
-        already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
+        already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1) 
 
         assert generation_params["generation_config"].return_dict_in_generate == True, \
             "return_dict_in_generate must be the same as the return_dict argument"
@@ -128,12 +133,18 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             outputs_ids = torch.full((inputs.shape[0], output_ids.shape[1]), self.tokenizer.pad_token_id, dtype = output_ids.dtype, device = output_ids.device)
             outputs_ids[already_terminated_sequences, :inputs.shape[1]] = inputs[already_terminated_sequences]
             outputs_ids[~already_terminated_sequences] = output_ids
-
             outputs_hidden_states = torch.full((inputs.shape[0], tmp_hidden_states.shape[1] + 1, tmp_hidden_states.shape[2]), 0, dtype = tmp_hidden_states.dtype, device = tmp_hidden_states.device)
 
             att_mask = (output_ids != self.tokenizer.pad_token_id).long()
-            tmp_hidden_states = torch.cat([tmp_hidden_states, torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype = tmp_hidden_states.dtype, device = tmp_hidden_states.device)], dim = 1)
-            hidden_states = self.lm.forward(output_ids, attention_mask = att_mask, thought_hidden_states = tmp_hidden_states ).hidden_states[-1]
+            
+            # no need for thought attention mask. it's simply simply simply calculated for token_id>vocab_size.
+            # action_start_index = attention_mask.shape[1]
+            # thought_attn_mask = att_mask[:, action_start_index:-1].clone()
+            # thought_attn_mask = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1,), dtype=thought_attn_mask.dtype, device=tmp_hidden_states.device), thought_attn_mask], dim=1)
+
+            # shifting the hidden states one to the right, because the thought of M(x_<t) is generates x_t and is summed with x_t to get x_t+1
+            tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
+            hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
             
             if already_terminated_sequences.any():
                 already_term_seq_hidden_states = self.lm.forward(inputs[already_terminated_sequences], attention_mask = feature["attention_mask"][already_terminated_sequences]).hidden_states[-1]

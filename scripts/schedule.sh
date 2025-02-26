@@ -5,12 +5,20 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
+
+
 python src/train.py experiment=train/ppo/mistral/baseline_sft \
 rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 \
-run_name=cont_baseline_kl_loss trainer.n_outer_loops=30 \
-rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=/dlabscratch1/amani/PauseToken/logs/checkpoints/mistral-ppo-on-gsm8k/baseline_kl_loss/1637113b18501e54deb4f5705ef6b05b6944cf5f19e9344d6674d47751809a76/last_ckpt \
-rl_algorithm/policy/model/language_model=auto_peft_for_causal_lm \
-rl_algorithm.policy.model.peft_config=null
+run_name=cont_baseline_kl_loss trainer.n_outer_loops=30
+
+
+
+# python src/train.py experiment=train/ppo/mistral/baseline_sft \
+# rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 \
+# run_name=cont_baseline_kl_loss trainer.n_outer_loops=30 \
+# rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=/dlabscratch1/amani/PauseToken/logs/checkpoints/mistral-ppo-on-gsm8k/baseline_kl_loss/1637113b18501e54deb4f5705ef6b05b6944cf5f19e9344d6674d47751809a76/last_ckpt \
+# rl_algorithm/policy/model/language_model=auto_peft_for_causal_lm \
+# rl_algorithm.policy.model.peft_config=null
 
 
 

@@ -51,61 +51,93 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         else:
             self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
         self.thought_mode = kwargs.pop("thought_mode", "always")
-        
-    def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str, **kwargs):
-        """ Execute function of pause token. Returns CTRL_TOKEN_LABEL anywhere the pause token is present in the labels tensor and LM_HEAD_LABEL elsewhere. 
-        This function is used to determine whether each token in the input sequence is a control token (or part of a control token) or not. It's also used to determine the loss of the model.
-        
-        :param labels: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence
-        :param token_name: str, name of the token to execute
-        :returns: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence with the pause token replaced by CTRL_TOKEN_LABEL and the other tokens replaced by LM_HEAD_LABEL
-        """
-        if token_name == self.config.thought_token_id:
-            return torch.where(labels == self.config.thought_token_id, CTRL_TOKEN_LABEL, LM_HEAD_LABEL)
-        raise ValueError(f"Token name {token_name} not recognized")
-    
-    def thought_perturbator_forward(self, latent, attention_mask):
-        perturbated_thoughts = self.value_head(latent, attention_mask=attention_mask)
-        return perturbated_thoughts
-    
-    def set_thought_mode(self, thought_mode):
-        assert thought_mode in ["always", "never", "prob"], "Thought mode should be one of ['always', 'never', 'prob']"
-        self.thought_mode = thought_mode
 
-    @torch.no_grad()
-    def generate(
-        self,
-        inputs: Optional[torch.Tensor] = None,
-        generation_config: Optional[GenerationConfig] = None,
-        logits_processor: Optional[LogitsProcessorList] = None,
-        stopping_criteria: Optional[StoppingCriteriaList] = None,
-        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
-        synced_gpus: Optional[bool] = None,
-        assistant_model: Optional["PreTrainedModel"] = None,
-        streamer: Optional["BaseStreamer"] = None,
-        negative_prompt_ids: Optional[torch.Tensor] = None,
-        negative_prompt_attention_mask: Optional[torch.Tensor] = None,
-        **kwargs,
-    ) -> Union[GenerateOutput, torch.LongTensor]:
-        
-        generation_mode = generation_config.get_generation_mode(assistant_model)
+    def forward(
+            self,
+            input_ids: torch.LongTensor = None,
+            inputs_embeds: torch.Tensor = None,
+            attention_mask: torch.LongTensor = None,
+            last_hidden_states: torch.Tensor = None,
+            thought_mask: torch.LongTensor = None,
+            thought_attention_mask: torch.LongTensor = None,
+            labels: Optional[torch.Tensor] = None,
+            *args,
+            **kwargs
+        ):
+        # This diagram illustrates the relationship between input tokens, hidden states, and thought perturbations:
+        #
+        # Input Tokens          Model (M)      Hidden States    Output Tokens
+        # -----------            ---------      -------------    -------------
+        # Question         -->  ┌─────────┐  --> h[0]      --> Answer[0]
+        # Answer[0] + h[0] -->  │         │  --> h[1]      --> Answer[1] 
+        # Answer[1] + h[1] -->  │    M    │  --> h[2]      --> Answer[2]
+        # Answer[2] + h[2] -->  │         │  --> h[3]      --> Answer[3]
+        #    ...           -->  │         │  -->  ...      -->    ...
+        # Answer[T] +h[T-1]-->  └─────────┘  --> h[T]      --> EOS
+        #
+        # For each position i:
+        # - h[i] is computed from all tokens up to position i
+        # - h[i] is used to generate Answer[i] and thought perturbation for position i+1
+        # - Thought perturbations are added to the input embeddings when thought_mask[i]=1
+        self._validate_input_arguments(input_ids, inputs_embeds)
 
-        if generation_mode not in (GenerationMode.SAMPLE, GenerationMode.GREEDY_SEARCH):
-            raise ValueError(f"Generation mode {generation_mode} not supported for generation. Only {GenerationMode.SAMPLE} and {GenerationMode.GREEDY_SEARCH} are supported.")
-    
-        return super().generate(
-            inputs=inputs,
-            generation_config=generation_config,
-            logits_processor=logits_processor,
-            stopping_criteria=stopping_criteria,
-            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
-            synced_gpus=synced_gpus,
-            assistant_model=assistant_model,
-            streamer=streamer,
-            negative_prompt_ids=negative_prompt_ids,
-            negative_prompt_attention_mask=negative_prompt_attention_mask,
-            **kwargs,
+        if input_ids is not None:
+            #If no thought mask is provided, create one from input_ids
+            thought_mask = self.make_thought_mask(input_ids) if thought_mask is None else thought_mask
+
+            # Convert input_ids to inputs_embeds. Masani Idea; for a thought, input_id + vocab_size = thought_id
+            inputs_embeds = self.make_input_embeddings_from_input_ids(input_ids)
+
+        # it's identity if you already have the last_hidden_states, if not, it will run a for loop and compute them for you!
+        last_hidden_states = self.make_last_hidden_state_from_input_embeddings(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            last_hidden_states=last_hidden_states,
+            thought_mask=thought_mask,
         )
+
+        # Add thoughts to input embeddings in the case there are any thoughts to be added, it's 1 only on the answer, 
+        # all the way to the token right before EOS.
+        # very important note: It's important to know that the perturbation/hiddenstate at position [i], is the output of 
+        # step model given tokens up until <i. I.e. it is the exact embedding that should be added to the word embedding W_E
+        # after being passed through the thought embedder.
+        if thought_mask.any():
+            # thought attention mask is to not attend on pad embedding outputs, basically same as normal attention mask.
+            thought_attention_mask = attention_mask if thought_attention_mask is None else thought_attention_mask 
+            thought_perturbance = self.thought_embedding_head(last_hidden_states, attention_mask=thought_attention_mask)
+            # Can happen that it's not the same shape if calling generate (past_key_values make that you only pass the last embedding/ input id)
+            _ , seq_len, _ = inputs_embeds.size()
+            thought_perturbance = thought_mask.unsqueeze(-1)[:,-seq_len:,:] * thought_perturbance[:,-seq_len:,:]
+            inputs_embeds += thought_perturbance
+        
+        reduce_mean = kwargs.pop("reduce_mean",True)
+        lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
+            self.forward_(input_ids=None, inputs_embeds=inputs_embeds, attention_mask=attention_mask, *args, **kwargs)
+        
+        if labels is not None:
+            loss, lm_loss, ctrl_tok_loss = self.compute_loss(
+                labels=labels,
+                lm_logits=lm_logits,
+                ctrl_tok_logits=ctrl_tok_logits,
+                reduce_mean=reduce_mean,
+            )
+        else:
+            loss = None
+            lm_loss = None
+            ctrl_tok_loss = None
+                
+        return SequenceClassifierOutputWithPastForCtrlTokens(
+            loss = loss,
+            logits = lm_logits,
+            past_key_values = past_key_values,
+            hidden_states = hidden_states,
+            attentions = attentions,
+            control_token_logits = ctrl_tok_logits,
+            lm_logits = lm_logits,
+            lm_loss = lm_loss,
+            ctrl_tok_loss = ctrl_tok_loss,
+        )
+
 
     def _sample(
         self,
@@ -152,6 +184,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         
         # # init values
         pad_token_id = generation_config._pad_token_tensor
+        eos_token_id = generation_config.eos_token_id
         output_attentions = generation_config.output_attentions
         output_hidden_states = True
         output_scores = generation_config.output_scores
@@ -193,9 +226,9 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # prepare variable output controls (note: some models won't accept all output controls)
             model_inputs.update({"output_attentions": output_attentions} if output_attentions else {})
             model_inputs.update({"output_hidden_states": output_hidden_states} if output_hidden_states else {})
-            model_inputs.update({"thought_hidden_states": last_hidden_states})
+            model_inputs.update({"last_hidden_states": last_hidden_states})
             model_inputs.update({"thought_mask": thought_mask})
-            model_inputs.update({"thought_attention_mask": model_inputs['attention_mask'][:, :-1]})
+            model_inputs.update({"thought_attention_mask": model_inputs['attention_mask'][:, :-1]}) # not sure of this guy
             # forward pass to get next token
             outputs = self(**model_inputs, return_dict=True)
 
@@ -219,10 +252,8 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # (the clone itself is always small)
             next_token_logits = outputs.logits.clone()[:, -1, :].float()
             # next_token_logits = next_token_logits.to(input_ids.device)
-
             next_control_token_logits = outputs.control_token_logits.clone()[:, -1, :].float()
             # next_control_token_logits = next_control_token_logits.to(input_ids.device)
-
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
 
@@ -268,8 +299,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             if has_eos_stopping_criteria:
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
-            
-            condition = (next_ctrl_tok == 0)
+            condition = torch.logical_and(torch.logical_and((next_ctrl_tok == 0), (next_tokens!=eos_token_id)),  (next_tokens!=pad_token_id))
             next_tokens = torch.where( condition.bool(), next_tokens + self.language_model.config.vocab_size, next_tokens)
             next_mask = condition.long()[:, None]
             # update generated ids, model inputs, and length for next step
@@ -314,218 +344,195 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
                 )
         else:
             return input_ids
-    
 
-    def make_input_embeddings_from_input_ids(self, input_ids: torch.LongTensor, thought_hidden_states: torch.Tensor, thought_mask: torch.LongTensor):
-        # find locations where thought token is present (when token_id > vocab_size)
+    def ctrl_tok_execute(self, labels: torch.LongTensor, token_name: str, **kwargs):
+        """ Execute function of pause token. Returns CTRL_TOKEN_LABEL anywhere the pause token is present in the labels tensor and LM_HEAD_LABEL elsewhere. 
+        This function is used to determine whether each token in the input sequence is a control token (or part of a control token) or not. It's also used to determine the loss of the model.
+        
+        :param labels: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence
+        :param token_name: str, name of the token to execute
+        :returns: torch.LongTensor of shape (batch_size, seq_len) containing the labels of the input sequence with the pause token replaced by CTRL_TOKEN_LABEL and the other tokens replaced by LM_HEAD_LABEL
+        """
+        if token_name == self.config.thought_token_id:
+            return torch.where(labels == self.config.thought_token_id, CTRL_TOKEN_LABEL, LM_HEAD_LABEL)
+        raise ValueError(f"Token name {token_name} not recognized")
+    
+    def thought_perturbator_forward(self, latent, attention_mask):
+        perturbated_thoughts = self.value_head(latent, attention_mask=attention_mask)
+        return perturbated_thoughts
+    
+    def set_thought_mode(self, thought_mode):
+        assert thought_mode in ["always", "never", "prob"], "Thought mode should be one of ['always', 'never', 'prob']"
+        self.thought_mode = thought_mode
+
+    @torch.no_grad()
+    def generate(
+        self,
+        inputs: Optional[torch.Tensor] = None,
+        generation_config: Optional[GenerationConfig] = None,
+        logits_processor: Optional[LogitsProcessorList] = None,
+        stopping_criteria: Optional[StoppingCriteriaList] = None,
+        prefix_allowed_tokens_fn: Optional[Callable[[int, torch.Tensor], List[int]]] = None,
+        synced_gpus: Optional[bool] = None,
+        assistant_model: Optional["PreTrainedModel"] = None,
+        streamer: Optional["BaseStreamer"] = None,
+        negative_prompt_ids: Optional[torch.Tensor] = None,
+        negative_prompt_attention_mask: Optional[torch.Tensor] = None,
+        **kwargs,
+    ) -> Union[GenerateOutput, torch.LongTensor]:
+        
+        generation_mode = generation_config.get_generation_mode(assistant_model)
+        if generation_mode not in (GenerationMode.SAMPLE, GenerationMode.GREEDY_SEARCH):
+            raise ValueError(f"Generation mode {generation_mode} not supported for generation. Only {GenerationMode.SAMPLE} and {GenerationMode.GREEDY_SEARCH} are supported.")
+        return super().generate(
+            inputs=inputs,
+            generation_config=generation_config,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+            synced_gpus=synced_gpus,
+            assistant_model=assistant_model,
+            streamer=streamer,
+            negative_prompt_ids=negative_prompt_ids,
+            negative_prompt_attention_mask=negative_prompt_attention_mask,
+            **kwargs,
+        )
+
+    def make_input_embeddings_from_input_ids(self, input_ids: torch.LongTensor):
+        thought_mask = self.make_thought_mask(input_ids)
         input_embeddings = self.language_model.get_input_embeddings()
         _, seq_len = input_ids.size()
         ids = torch.where( thought_mask[:,-seq_len:].bool(), input_ids - self.language_model.config.vocab_size, input_ids)
         inputs_embeds = input_embeddings(ids)
-        
         return inputs_embeds
 
-    def make_thought_hidden_state_from_input_embeddings(
+    def make_last_hidden_state_from_input_embeddings(
             self,
             inputs_embeds: torch.Tensor = None,
             attention_mask: torch.LongTensor = None,
-            thought_hidden_states: torch.Tensor = None,
+            last_hidden_states: torch.Tensor = None,
             thought_mask: torch.LongTensor = None,
         ):
-        
-        
-        thought_encoding_method = self.determine_thought_encoding_method(thought_mask, thought_hidden_states)
-        
+        thought_encoding_method = self.determine_thought_encoding_method(thought_mask, last_hidden_states)
         if thought_encoding_method == ThoughtEncodingMethod.MUST_ENCODE:
-
+            # only ran when the thought token ids are given but embeddings are not, so the thought embeddings need be computed 
+            # recursively.
             embeds = inputs_embeds.clone()
-
             thought_pos = thought_mask.nonzero(as_tuple=True)
             thought_seq_positions = thought_pos[1] if len(thought_pos) > 1 else []
    
             unique_thought_seq_positions_sorted = [] if len(thought_seq_positions) == 0 else thought_seq_positions.unique(sorted=True)
-            
-            for position in unique_thought_seq_positions_sorted:
-                _, _, _, thought_hidden_states, _  = self.forward_(
-                    input_ids=None,
-                    inputs_embeds=embeds[:, :position+1, :],
-                    attention_mask=attention_mask[:, :position+1],
-                )
-                thought_hidden_states = thought_hidden_states[-1]
-                if thought_mask.any():
-                    thought_perturbance = self.thought_embedding_head(thought_hidden_states)
-                    embeds[:, position, :] += thought_mask.unsqueeze(-1)[:,position,:] * thought_perturbance[:,position,:]
+            raise(NotImplementedError)
+            # this is wrong. it should be corrected. also should be optimized. the forward pass should run for the whole batch not
+            # per item:
 
-            if len(unique_thought_seq_positions_sorted) == 0 or unique_thought_seq_positions_sorted[-1] != embeds.size(1) - 1:
-                _, _, _, thought_hidden_states, _  = self.forward_(
-                        input_ids=None,
-                        inputs_embeds=embeds,
-                        attention_mask=attention_mask,
-                    )
-                thought_hidden_states = thought_hidden_states[-1]
+            # for position in unique_thought_seq_positions_sorted:
+            #     _, _, _, hidden_states, _  = self.forward_(
+            #         input_ids=None,
+            #         inputs_embeds=embeds[:, :position+1, :],
+            #         attention_mask=attention_mask[:, :position+1],
+            #     )
+            #     last_hidden_states = hidden_states[-1]
+            #     thought_perturbance = self.thought_embedding_head(last_hidden_states)
+            #     embeds[:, position, :] += thought_mask.unsqueeze(-1)[:,position,:] * thought_perturbance[:,position,:]
 
-            return thought_hidden_states
+            # if len(unique_thought_seq_positions_sorted) == 0 or unique_thought_seq_positions_sorted[-1] != embeds.size(1) - 1:
+            #     _, _, _, hidden_states, _  = self.forward_(
+            #             input_ids=None,
+            #             inputs_embeds=embeds,
+            #             attention_mask=attention_mask,
+            #         )
+            #     last_hidden_states = hidden_states[-1]
         
-        else:
-            return thought_hidden_states
+        return last_hidden_states
 
     def _validate_input_arguments(
             self,
             input_ids: torch.LongTensor,
             inputs_embeds: torch.Tensor
         ):
-
         assert (input_ids is not None and inputs_embeds is None) or (input_ids is None and inputs_embeds is not None), \
             "Either input_ids or input_embeds should be provided (but not both)"
 
     def make_thought_mask(self, input_ids: torch.LongTensor):
         return (input_ids >= self.language_model.config.vocab_size).long()
 
-    def determine_thought_encoding_method(self, thought_mask: torch.LongTensor, thought_hidden_states: torch.Tensor):
-        
+    def determine_thought_encoding_method(self, thought_mask: torch.LongTensor, last_hidden_states: torch.Tensor):
         ##### LOGIC IF FLAWED HERE #######
         # I need to make it fit with the for loop.
         # Somehow When you're trying to decode the thought in the last sequence position, it's different from when you're trying to decode it in the middle of the sequence.
         # Also, the if thought_hidden_states is None is not sufficient, there are also cases where thought_hidden_states is not None but we have to Encode
         # Think about the shape of the hidden state ? Needs to match the shape of the thought mask maybe ?
-        return ThoughtEncodingMethod.MUST_ENCODE if (thought_mask.any() and thought_hidden_states is None) else ThoughtEncodingMethod.ALREADY_ENCODED
-        
-    def forward(
-            self,
-            input_ids: torch.LongTensor = None,
-            inputs_embeds: torch.Tensor = None,
-            attention_mask: torch.LongTensor = None,
-            thought_hidden_states: torch.Tensor = None,
-            thought_mask: torch.LongTensor = None,
-            thought_attention_mask: torch.LongTensor = None,
-            labels: Optional[torch.Tensor] = None,
-            *args,
-            **kwargs
-        ):
-        
-        self._validate_input_arguments(input_ids, inputs_embeds)
-
-        if input_ids is not None:
-            #If no thought mask is provided, create one from input_ids
-            thought_mask = self.make_thought_mask(input_ids) if thought_mask is None else thought_mask
-
-            # Convert input_ids to inputs_embeds. Masani Idea; for a thought, input_id + vocab_size = thought_id
-            inputs_embeds = self.make_input_embeddings_from_input_ids(input_ids, thought_hidden_states, thought_mask)
-
-
-        thought_hidden_states = self.make_thought_hidden_state_from_input_embeddings(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            thought_hidden_states=thought_hidden_states,
-            thought_mask=thought_mask,
-        )
-
-        #Add thoughts to input embeddings in the case there are any thoughts to be added
-        if thought_mask.any():
-            thought_attention_mask = attention_mask if thought_attention_mask is None else thought_attention_mask 
-            thought_perturbance = self.thought_embedding_head(thought_hidden_states, attention_mask=thought_attention_mask)
-            # Can happen that it's not the same shape if calling generate (past_key_values make that you only pass the last embedding/ input id)
-            _ , seq_len, _ = inputs_embeds.size()
-            thought_perturbance = thought_mask.unsqueeze(-1)[:,-seq_len:,:] * thought_perturbance[:,:seq_len,:]
-            inputs_embeds += thought_perturbance
-        
-        reduce_mean = kwargs.pop("reduce_mean",True)
-        lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
-            self.forward_(input_ids=None, inputs_embeds=inputs_embeds, attention_mask=attention_mask, *args, **kwargs)
-        
-        if labels is not None:
-            
-            loss, lm_loss, ctrl_tok_loss = self.compute_loss(
-                labels=labels,
-                lm_logits=lm_logits,
-                ctrl_tok_logits=ctrl_tok_logits,
-                reduce_mean=reduce_mean,
-            )
-        else:
-            loss = None
-            lm_loss = None
-            ctrl_tok_loss = None
-                
-        return SequenceClassifierOutputWithPastForCtrlTokens(
-            loss = loss,
-            logits = lm_logits,
-            past_key_values = past_key_values,
-            hidden_states = hidden_states,
-            attentions = attentions,
-            control_token_logits = ctrl_tok_logits,
-            lm_logits = lm_logits,
-            lm_loss = lm_loss,
-            ctrl_tok_loss = ctrl_tok_loss,
-        )
+        return ThoughtEncodingMethod.MUST_ENCODE if (thought_mask.any() and last_hidden_states is None) else ThoughtEncodingMethod.ALREADY_ENCODED
         
 
+# ################## FOR Testint Model I/O ###################
+# def load_model(thought_embed_config):
+#     from transformers import AutoTokenizer, AutoModelForCausalLM
+#     from src.tokenizer.thought_tokenizer import create_thought_tokenizer
+#     tokenizer = create_thought_tokenizer(AutoTokenizer.from_pretrained("gpt2"), start_tag= "<||", end_tag="||>")
+#     lm = AutoModelForCausalLM.from_pretrained("gpt2")
 
-def load_model(thought_embed_config):
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    from src.tokenizer.thought_tokenizer import create_thought_tokenizer
-    tokenizer = create_thought_tokenizer(AutoTokenizer.from_pretrained("gpt2"), start_tag= "<||", end_tag="||>")
-    lm = AutoModelForCausalLM.from_pretrained("gpt2")
+#     tokenizer.pad_token = tokenizer.eos_token
+#     tokenizer.pad_token_id = tokenizer.eos_token_id
+#     #get the pause token id
+#     thought_token_id = tokenizer.vocab_size
+#     config = ThoughtPerturbatorConfig(thought_token_id=thought_token_id, thought_token_name="<|thought|>")
+#     model = ThoughtPerturbator(thought_embedding_head = thought_embed_config, config = config, language_model = lm)
+#     return model, tokenizer
 
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    #get the pause token id
-    thought_token_id = tokenizer.vocab_size
-    config = ThoughtPerturbatorConfig(thought_token_id=thought_token_id, thought_token_name="<|thought|>")
-    model = ThoughtPerturbator(thought_embedding_head = thought_embed_config, config = config, language_model = lm)
-    return model, tokenizer
+# def test_forward_pass():
+#     model, tokenizer = load_model(TRANSFORMER_THOUGHT_CONFIG)
+#     inputs = tokenizer(["Hello world", "Bye world"], return_tensors="pt", padding=True)
+#     input_ids = inputs["input_ids"]
+#     attention_mask = inputs["attention_mask"]
+#     thought_token = 100 + tokenizer.vocab_size
+#     input_ids = torch.cat([input_ids, torch.tensor([[thought_token], [thought_token]])], dim=1)
+#     attention_mask = torch.cat([attention_mask, torch.ones(2, 1)], dim=1)
+#     output = model(input_ids=input_ids, attention_mask=attention_mask)
+#     inputs = tokenizer(["Hello world", "Bye world"], return_tensors="pt", padding=True)
+#     input_ids = inputs["input_ids"]
+#     attention_mask = inputs["attention_mask"]
+#     thought_token = 100 + tokenizer.vocab_size
+#     input_ids = torch.cat([input_ids, torch.tensor([[thought_token], [thought_token]]), input_ids, torch.tensor([[thought_token], [thought_token]]),input_ids ], dim=1)
+#     attention_mask = torch.cat([attention_mask, torch.ones(2, 1), attention_mask, torch.ones(2, 1),attention_mask], dim=1)
+#     output = model(input_ids=input_ids, attention_mask=attention_mask)
 
-def test_forward_pass():
-    model, tokenizer = load_model(TRANSFORMER_THOUGHT_CONFIG)
-    inputs = tokenizer(["Hello world", "Bye world"], return_tensors="pt", padding=True)
-    input_ids = inputs["input_ids"]
-    attention_mask = inputs["attention_mask"]
-    thought_token = 100 + tokenizer.vocab_size
-    input_ids = torch.cat([input_ids, torch.tensor([[thought_token], [thought_token]])], dim=1)
-    attention_mask = torch.cat([attention_mask, torch.ones(2, 1)], dim=1)
-    output = model(input_ids=input_ids, attention_mask=attention_mask)
-    inputs = tokenizer(["Hello world", "Bye world"], return_tensors="pt", padding=True)
-    input_ids = inputs["input_ids"]
-    attention_mask = inputs["attention_mask"]
-    thought_token = 100 + tokenizer.vocab_size
-    input_ids = torch.cat([input_ids, torch.tensor([[thought_token], [thought_token]]), input_ids, torch.tensor([[thought_token], [thought_token]]),input_ids ], dim=1)
-    attention_mask = torch.cat([attention_mask, torch.ones(2, 1), attention_mask, torch.ones(2, 1),attention_mask], dim=1)
-    output = model(input_ids=input_ids, attention_mask=attention_mask)
-
-def test_generate():
-    model, tokenizer = load_model(TRANSFORMER_THOUGHT_CONFIG)
-    inputs = tokenizer(["<|endoftext|> ", "<|endoftext|>"], return_tensors="pt", padding=True)
-    input_ids = inputs["input_ids"]
-    attention_mask = inputs["attention_mask"]
-    output = model.generate(input_ids=input_ids, attention_mask=attention_mask, generation_config=GenerationConfig(max_length=25, do_sample=False))
-    decoded_seq = tokenizer.batch_decode(output)
-    print("decoded_seq", decoded_seq)
+# def test_generate():
+#     model, tokenizer = load_model(TRANSFORMER_THOUGHT_CONFIG)
+#     inputs = tokenizer(["<|endoftext|> ", "<|endoftext|>"], return_tensors="pt", padding=True)
+#     input_ids = inputs["input_ids"]
+#     attention_mask = inputs["attention_mask"]
+#     output = model.generate(input_ids=input_ids, attention_mask=attention_mask, generation_config=GenerationConfig(max_length=25, do_sample=False))
+#     decoded_seq = tokenizer.batch_decode(output)
+#     print("decoded_seq", decoded_seq)
     
 
-TRANSFORMER_THOUGHT_CONFIG = {
-    "_target_": "src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer",
-    "hidden_dim": 768,
-    "transformer_config": {
-        "_target_": "transformers.GPT2Model",
-        "config": {
-            "_target_": "transformers.GPT2Config",
-            "vocab_size": 0,
-            "n_embd": 768,
-            "n_layer": 8,
-            "n_head": 8,
-            "n_positions": 1025,
-        }
-    }
-}
+# TRANSFORMER_THOUGHT_CONFIG = {
+#     "_target_": "src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer",
+#     "hidden_dim": 768,
+#     "transformer_config": {
+#         "_target_": "transformers.GPT2Model",
+#         "config": {
+#             "_target_": "transformers.GPT2Config",
+#             "vocab_size": 0,
+#             "n_embd": 768,
+#             "n_layer": 8,
+#             "n_head": 8,
+#             "n_positions": 1025,
+#         }
+#     }
+# }
 
 
 
-if __name__ == "__main__":
-    warnings.filterwarnings("ignore")
-    print("testing model loading...")
-    test_forward_pass()
-    print("testing inference...")
-    test_generate()
-    print("testing inference done")
-    # test_save_load_peft()
-    # print("testing model loading and saving done")
+# if __name__ == "__main__":
+#     warnings.filterwarnings("ignore")
+#     print("testing model loading...")
+#     test_forward_pass()
+#     print("testing inference...")
+#     test_generate()
+#     print("testing inference done")
+#     # test_save_load_peft()
+#     # print("testing model loading and saving done")
     
