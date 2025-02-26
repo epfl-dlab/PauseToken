@@ -101,7 +101,7 @@ python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_na
 #### All Qwen7B SFT Runs
 ```bash
 # llama3B on gsm8k
-python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-7B experiment=train/sft/qwen7B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_qwen7B_gsm8k
+python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-7B experiment=train/sft/qwen7B data=gsm8k metrics=gsm8k rl_algorithm/reward=gsm8k trainer.num_val_samples=748 trainer.n_outer_loops=1 run_name=warmup_qwen7B_gsm8k rl_algorithm.n_envs=16
 # llama3B on Math
 python src/train.py rl_algorithm.policy.model.language_model.pretrained_model_name_or_path=Qwen/Qwen2.5-Math-7B experiment=train/sft/qwen7B data=math metrics=math rl_algorithm/reward=math trainer.num_val_samples=750 trainer.n_outer_loops=1 run_name=warmup_qwen7B_math rl_algorithm.policy.max_output_generation_length=2048 rl_algorithm.n_envs=16
 ```
