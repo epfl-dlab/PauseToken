@@ -139,13 +139,15 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             
             # no need for thought attention mask. it's simply simply simply calculated for token_id>vocab_size.
             # action_start_index = attention_mask.shape[1]
-            # thought_attn_mask = att_mask[:, action_start_index:-1].clone()
-            # thought_attn_mask = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1,), dtype=thought_attn_mask.dtype, device=tmp_hidden_states.device), thought_attn_mask], dim=1)
+            # thought_attn_mask = att_mask[:, :-1].clone()
+            # thought_attn_mask = torch.cat([torch.zeros((thought_attn_mask.shape[0], 1,), dtype=thought_attn_mask.dtype, device=tmp_hidden_states.device), thought_attn_mask], dim=1)
 
             # shifting the hidden states one to the right, because the thought of M(x_<t) is generates x_t and is summed with x_t to get x_t+1
-            tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
+            # tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
             with torch.no_grad():
-                hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
+                # hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
+                stupid_hidden_75 = self.lm.forward(output_ids[:1, :75], attention_mask=att_mask[:1, :75], last_hidden_states=tmp_hidden_states[:1, :75]).hidden_states[-1]
+                stupid_hidden_76 = self.lm.forward(output_ids[:1, :76], attention_mask=att_mask[:1, :76], last_hidden_states=tmp_hidden_states[:1, :76]).hidden_states[-1]
             
             if already_terminated_sequences.any():
                 already_term_seq_hidden_states = self.lm.forward(inputs[already_terminated_sequences], attention_mask = feature["attention_mask"][already_terminated_sequences]).hidden_states[-1]
