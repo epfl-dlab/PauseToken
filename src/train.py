@@ -120,16 +120,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     
     # if the language model is predicting thoughts, the eos is going to be shifted too! the generation has to stop
     # when the soft EOS is predicted
-<<<<<<< HEAD
     # if hasattr(language_model, 'thought_mode'):
     #     if language_model.thought_mode == 'always':
     #         cfg.rl_algorithm.policy.generation.train.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
     #         cfg.rl_algorithm.policy.generation.test.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
-=======
-    if hasattr(language_model, "thought_mode") and language_model.thought_mode=='always':
-        cfg.rl_algorithm.policy.generation.train.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
-        cfg.rl_algorithm.policy.generation.test.generation_config.eos_token_id = tokenizer.eos_token_id + len(tokenizer)
->>>>>>> 7509df282c7549e82a099aa667dfe2f55308873e
 
     generation = instantiate_generation_params(
         OmegaConf.to_container(cfg.rl_algorithm.policy.generation,resolve=True)
