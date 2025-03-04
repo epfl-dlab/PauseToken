@@ -30,11 +30,11 @@ class LMContinousRolloutBuffer(LMRolloutBuffer):
             feature["input_ids"] = feature["input_ids"].long()
 
         padding_side = "right"
-        if (features["hidden_states"] == self.filler_token).all():
-            feature["thought_hidden_states"] = None
+        if (features["last_hidden_states"] == self.filler_token).all():
+            feature["last_hidden_states"] = None
         else:
-            feature["thought_hidden_states"] = pad_hidden_states(
-                hidden_states=features["hidden_states"],
+            feature["last_hidden_states"] = pad_hidden_states(
+                last_hidden_states=features["last_hidden_states"],
                 attention_mask=feature["attention_mask"],
                 filler_token=0,
                 padding_side=padding_side

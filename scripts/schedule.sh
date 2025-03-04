@@ -5,12 +5,12 @@ source /dlabscratch1/amani/miniconda3/bin/activate lm_stable_baselines
 cd /dlabscratch1/amani/PauseToken/
 pwd
 
+python src/train.py experiment=train/cont_thoughts/debug \
+rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 
 
-
-python src/train.py experiment=train/ppo/mistral/baseline_sft \
-rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 \
-run_name=cont_baseline_kl_loss trainer.n_outer_loops=30
-
+# python src/train.py experiment=train/ppo/mistral/baseline_sft \
+# rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 \
+# run_name=cont_baseline_kl_loss trainer.n_outer_loops=30
 
 
 # python src/train.py experiment=train/ppo/mistral/baseline_sft \

@@ -13,7 +13,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
 
     def extract_features(self, obs: PyTorchObs, features_extractor: Optional[BaseFeaturesExtractor] = None) -> PyTorchObs:
         if isinstance(obs, dict):
-            if "thought_hidden_states" in obs:
+            if "last_hidden_states" in obs:
                 return obs
             else:
                 features = obs
@@ -28,26 +28,16 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             feature["input_ids"] = feature["input_ids"].long()
 
         padding_side = self.tokenizer.padding_side
-        if (features["hidden_states"] == self.filler_token).all():
-            feature["thought_hidden_states"] = None
+        if (features["last_hidden_states"] == self.filler_token).all():
+            feature["last_hidden_states"] = None
         else:
-            feature["thought_hidden_states"] = pad_hidden_states(
-                hidden_states=features["hidden_states"],
+            feature["last_hidden_states"] = pad_hidden_states(
+                last_hidden_states=features["last_hidden_states"],
                 attention_mask=feature["attention_mask"],
                 filler_token=0,
                 padding_side=padding_side
             )
         return feature
-    
-    def get_obs_hidden_states_from_next_obs(self, obs, next_obs):
-        obs_dict = unhash_ids_and_hidden_states(obs)
-        next_obs_dict = unhash_ids_and_hidden_states(next_obs)
-        non_padded_seq_len =  obs_dict["input_ids"].shape[1] - (obs_dict["input_ids"] == self.filler_token).sum(dim = 1)
-        mask = (next_obs_dict["input_ids"] == self.tokenizer.pad_token_id)
-        for i in range(next_obs_dict["input_ids"].size(0)):
-            effective_seq_len = non_padded_seq_len[i]
-            obs_dict["hidden_states"][i, :effective_seq_len] = next_obs_dict["hidden_states"][i][~mask[i]][:effective_seq_len]
-        return hash_ids_and_hidden_states(**obs_dict)
 
     def forward(self, obs: PyTorchObs, labels = None, return_hidden_state=False) -> torch.Tensor:
         """
@@ -55,21 +45,22 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         and called by the rl algorithm to sample and fill the rollout buffer.
         """
         # generate the actions, get the next_observation=obs+actions and cutaway the excessive pads
-        next_obs, actions, _ = self._predict(obs, return_dict= True).values()
-        obs = self.get_obs_hidden_states_from_next_obs(obs, next_obs)
-        # obs["hidden_states"] = obs_dict["hidden_states"][]
+        _, actions, _ = self._predict(obs, return_dict= True).values()
+        # obs["last_hidden_states"] = obs_dict["last_hidden_states"][]
         # get as input EXACTLY what the rollout buffer will later give to the policy to be trained.
-        values, log_probs, entropy = self.evaluate_actions(obs, actions) 
+        values, log_probs, _ = self.evaluate_actions(obs, actions) 
 
         return actions, values, log_probs
     
     def post_predict(self, inputs: torch.Tensor, outputs: Dict[str, torch.Tensor], return_dict = False) -> torch.Tensor:
         # for on-policy replay buffer, we need to pad the actions to the max length of the action space, to append to
         # the actions matrix in the buffer.
-        #remove the input tokens from the output
+        #remove the input tokens from the output 
+        # bsize, seq_len, emb_dim = outputs['last_hidden_states'].size()
+        # seq_len = seq_len+1
+        # outputs['last_hidden_states'] = torch.cat([outputs['last_hidden_states'], torch.zeros((bsize, 1, emb_dim), device=outputs['last_hidden_states'].device)], dim=1)
         next_obs =  hash_ids_and_hidden_states(**outputs)
         hashed_action = next_obs[:, inputs.shape[-1]:].clone()
-  
     
         filler_token_maxlen_action = hashed_action.clone()
         #replace all pad tokens with filler tokens
@@ -102,7 +93,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             "You've never set the generation config to use. Please set it using the set_generation_cfg method. Options are 'train' or 'test'"
         generation_params = self.generation_params[self.generation_params_to_use]
 
-        self.lm.eval()
+        # self.lm.eval()
         og_padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = "left"
         feature = self.extract_features(observation)
@@ -118,42 +109,30 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
             "return_dict_in_generate must be the same as the return_dict argument"
 
         if not already_terminated_sequences.all(): 
+            # generate those that are not terminated:
             with torch.no_grad():
                 inputs_to_generate = inputs[already_terminated_sequences == False]
                 attention_mask = feature["attention_mask"][already_terminated_sequences == False]
-                tmp_outputs = self.lm.generate(
+                outputs = self.lm.generate(
                     inputs = inputs_to_generate,
                     attention_mask = attention_mask,
                     tokenizer=self.tokenizer,
                     **generation_params,
                 )
-                output_ids = tmp_outputs.sequences
-                tmp_hidden_states = torch.cat([hid[-1] for hid in tmp_outputs.hidden_states], dim = 1)
+                output_ids = outputs.sequences
+                hidden_states = torch.cat([hid[-1] for hid in outputs.hidden_states], dim = 1)
+                hidden_states = torch.cat([torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), dtype=hidden_states.dtype, device=hidden_states.device), hidden_states], dim=1)
 
             outputs_ids = torch.full((inputs.shape[0], output_ids.shape[1]), self.tokenizer.pad_token_id, dtype = output_ids.dtype, device = output_ids.device)
             outputs_ids[already_terminated_sequences, :inputs.shape[1]] = inputs[already_terminated_sequences]
             outputs_ids[~already_terminated_sequences] = output_ids
-            outputs_hidden_states = torch.full((inputs.shape[0], tmp_hidden_states.shape[1] + 1, tmp_hidden_states.shape[2]), 0, dtype = tmp_hidden_states.dtype, device = tmp_hidden_states.device)
+            outputs_hidden_states = torch.full((inputs.shape[0], hidden_states.shape[1], hidden_states.shape[2]), 0, dtype = hidden_states.dtype, device = hidden_states.device)
+            outputs_hidden_states[~already_terminated_sequences] = hidden_states
 
-            att_mask = (output_ids != self.tokenizer.pad_token_id).long()
-            
-            # no need for thought attention mask. it's simply simply simply calculated for token_id>vocab_size.
-            # action_start_index = attention_mask.shape[1]
-            # thought_attn_mask = att_mask[:, :-1].clone()
-            # thought_attn_mask = torch.cat([torch.zeros((thought_attn_mask.shape[0], 1,), dtype=thought_attn_mask.dtype, device=tmp_hidden_states.device), thought_attn_mask], dim=1)
-
-            # shifting the hidden states one to the right, because the thought of M(x_<t) is generates x_t and is summed with x_t to get x_t+1
-            # tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
-            with torch.no_grad():
-                # hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
-                stupid_hidden_75 = self.lm.forward(output_ids[:1, :75], attention_mask=att_mask[:1, :75], last_hidden_states=tmp_hidden_states[:1, :75]).hidden_states[-1]
-                stupid_hidden_76 = self.lm.forward(output_ids[:1, :76], attention_mask=att_mask[:1, :76], last_hidden_states=tmp_hidden_states[:1, :76]).hidden_states[-1]
-            
+            # for those who where already completed sequences, do one painful autoregressive forward to get all the thoughts...
             if already_terminated_sequences.any():
                 already_term_seq_hidden_states = self.lm.forward(inputs[already_terminated_sequences], attention_mask = feature["attention_mask"][already_terminated_sequences]).hidden_states[-1]
-                outputs_hidden_states[already_terminated_sequences, :inputs.shape[1]] = already_term_seq_hidden_states
-
-            outputs_hidden_states[~already_terminated_sequences] = hidden_states
+                outputs_hidden_states[already_terminated_sequences, :already_term_seq_hidden_states.shape[1]] = already_term_seq_hidden_states
 
         else:
             outputs_ids = inputs
@@ -162,7 +141,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         if not self.use_peft_at_inference:
             self.lm.enable_adapter_layers()
         
-        outputs = {"input_ids": outputs_ids, "hidden_states": outputs_hidden_states}
+        outputs = {"input_ids": outputs_ids, "last_hidden_states": outputs_hidden_states}
         outputs =  self.post_predict(inputs, outputs, return_dict = return_dict)
 
         if was_in_training:
@@ -172,42 +151,51 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
     
 
     def get_next_observation(self, observations, actions):
-
+        # get hidden states for observations only
+        input_ids = observations['input_ids']
+        input_attention_mask = observations['attention_mask']
+        with torch.no_grad():
+            hidden_states = self.lm.forward(input_ids, attention_mask=input_attention_mask).hidden_states[-1].detach()
+        # assert actions['last_hidden_states'][0][0] == hidden_states[0][max(torch.where(input_attention_mask[0])[0])]
+        hidden_states = torch.cat([torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), device=hidden_states.device, dtype=hidden_states.dtype), hidden_states[:, :-1, :]], dim=1)
+        observations['last_hidden_states'] = hidden_states
+        
         next_obs_input_ids = []
         next_obs_hidden_states = []
         #remove the filler tokens from the actions and observations
         obs_list = remove_filler_tokens_from_hashed_array(
             hash_ids_and_hidden_states(
                 input_ids=observations["input_ids"],
-                  hidden_states=observations["thought_hidden_states"]
+                last_hidden_states=observations["last_hidden_states"]
                 ),
             self.tokenizer.pad_token_id
         )
         actions_list = remove_filler_tokens_from_hashed_array(
             hash_ids_and_hidden_states(
                 input_ids=actions["input_ids"],
-                  hidden_states=actions["thought_hidden_states"]
+                last_hidden_states=actions["last_hidden_states"]
                 ),
             self.tokenizer.pad_token_id
         )
+
         #concatenate the observations and actions
         for obs, action in zip(obs_list, actions_list):
             tmp_dict_obs = unhash_ids_and_hidden_states(obs)
             tmp_dict_action = unhash_ids_and_hidden_states(action)
             next_obs_input_ids.append(torch.cat([tmp_dict_obs["input_ids"], tmp_dict_action["input_ids"]]))
-            next_obs_hidden_states.append(torch.cat([tmp_dict_obs["hidden_states"], tmp_dict_action["hidden_states"]]))
+            next_obs_hidden_states.append(torch.cat([tmp_dict_obs["last_hidden_states"], tmp_dict_action["last_hidden_states"]]))
 
         #pad the observations
         new_observations = self.tokenizer.pad({"input_ids": next_obs_input_ids}, return_tensors="pt", 
                                               padding=True, padding_side="right").to(self.device)
         
-        new_observations["thought_hidden_states"] = torch.zeros(
-            (new_observations["input_ids"].shape[0], new_observations["input_ids"].shape[1], observations["thought_hidden_states"].shape[2]),
-            dtype=observations["thought_hidden_states"].dtype,
-            device=observations["thought_hidden_states"].device
+        new_observations["last_hidden_states"] = torch.zeros(
+            (new_observations["input_ids"].shape[0], new_observations["input_ids"].shape[1], observations["last_hidden_states"].shape[2]),
+            dtype=observations["last_hidden_states"].dtype,
+            device=observations["last_hidden_states"].device
         )   
         for i in range(new_observations["input_ids"].shape[0]):
-            new_observations["thought_hidden_states"][i, :next_obs_hidden_states[i].shape[0]] = next_obs_hidden_states[i]
+            new_observations["last_hidden_states"][i, :next_obs_hidden_states[i].shape[0]] = next_obs_hidden_states[i]
         return new_observations
 
     def evaluate_actions(self, obs, acts, lm=None):
@@ -234,7 +222,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         
         # if the model is being finetuned on the demonstrations too, then remove those from the obs and
         # append to the actions.
-        reduced_observations, augmented_actions = self.augment_actions_reduce_observations(next_obs['input_ids'])
+        reduced_observations, _ = self.augment_actions_reduce_observations(next_obs['input_ids'])
 
         # position that produced thought have an id of (true_id + vocab_size)
         next_obs["input_ids"] = torch.where(
@@ -276,3 +264,46 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         entropy = - (log_probs * log_probs.exp()).sum(dim=-1).mean()
         return values, log_probs, entropy
   
+
+
+########################################################################################################################
+# some code that might be useful for debugging later:
+
+###################################################
+# No need for any of this! can be used in _predict to check if the sequential forward is the same as normal forward
+# att_mask = (output_ids != self.tokenizer.pad_token_id).long()
+# no need for thought attention mask. it's simply simply simply calculated for token_id>vocab_size.
+# action_start_index = attention_mask.shape[1]
+# thought_attn_mask = att_mask[:, :-1].clone()
+# thought_attn_mask = torch.cat([torch.zeros((thought_attn_mask.shape[0], 1,), dtype=thought_attn_mask.dtype, device=tmp_hidden_states.device), thought_attn_mask], dim=1)
+# shifting the hidden states one to the right, because the thought of M(x_<t) is generates x_t and is summed with x_t to get x_t+1
+# tmp_hidden_states = torch.cat([torch.zeros((tmp_hidden_states.shape[0], 1, tmp_hidden_states.shape[2]), dtype=tmp_hidden_states.dtype, device=tmp_hidden_states.device), tmp_hidden_states], dim = 1)
+# with torch.no_grad():
+    # hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=tmp_hidden_states).hidden_states[-1]
+    # stupid_hidden_75 = self.lm.forward(output_ids[:1, :75], attention_mask=att_mask[:1, :75], last_hidden_states=tmp_hidden_states[:1, :75]).hidden_states[-1]
+    # stupid_hidden_76 = self.lm.forward(output_ids[:1, :76], attention_mask=att_mask[:1, :76], last_hidden_states=tmp_hidden_states[:1, :76]).hidden_states[-1]
+
+# att_mask = (output_ids != self.tokenizer.pad_token_id).long()
+# u = torch.where(att_mask[0])[0]
+# min_u = u[0] - 1
+# max_u = u[-1] + 2
+# leftzero_h = torch.cat([torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), dtype=hidden_states.dtype, device=hidden_states.device), hidden_states], dim = 1)
+# rightzero_h = torch.cat([hidden_states, torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), dtype=hidden_states.dtype, device=hidden_states.device)], dim = 1)
+# left_thought_attn_mask = att_mask[:, :-1].clone()
+# left_thought_attn_mask = torch.cat([torch.zeros((left_thought_attn_mask.shape[0], 1,), dtype=left_thought_attn_mask.dtype, device=left_thought_attn_mask.device), left_thought_attn_mask], dim=1)
+
+# recomputed_hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=hidden_states).hidden_states[-1]
+# leftzero_hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=leftzero_h, thought_attention_mask=left_thought_attn_mask).hidden_states[-1]
+# rightzer_hidden_states = self.lm.forward(output_ids, attention_mask=att_mask, last_hidden_states=rightzero_h).hidden_states[-1]
+
+# recomputed_hidden_states[0, min_u:max_u] - hidden_states[0, min_u:max_u]
+# leftzero_hidden_states[0, min_u:max_u] - hidden_states[0, min_u:max_u]
+# rightzer_hidden_states[0, min_u:max_u] - hidden_states[0, min_u:max_u]
+
+
+# self.lm.eval()
+# left_thought_pert = self.lm.thought_embedding_head(leftzero_h, attention_mask=left_thought_attn_mask) 
+# thought_pert = self.lm.thought_embedding_head(hidden_states, attention_mask=att_mask[:, :-1]) 
+
+###################################################
+

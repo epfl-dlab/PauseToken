@@ -20,13 +20,13 @@ thought_embedding_head:
   _target_: src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer
   hidden_dim: 2048
   transformer_config: 
-    _target_: transformers.GPT2Model
+    _target_: transformers.LlamaModel
     config: 
-      _target_: transformers.GPT2Config
+      _target_: transformers.LlamaConfig
       vocab_size: 0
-      n_embd: ${...hidden_dim}
-      n_layer: 8
-      n_head: 8
-      n_positions: 1025
+      hidden_size: ${...hidden_dim}
+      num_hidden_layers: 4
+      num_attention_heads: 8
+      max_position_embeddings: 1025
 
 post_instanciation_method_calls: []

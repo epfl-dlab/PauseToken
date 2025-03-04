@@ -21,13 +21,13 @@ def remove_filler_tokens_from_hashed_array(combined_tensor: torch.FloatTensor, f
     input_ids = tensor_dict["input_ids"]
     #find postion of filler tokens in input_ids
     filler_positions = (input_ids == filler_token)
-    return [tensor[~filler_position] for tensor, filler_position in zip(combined_tensor, filler_positions)]
+    return [combined_tensor[i][~filler_position] for i, filler_position in enumerate(filler_positions)]
 
-def pad_hidden_states(hidden_states: torch.FloatTensor, attention_mask: torch.LongTensor, filler_token: int, padding_side: str) -> torch.FloatTensor:
+def pad_hidden_states(last_hidden_states: torch.FloatTensor, attention_mask: torch.LongTensor, filler_token: int, padding_side: str) -> torch.FloatTensor:
     """ Pad hidden states to make them of length max_seq_len
     
-    :param hidden_states: Hidden states
-    :type hidden_states: torch.FloatTensor
+    :param last_hidden_states: Hidden states
+    :type last_hidden_states: torch.FloatTensor
     :param max_seq_len: Maximum sequence length
     :type max_seq_len: int
     :param filler_token: Filler token
@@ -39,18 +39,18 @@ def pad_hidden_states(hidden_states: torch.FloatTensor, attention_mask: torch.Lo
     """
     seq_len_per_batch = (attention_mask.bool()).sum(dim = -1)
     
-    if isinstance(hidden_states, np.ndarray):
-        padded_hidden_states = np.full(
-            (hidden_states.shape[0], attention_mask.shape[1], hidden_states.shape[2]),
+    if isinstance(last_hidden_states, np.ndarray):
+        padded_last_hidden_states = np.full(
+            (last_hidden_states.shape[0], attention_mask.shape[1], last_hidden_states.shape[2]),
             filler_token,
-            dtype = hidden_states.dtype
+            dtype = last_hidden_states.dtype
         )
-    elif isinstance(hidden_states, torch.Tensor):
-        padded_hidden_states = torch.full(
-            (hidden_states.shape[0], attention_mask.shape[1], hidden_states.shape[2]),
+    elif isinstance(last_hidden_states, torch.Tensor):
+        padded_last_hidden_states = torch.full(
+            (last_hidden_states.shape[0], attention_mask.shape[1], last_hidden_states.shape[2]),
             filler_token,
-            device = hidden_states.device,
-            dtype = hidden_states.dtype
+            device = last_hidden_states.device,
+            dtype = last_hidden_states.dtype
         )
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
@@ -58,22 +58,22 @@ def pad_hidden_states(hidden_states: torch.FloatTensor, attention_mask: torch.Lo
         if seq_len == 0:
             continue
         elif padding_side == "right":
-            padded_hidden_states[idx, :seq_len] = hidden_states[idx, :seq_len]
+            padded_last_hidden_states[idx, :seq_len] = last_hidden_states[idx, :seq_len]
         else:
-            padded_hidden_states[idx, -seq_len:] = hidden_states[idx, :seq_len]
-    return padded_hidden_states
+            padded_last_hidden_states[idx, -seq_len:] = last_hidden_states[idx, :seq_len]
+    return padded_last_hidden_states
 
-def hash_ids_and_hidden_states(input_ids: Union[np.ndarray, torch.LongTensor], hidden_states: Union[np.ndarray, torch.FloatTensor]) -> Union[np.ndarray, torch.FloatTensor]:
-    # hidden_states -> (bs, seq_len, hidden_dim)
+def hash_ids_and_hidden_states(input_ids: Union[np.ndarray, torch.LongTensor], last_hidden_states: Union[np.ndarray, torch.FloatTensor]) -> Union[np.ndarray, torch.FloatTensor]:
+    # last_hidden_states -> (bs, seq_len, hidden_dim)
     # input_ids -> (bs, seq_len, 1)
     if isinstance(input_ids, torch.Tensor):
         cat_method = partial(torch.cat, dim = -1)
         input_ids = input_ids.unsqueeze(-1)
-        tensors = (hidden_states, input_ids)
+        tensors = (last_hidden_states, input_ids)
     elif isinstance(input_ids, np.ndarray):
         cat_method = partial(np.concatenate, axis = -1)
         input_ids = input_ids[..., np.newaxis]
-        tensors = [hidden_states, input_ids]
+        tensors = [last_hidden_states, input_ids]
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
     
@@ -82,9 +82,9 @@ def hash_ids_and_hidden_states(input_ids: Union[np.ndarray, torch.LongTensor], h
 
 def unhash_ids_and_hidden_states(combined_tensor: Union[np.ndarray, torch.FloatTensor]) -> Dict[str, Union[np.ndarray, torch.FloatTensor]]:
     if isinstance(combined_tensor, torch.Tensor):
-        return {"hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].long()}
+        return {"last_hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].long()}
     elif isinstance(combined_tensor, np.ndarray):
-        return {"hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].astype(int)}
+        return {"last_hidden_states": combined_tensor[..., :-1], "input_ids": combined_tensor[..., -1].astype(int)}
     else:
         raise ValueError("Array must be either a numpy array or a torch tensor")
 

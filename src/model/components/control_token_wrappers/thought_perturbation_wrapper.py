@@ -102,9 +102,14 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         # step model given tokens up until <i. I.e. it is the exact embedding that should be added to the word embedding W_E
         # after being passed through the thought embedder.
         if thought_mask.any():
-            thought_attention_mask_len = last_hidden_states.shape[1]
             # thought attention mask is to not attend on pad embedding outputs, basically same as normal attention mask.
-            thought_attention_mask = attention_mask[:, :thought_attention_mask_len] if thought_attention_mask is None else thought_attention_mask 
+            if thought_attention_mask is None:
+                thought_attention_mask_len = last_hidden_states.shape[1]
+                if thought_attention_mask_len == attention_mask.shape[1]:
+                    thought_attention_mask = attention_mask[:, :-1]
+                    thought_attention_mask = torch.cat([torch.zeros((attention_mask.shape[0], 1), dtype=attention_mask.dtype, device=attention_mask.device), thought_attention_mask], dim=1)
+                else:
+                    thought_attention_mask = attention_mask[:, :thought_attention_mask_len] 
             thought_perturbance = self.thought_embedding_head(last_hidden_states, attention_mask=thought_attention_mask)
             # Can happen that it's not the same shape if calling generate (past_key_values make that you only pass the last embedding/ input id)
             seq_len = min(inputs_embeds.size()[1], last_hidden_states.shape[1])
