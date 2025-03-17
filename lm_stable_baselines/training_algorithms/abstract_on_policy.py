@@ -173,7 +173,7 @@ class AbstractLMOnPolicy:
     ####################################################################################################################
     # Helper methods
     def get_next_observation(self, data):
-        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations['input_ids'], data.actions)
+        next_obs = self.env.envs[0].next_observation_from_observation_and_action(data.observations, data.actions)
         #create the next observation by interacting with the environment and then tokenizing to get input_ids + attention mask
         next_observation = self.policy.tokenizer.pad( 
             {'input_ids': next_obs},

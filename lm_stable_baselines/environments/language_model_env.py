@@ -126,6 +126,8 @@ class LanguageModelEnv(Env):
             curr_obs.extend(action)
         elif isinstance(curr_obs, torch.Tensor):
             curr_obs = torch.cat([curr_obs, action], dim = 0)
+        elif isinstance(curr_obs, np.ndarray):
+            curr_obs = np.concatenate([curr_obs, action], axis = 0)
         else:
             raise ValueError("curr_obs should be a list or a tensor")
         return curr_obs
@@ -325,7 +327,7 @@ class LanguageModelEnv(Env):
         
     def compute_portion_from_obs_actions(self, rollout_data) -> float:
         #assumption: filler tokens have been removed
-        obs = rollout_data.observations["input_ids"]
+        obs = rollout_data.observations
         actions = rollout_data.actions
 
         obs = remove_filler_tokens(obs, self.tokenizer.pad_token_id)

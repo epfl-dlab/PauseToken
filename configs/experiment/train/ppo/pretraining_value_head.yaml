@@ -18,13 +18,5 @@ rl_algorithm:
   batch_size: 4 # number of rollouts to be used in each training step
   ent_coef: 0
   
-
     # path to where the model should be saved, if null, it will be saved in /data/value_head
   saving_path: "./data/value_heads/${clean_path:${rl_algorithm.policy.model.language_model.pretrained_model_name_or_path}}_transformer.pth"
-
-trainer:
-  trainer_callbacks:
-    init_portion: 1.0
-    final_portion: 0.0
-    warmup_timesteps: 0
-    total_timesteps: 5

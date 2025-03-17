@@ -20,6 +20,8 @@ import json
 from typing import List
 import omegaconf
 
+import code
+
 class LMSBTrainer:
     def __init__(
         self,
@@ -111,6 +113,8 @@ class LMSBTrainer:
         os.makedirs(os.path.join(self.checkpoint_dir, "previous_runs"), exist_ok=True)
         #get aboslute path of checkpoint_dir
         checkpoint_dir_abs = os.path.abspath(self.checkpoint_dir)
+        # code.interact(local=locals())   
+        print(100)
         os.symlink(os.path.abspath(self.output_dir), os.path.join(checkpoint_dir_abs, "previous_runs", output_dir_last_folder_name), target_is_directory=True)
 
     def hash_config(self):
@@ -221,7 +225,7 @@ class LMSBTrainer:
         )
 
         input_texts = decode_and_strip_pad_tokens(
-            val_samps.observations["input_ids"],
+            val_samps.observations,
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )

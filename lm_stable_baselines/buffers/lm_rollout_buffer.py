@@ -7,13 +7,16 @@ import torch
 from stable_baselines3.common.vec_env import VecNormalize 
 from stable_baselines3.common.type_aliases import RolloutBufferSamples
 from lm_stable_baselines.utils import remove_filler_tokens
+# dataloader wrapper for the rollout buffer
+from torch.utils.data import DataLoader, IterableDataset
+from typing import Iterator, Tuple
 
 def double_indexing(array: np.ndarray, idx1: np.ndarray, idx2: Optional[np.ndarray] = None) -> np.ndarray:
     if idx2 is None:
         return array[idx1]
     return array[idx1][idx2]
 
-class LMRolloutBuffer(RolloutBuffer):
+class LMRolloutBuffer(RolloutBuffer, IterableDataset):
     def __init__(
         self,
         *args,
@@ -67,22 +70,12 @@ class LMRolloutBuffer(RolloutBuffer):
         self.actions = np.zeros((self.buffer_size, self.n_envs, self.action_dim), dtype=np.int64) + self.filler_token
         self.above_threshold_indices = None
         self.data_size = 0
-
     
     def set_filler_token(self, filler_token):
         self.filler_token = filler_token
         self.observations.fill(filler_token)
         self.actions.fill(filler_token)
-
-
-    def to_torch(self, array: Union[np.ndarray, torch.Tensor, transformers.BatchEncoding, dict], copy: bool = True) -> Union[torch.Tensor, transformers.BatchEncoding]:
-        if isinstance(array, transformers.BatchEncoding,) or isinstance(array, dict):
-            return {k: self.to_torch(v).to(self.device) for k,v in array.items()}
-        elif isinstance(array, torch.Tensor):
-            return array.to(self.device)
-        return super().to_torch(array, copy)
     
-
     def find_where_advantage_exceeds_threshold(self, advantage: np.ndarray, override_advantage_threshold = None) -> None:
         if override_advantage_threshold is not None:
             advantage_threshold = override_advantage_threshold
@@ -103,78 +96,39 @@ class LMRolloutBuffer(RolloutBuffer):
     
     def sample_batch(self, batch_size, env: Optional[VecNormalize] = None) -> RolloutBufferSamples:
         # Initialize remaining indices if it's the first pass or if we've exhausted the dataset
-        if self.remaining_indices is None or len(self.remaining_indices[0]) == 0:
-            allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
-            # Shuffle the allowed indices
-            shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
-            # Store shuffled indices for further sampling
-            self.remaining_indices = (allowed_indices[0][shuffled_indices], allowed_indices[1][shuffled_indices])
+        allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
+        # Shuffle the allowed indices
+        shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
         
-        # Sample from the remaining indices without replacement
-        num_remaining = len(self.remaining_indices[0])
-        num_to_sample = min(batch_size, num_remaining)
+        for i in range(0, len(shuffled_indices), batch_size):
+            num_to_sample = min(batch_size, len(shuffled_indices) - i)
+            indices = shuffled_indices[i:i + num_to_sample]
+            idx = (allowed_indices[0][indices][0], allowed_indices[1][indices][0])
+            yield self._get_samples(idx, env)
 
-        idx = np.arange(num_remaining)[:num_to_sample]
-        sampled_positions = (self.remaining_indices[0][idx], self.remaining_indices[1][idx])
-
-        # Remove the sampled positions from remaining indices
-        self.remaining_indices = (
-            np.delete(self.remaining_indices[0], idx),
-            np.delete(self.remaining_indices[1], idx)
-        )
-        
-        return self._get_samples(sampled_positions, env)
+    def __iter__(self) -> Iterator[Tuple]:
+        return self.sample_batch(1)
     
     def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
         if last_values.dtype == torch.bfloat16:
             last_values = last_values.float()
         super().compute_returns_and_advantage(last_values, dones)
-
     
     def _get_samples(self, batch_inds, env: Optional[VecNormalize] = None, padding='right') -> RolloutBufferSamples:
-        
-        # obs = self.tokenizer(
-        #     self.tokenizer.batch_decode(
-        #         remove_filler_tokens(self.observations[batch_inds][..., 1:], self.filler_token) # remove the first token (the bos token, tokenizer will re-add it)
-        #     ),
-        #     return_tensors="pt", padding=True, truncation=True
-        # )
- 
-        # actions = self.tokenizer(
-        #     self.tokenizer.batch_decode(
-        #         remove_filler_tokens(self.actions[batch_inds], self.filler_token) # don't remove the first token (since it's an action, it didn't start with a bos token)
-        #     ),
-        #      return_tensors="pt", padding=True, truncation=True
-        # )["input_ids"][...,1:] # remove the first token (the bos token, actions should not have it) 
-
-        # this messes up by retokenizing, and same text can be tokenized differently
-        # obs_list = remove_filler_tokens(self.observations[batch_inds][..., 0:], self.filler_token) # No tokenizer, keep the BOS
-        # max_obs_len = max([len(obss) for obss in obs_list])
-        # obs_tensor = torch.ones(len(obs_list), max_obs_len, dtype=torch.long) * self.tokenizer.pad_token_id
-        # for i, obs in enumerate(obs_list):
-        #     obs_tensor[i, :len(obs)] = torch.tensor(obs)
-        # obs = {"input_ids": obs_tensor, "attention_mask": torch.tensor(obs_tensor != self.tokenizer.pad_token_id).long()}
-        obs = self.remove_filler_tokens_and_pad(self.observations, batch_inds)
-
-        # actions_list = remove_filler_tokens(self.actions[batch_inds], self.filler_token)
-        # max_actions_len = max([len(actions) for actions in actions_list])
-        # actions_tensor = torch.ones(len(actions_list), max_actions_len, dtype=torch.long) * self.tokenizer.pad_token_id
-        # for i, actions in enumerate(actions_list):
-        #     actions_tensor[i, :len(actions)] = torch.tensor(actions)
-        # actions = actions_tensor
-        actions = self.remove_filler_tokens_and_pad(self.actions, batch_inds)["input_ids"]
+        # obs = self.remove_filler_tokens_and_pad(self.observations, batch_inds)
+        # actions = self.remove_filler_tokens_and_pad(self.actions, batch_inds)["input_ids"]
         # if model dtype is bfloat16, convert values to bfloat16
         if self.model_dtype == 'torch.bfloat16':
-            # make them bfloat16 tensort
-            # values = torch.tensor(self.values[batch_inds], dtype=torch.bfloat16)
-            # log_probs = torch.tensor(self.log_probs[batch_inds], dtype=torch.bfloat16)
-            # advantages = torch.tensor(self.advantages[batch_inds], dtype=torch.bfloat16)
-            values = self.values[batch_inds]
+            # map to bfloat16
+            values = self.values[batch_inds].bfloat16()
             log_probs = self.log_probs[batch_inds]
             advantages = self.advantages[batch_inds]
-            
-            returns = torch.tensor(self.returns[batch_inds], dtype=torch.bfloat16)
+            returns = self.returns[batch_inds]
         else:
+            obs = self.observations[batch_inds]
+            obs[obs==self.filler_token] = self.tokenizer.pad_token_id
+            actions = self.actions[batch_inds]
+            actions[actions==self.filler_token] = self.tokenizer.pad_token_id
             values = self.values[batch_inds]
             log_probs = self.log_probs[batch_inds]
             advantages = self.advantages[batch_inds]
@@ -188,7 +142,7 @@ class LMRolloutBuffer(RolloutBuffer):
             returns.flatten(),
         )
 
-        return RolloutBufferSamples(*tuple(map(self.to_torch, data)))
+        return RolloutBufferSamples(*tuple(data))
         
     def remove_filler_tokens_and_pad(self, tensor, batch_inds,):
         tensor_list = remove_filler_tokens(tensor[batch_inds], self.filler_token)
@@ -200,3 +154,14 @@ class LMRolloutBuffer(RolloutBuffer):
         output_tensor = {"input_ids": tensor_tensor, 
                          "attention_mask": (tensor_tensor != self.tokenizer.pad_token_id).long()}
         return output_tensor
+    
+
+
+def dataloader_from_buffer(buffer, batch_size):
+    """Initialize the Replay Buffer dataset used for retrieving experiences."""
+    dataset = buffer
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+    )
+    return dataloader

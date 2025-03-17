@@ -3,35 +3,15 @@ defaults:
   - train/ppo/default
   - override /rl_algorithm/policy/model/language_model:  auto_model_for_causal_lm
   - override /rl_algorithm/policy/model/peft_config: null
-  - override /rl_algorithm/policy/model/value_head: torch_transformer
-  - override /trainer/callbacks/portion_annealers: beta
 
-name: "Qwen1B-ppo-on-gsm8k"
-run_name: "beta"
-
-trainer:
-  callbacks:
-    portion_annealers:
-      init_alpha: 0.1
-      init_beta: 50.0
-      final_alpha: 1.0
-      final_beta: 1.0
-      warmup_timesteps: 0
-      total_timesteps: 20
+run_name: qwen1B
 
 rl_algorithm:
-  ent_coef: 0.01
-  vf_coef: 0.1
-  base_kl_coef: 0.01
-  policy:
-    ft_on_action_only: true
-
     model:
       language_model:
         pretrained_model_name_or_path: ???
       value_head:
         hidden_dim: 1536
-    
 
     generation:
       train:

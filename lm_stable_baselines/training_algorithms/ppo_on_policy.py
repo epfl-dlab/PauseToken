@@ -5,6 +5,9 @@ import torch
 import numpy as np
 from stable_baselines3.common.utils import explained_variance
 
+import lightning as L
+from lm_stable_baselines.buffers.lm_rollout_buffer import dataloader_from_buffer
+
 
 class PPOOnPolicy(AbstractLMOnPolicy, PPO):
     def __init__(self, *args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
@@ -19,6 +22,13 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.n_grad_accumulation_steps = kwargs.get("n_grad_accumulation_steps", 1)
         self.base_kl_coef = kwargs.get("base_kl_coef", 0.05)
 
+    def setup(self,):
+        self.fabric = L.Fabric()
+        self.fabric.launch()
+        self.policy, self.policy.optimizer = self.fabric.setup(self.policy, self.policy.optimizer)
+        self.dataloader = dataloader_from_buffer(self.rollout_buffer, self.batch_size)
+        self.dataloader = self.fabric.setup_dataloaders(self.dataloader)
+
     def collect_rollouts(self, *args, **kwargs):
         # Override if LM-specific logic is necessary
         return AbstractLMOnPolicy.collect_rollouts(self, *args, **kwargs)
@@ -29,6 +39,11 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         """
         Update policy using the currently gathered rollout buffer.
         """
+        self.policy.train()
+        if self.use_base_model_for_learning:
+            self.policy.lm.set_adapter(self.name_to_adapter["peft_to_train"])
+        self.policy.tokenizer.padding_side = "right"        
+        self.rollout_buffer.find_where_advantage_exceeds_threshold(self.rollout_buffer.advantages)
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizer learning rate
@@ -51,7 +66,8 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
             # Do a complete pass on the rollout buffer
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
+            # for rollout_data in self.rollout_buffer.get(self.batch_size):
+            for rollout_data in self.dataloader:
                 actions = rollout_data.actions
                 # for obs, act in zip(rollout_data.observations["input_ids"], actions):
                 #     print("obs: \n", self.policy.tokenizer.decode(obs, skip_special_tokens=True))
@@ -128,7 +144,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                 if values_pred.dtype == torch.bfloat16:
                     value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns.to(torch.bfloat16))
                 else:
-                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)
+                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns[:, 0])
                                   
                 value_losses.append(value_loss.item())
 
@@ -158,7 +174,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                         print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
                     break
 
-                loss.backward()
+                self.fabric.backward(loss)
                 gradient_accumulation_counter += 1
                 if gradient_accumulation_counter == self.n_grad_accumulation_steps:
                     torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)

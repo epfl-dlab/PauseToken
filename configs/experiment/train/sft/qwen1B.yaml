@@ -2,10 +2,8 @@
 defaults:
   - train/sft/default
   - override /rl_algorithm/policy/model/peft_config: null
-
-
+  
 run_name: "qwen_1.5B_sft"
-
 
 rl_algorithm:
   policy:

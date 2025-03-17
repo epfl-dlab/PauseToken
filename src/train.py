@@ -13,6 +13,7 @@ from lm_stable_baselines.environments.vectorized_environments import LMDummyVecE
 from src.utils.trainer_utils import test_model
 import os
 from copy import deepcopy
+import code
 
 
 # ------------------------------------------------------------------------------------ #
@@ -176,6 +177,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     
     
     trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
+    print("Setting config as string ...")
     trainer.set_config_as_string(config_as_string = config_as_string, name=cfg.name ,run_name = cfg.run_name)
     print("Loading checkpoint ...")
     trainer.load_checkpoint()
@@ -200,6 +202,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("train"):
         log.info("Starting training!")
+        trainer.rl_algorithm.setup()
         trainer.fit()
         log.info("Training finished! Loading best model...")
         trainer.load_best_model()
