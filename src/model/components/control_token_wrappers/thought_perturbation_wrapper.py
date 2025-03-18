@@ -19,7 +19,7 @@ from transformers.generation.stopping_criteria import StoppingCriteriaList
 from transformers.generation.streamers import BaseStreamer
 from transformers.generation.utils import GenerateOutput,GenerateNonBeamOutput, GenerateEncoderDecoderOutput, GenerateDecoderOnlyOutput
 from transformers.generation.configuration_utils import GenerationMode
-
+import gc
 
 class ThoughtEncodingMethod:
     MUST_ENCODE = "must-encode"
@@ -79,6 +79,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         # - h[i] is computed from all tokens up to position i
         # - h[i] is used to generate Answer[i] and thought perturbation for position i+1
         # - Thought perturbations are added to the input embeddings when thought_mask[i]=1
+        
         self._validate_input_arguments(input_ids, inputs_embeds)
 
         if input_ids is not None:
@@ -88,6 +89,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # Convert input_ids to inputs_embeds. Masani Idea; for a thought, input_id + vocab_size = thought_id
             inputs_embeds = self.make_input_embeddings_from_input_ids(input_ids)
 
+        
         # it's identity if you already have the last_hidden_states, if not, it will run a for loop and compute them for you!
         last_hidden_states = self.make_last_hidden_state_from_input_embeddings(
             inputs_embeds=inputs_embeds,
@@ -95,6 +97,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             last_hidden_states=last_hidden_states,
             thought_mask=thought_mask,
         )
+
 
         # Add thoughts to input embeddings in the case there are any thoughts to be added, it's 1 only on the answer, 
         # all the way to the token right before EOS.
@@ -117,9 +120,24 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             inputs_embeds[:,-seq_len:,:] += thought_perturbance[:,-seq_len:,:]
         
         reduce_mean = kwargs.pop("reduce_mean",True)
+        
+        # self.eval()
+        # breakpoint()
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids=None, inputs_embeds=inputs_embeds, attention_mask=attention_mask, *args, **kwargs)
         
+        # clone_input_ids = input_ids.clone()
+        # clone_input_ids = torch.where(clone_input_ids >= self.language_model.config.vocab_size, clone_input_ids - self.language_model.config.vocab_size, clone_input_ids)
+        
+        # lm_logits_from_ids, ctrl_tok_logits_from_ids, past_key_values_from_ids, hidden_states_from_ids, attentions_from_ids = \
+        #     self.forward_(input_ids=clone_input_ids, inputs_embeds=None, attention_mask=attention_mask, *args, **kwargs)
+        # lm_logits = lm_logits_from_ids 
+        # ctrl_tok_logits = ctrl_tok_logits_from_ids
+        # past_key_values = past_key_values_from_ids
+        # hidden_states = hidden_states_from_ids
+        # attentions = attentions_from_ids
+        
+    
         if labels is not None:
             loss, lm_loss, ctrl_tok_loss = self.compute_loss(
                 labels=labels,
@@ -155,40 +173,41 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         streamer: Optional["BaseStreamer"],
         **model_kwargs,
     ) -> Union[GenerateNonBeamOutput, torch.LongTensor]:
-        r"""
-        Generates sequences of token ids for models with a language modeling head using **multinomial sampling** and
-        can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
+        # r"""
+        # Generates sequences of token ids for models with a language modeling head using **multinomial sampling** and
+        # can be used for text-decoder, text-to-text, speech-to-text, and vision-to-text models.
 
-        Parameters:
-            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
-                The sequence used as a prompt for the generation.
-            logits_processor (`LogitsProcessorList`):
-                An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
-                used to modify the prediction scores of the language modeling head applied at each generation step.
-            stopping_criteria (`StoppingCriteriaList`):
-                An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
-                used to tell if the generation loop should stop.
-            generation_config ([`~generation.GenerationConfig`]):
-                The generation configuration to be used as parametrization of the decoding method.
-            synced_gpus (`bool`):
-                Whether to continue running the while loop until max_length (needed to avoid deadlocking with
-                `FullyShardedDataParallel` and DeepSpeed ZeRO Stage 3).
-            streamer (`BaseStreamer`, *optional*):
-                Streamer object that will be used to stream the generated sequences. Generated tokens are passed
-                through `streamer.put(token_ids)` and the streamer is responsible for any further processing.
-            model_kwargs:
-                Additional model specific kwargs will be forwarded to the `forward` function of the model. If model is
-                an encoder-decoder model the kwargs should include `encoder_outputs`.
+        # Parameters:
+        #     input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
+        #         The sequence used as a prompt for the generation.
+        #     logits_processor (`LogitsProcessorList`):
+        #         An instance of [`LogitsProcessorList`]. List of instances of class derived from [`LogitsProcessor`]
+        #         used to modify the prediction scores of the language modeling head applied at each generation step.
+        #     stopping_criteria (`StoppingCriteriaList`):
+        #         An instance of [`StoppingCriteriaList`]. List of instances of class derived from [`StoppingCriteria`]
+        #         used to tell if the generation loop should stop.
+        #     generation_config ([`~generation.GenerationConfig`]):
+        #         The generation configuration to be used as parametrization of the decoding method.
+        #     synced_gpus (`bool`):
+        #         Whether to continue running the while loop until max_length (needed to avoid deadlocking with
+        #         `FullyShardedDataParallel` and DeepSpeed ZeRO Stage 3).
+        #     streamer (`BaseStreamer`, *optional*):
+        #         Streamer object that will be used to stream the generated sequences. Generated tokens are passed
+        #         through `streamer.put(token_ids)` and the streamer is responsible for any further processing.
+        #     model_kwargs:
+        #         Additional model specific kwargs will be forwarded to the `forward` function of the model. If model is
+        #         an encoder-decoder model the kwargs should include `encoder_outputs`.
 
-        Return:
-            [`~generation.GenerateDecoderOnlyOutput`], [`~generation.GenerateEncoderDecoderOutput`] or `torch.LongTensor`:
-            A `torch.LongTensor` containing the generated tokens (default behaviour) or a
-            [`~generation.GenerateDecoderOnlyOutput`] if `model.config.is_encoder_decoder=False` and
-            `return_dict_in_generate=True` or a [`~generation.GenerateEncoderDecoderOutput`] if
-            `model.config.is_encoder_decoder=True`.
-        """
+        # Return:
+        #     [`~generation.GenerateDecoderOnlyOutput`], [`~generation.GenerateEncoderDecoderOutput`] or `torch.LongTensor`:
+        #     A `torch.LongTensor` containing the generated tokens (default behaviour) or a
+        #     [`~generation.GenerateDecoderOnlyOutput`] if `model.config.is_encoder_decoder=False` and
+        #     `return_dict_in_generate=True` or a [`~generation.GenerateEncoderDecoderOutput`] if
+        #     `model.config.is_encoder_decoder=True`.
+        # """
         
         # # init values
+        
         pad_token_id = generation_config._pad_token_tensor
         eos_token_id = generation_config.eos_token_id
         output_attentions = generation_config.output_attentions
@@ -226,6 +245,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         while self._has_unfinished_sequences(
             this_peer_finished, synced_gpus, device=input_ids.device, cur_len=cur_len, max_length=max_length
         ):
+            
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
 
@@ -306,6 +326,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
 
             condition = torch.logical_and(torch.logical_and((next_ctrl_tok == 0), (next_tokens!=eos_token_id)),  (next_tokens!=pad_token_id))
+
             next_tokens = torch.where( condition.bool(), next_tokens + self.language_model.config.vocab_size, next_tokens)
             next_mask = condition.long()[:, None]
             # update generated ids, model inputs, and length for next step
@@ -322,6 +343,8 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             # This is needed to properly delete outputs.logits which may be very large for first iteration
             # Otherwise a reference to outputs is kept which keeps the logits alive in the next iteration
             del outputs
+            gc.collect()  # Run garbage collection
+            torch.cuda.empty_cache()
 
         if streamer is not None:
             streamer.end()
