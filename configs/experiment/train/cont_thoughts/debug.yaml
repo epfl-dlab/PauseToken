@@ -36,10 +36,10 @@ trainer:
 rl_algorithm:
       
   learning_rate: 1e-6
-  n_steps: 1 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  n_envs: 32 #  is the number of times rollout() is called in each outer loop, 
-  batch_size: 4 # number of rollouts to be used in each training step
-  n_grad_accumulation_steps: 8
+  n_steps: 2 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 2 # number of rollouts to be used in each training step
+  n_grad_accumulation_steps: 16
   loss_computed_in_forward_pass: true
   use_base_model_for_learning: false
   ent_coef: 0
@@ -56,6 +56,7 @@ rl_algorithm:
         #   module_and_attr: torch.bfloat16
         thought_embedding_head:
           hidden_dim: 1536
+          divide_by_sqrt_dim: true
 
       value_head:
         hidden_dim: 1536
