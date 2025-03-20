@@ -132,6 +132,19 @@ class LanguageModelContThoughtEnv(Env):
                     new_dataset_id_list.append(item)
             cls.dataset_id_list = new_dataset_id_list
 
+    @classmethod
+    def get_ground_truths(cls, stage: str, idxs: List[int]):
+        """ Get the ground truths for the given stage and indices
+        
+        :param stage: Stage
+        :type stage: str
+        :param idxs: Indices
+        :type idxs: List[int]
+        :return: Ground truths
+        :rtype: List[str]
+        """
+        return [cls.dataset[stage]["output"][idx] for idx in idxs]
+
     def _step(self, curr_obs: Dict[str, Union[List, torch.Tensor]], action: Dict[str, torch.Tensor]) -> Dict[str, Union[List, torch.Tensor]]:
         """Update current observation with new action."""
         if isinstance(curr_obs['input_ids'], list):

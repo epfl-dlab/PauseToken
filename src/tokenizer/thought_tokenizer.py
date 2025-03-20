@@ -98,22 +98,26 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                     token_ids[thought_indices[-1]+1:], *args, **kwargs))
 
             return "".join(text_components)
-
+        
         def batch_decode(self, sequences, *args, **kwargs):
             """Override batch_decode while calling the original method."""
             if isinstance(sequences, torch.Tensor):
                 sequences = sequences.cpu().numpy()
-            elif isinstance(sequences, List):
+            
+            elif isinstance(sequences, List) and not (isinstance(sequences[0], list) and isinstance(sequences[0][0], torch.Tensor)):
                 sequences = np.array(sequences)
-            if len(sequences.shape) == 1:
+                                
+            if not isinstance(sequences, List) and len(sequences.shape) == 1:
                 sequences = sequences.reshape(-1, 1)
 
             if self.no_thought_tags:
-                breakpoint()
-                sequences[sequences >= len(self)] = sequences[sequences >= len(self)] - len(self)
+                if isinstance(sequences[0], List):
+                    sequences = [[(t.cpu().item() - len(self) if t >=len(self) else t.cpu().item())  for t in sublist] for sublist in sequences]
+                else:
+                    sequences = [seq[seq >= len(self)] - len(self) for seq in sequences]
                 return self.tokenizer.batch_decode(sequences, *args, **kwargs)
-
             return [self.decode(sequence, *args, **kwargs) for sequence in sequences]
+
         
         def find_tag_positions(self, text: str) -> list:
             """Find all occurrences of text enclosed between start_tag and end_tag, including start & end indices."""

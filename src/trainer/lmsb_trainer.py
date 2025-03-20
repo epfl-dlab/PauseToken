@@ -1,6 +1,6 @@
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
-from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer
+from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer, LMContinousRolloutBuffer
 import warnings
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
@@ -144,10 +144,10 @@ class LMSBTrainer:
         buffer_class = getattr(self.rl_algorithm, buffer_name).__class__
         kwargs = deepcopy(getattr(self.rl_algorithm, buffer_name_kwargs))
         kwargs["advantage_threshold"] = None
-
-        if buffer_class == LMRolloutBuffer:
+        
+        if issubclass(buffer_class, LMRolloutBuffer):
             buffer_size = n_steps + 1
-        elif buffer_class == LMReplayBuffer:
+        elif issubclass(buffer_class, LMReplayBuffer):
             buffer_size = (n_steps + 1) * self.rl_algorithm.n_envs
         else:
             raise ValueError(f"Invalid buffer class: {buffer_class}, valid buffer classes are: {LMReplayBuffer}, {LMRolloutBuffer}")
@@ -200,11 +200,10 @@ class LMSBTrainer:
     
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
         # val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
-        
         if hasattr(val_samps, "next_observations"):
             next_obs = val_samps.next_observations
         else:
-            next_obs = self.rl_algorithm.get_next_observation(val_samps)
+            next_obs = self.rl_algorithm.policy.get_next_observation(val_samps.observations, val_samps.actions)
         
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
             mean_reward = val_samps.rewards.mean().item()
@@ -226,8 +225,10 @@ class LMSBTrainer:
             self.rl_algorithm.policy.tokenizer
         )
         
+        actions = val_samps.actions["input_ids"] if isinstance(val_samps.actions, dict) else val_samps.actions
+        
         predicted_outputs = decode_and_strip_pad_tokens(
-            val_samps.actions,
+            actions,
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )
@@ -280,6 +281,7 @@ class LMSBTrainer:
         self.rl_algorithm.logger.record(f"{stage}/return", mean_return)
         #TODO: Save rollouts to file
         save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+
 
     def run_validation(self):    
         self.evaluation("val")
