@@ -15,18 +15,18 @@ config:
   ctrl_token_head_temperature: 1.0
   detach_ctrl_tok_clf: false
 
-
-thought_embedding_head:
-  _target_: src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer
-  hidden_dim: 2048
-  transformer_config: 
-    _target_: transformers.LlamaModel
-    config: 
-      _target_: transformers.LlamaConfig
-      vocab_size: 0
-      hidden_size: ${...hidden_dim}
-      num_hidden_layers: 4
-      num_attention_heads: 8
-      max_position_embeddings: 1025
+  #essential that it's in config for the model to be able to load the model (to use from_pretrained it must be serializable)
+  thought_embedding_head:
+    _target_: src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer
+    hidden_dim: 2048
+    transformer_config: 
+      _target_: transformers.LlamaModel
+      config: 
+        _target_: transformers.LlamaConfig
+        vocab_size: 0
+        hidden_size: ${...hidden_dim}
+        num_hidden_layers: 4
+        num_attention_heads: 8
+        max_position_embeddings: 1025
 
 post_instanciation_method_calls: []

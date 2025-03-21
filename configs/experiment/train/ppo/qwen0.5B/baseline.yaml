@@ -7,10 +7,12 @@ defaults:
   - override /trainer/callbacks/portion_annealers: linear
 
 
-name: "Qwen1B-ppo-on-gsm8k"
-run_name: "baseline_1ep_sft"
+name: "Qwen0.5B-ppo-on-gsm8k"
+run_name: "baseline"
 
 trainer:
+  n_outer_loops: 20
+
   callbacks:
     portion_annealers:
       lower_bound_init_portion: 0.0
@@ -25,17 +27,18 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: ???
+        pretrained_model_name_or_path: logs/checkpoints/SFT/qwen_0.5B_sft/3eb9199fb73db6078709dadb143d42908b16efe6170a6ae50e4d1208a6bad69c/ckpt-12672-0.274
       value_head:
-        hidden_dim: 1536
+        hidden_dim: 896
 
     generation:
       train:
         generation_config:
-          pad_token_id: 151655
+          eos_token_id: 151643
+          pad_token_id: 151645
           bos_token_id: null
-
       test:
         generation_config:
-          pad_token_id: 151655
+          eos_token_id: 151643
+          pad_token_id: 151645
           bos_token_id: null

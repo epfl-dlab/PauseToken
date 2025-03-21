@@ -5,10 +5,10 @@ class ThoughtTransformer(torch.nn.Module):
     def __init__(
             self, transformer_config, hidden_dim, divide_by_sqrt_dim=False):
         super(ThoughtTransformer, self).__init__()
-        if isinstance(transformer_config, dict):
-            self.model = hydra.utils.instantiate(transformer_config)
-        else:
+        if isinstance(transformer_config, torch.nn.Module):
             self.model = transformer_config
+        else:
+            self.model = hydra.utils.instantiate(transformer_config)
         self.hidden_dim = torch.tensor(hidden_dim, requires_grad=False)
         self.divide_by_sqrt_dim = divide_by_sqrt_dim
 

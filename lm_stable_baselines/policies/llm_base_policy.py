@@ -329,7 +329,6 @@ class LLMBasePolicy(BasePolicy):
             self.lm.disable_adapter_layers()
 
         already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
-        
         if not already_terminated_sequences.all(): 
             with torch.no_grad():
                 inputs_to_generate = inputs[already_terminated_sequences == False]

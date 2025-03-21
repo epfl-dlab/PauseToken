@@ -30,6 +30,21 @@ class ThoughtPerturbatorConfig(BaseCtrlTokConfig):
         self,
         thought_token_id: int = None,
         thought_token_id_token_name: str = "<|thought|>",
+        thought_embedding_head = {
+            "_target_": "src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer",
+            "hidden_dim": 2048,
+            "transformer_config": {
+                "_target_": "transformers.LlamaModel",
+                "config": {
+                    "_target_": "transformers.LlamaConfig",
+                    "vocab_size": 0,
+                    "hidden_size": 1536,
+                    "num_hidden_layers": 4,
+                    "num_attention_heads": 8,
+                    "max_position_embeddings": 1025  ,
+                }
+            }
+        },
         **kwargs
     ):
         if kwargs.get("control_token_to_id") is None:
@@ -40,16 +55,15 @@ class ThoughtPerturbatorConfig(BaseCtrlTokConfig):
         super().__init__(**kwargs)
         self.thought_token_id = thought_token_id
         self.thought_token_id_token_name = thought_token_id_token_name
+        self.thought_embedding_head = thought_embedding_head
         
 class ThoughtPerturbator(BaseControlTokenWrapper):
     config_class = ThoughtPerturbatorConfig
 
-    def __init__(self, thought_embedding_head: Union[DictConfig, torch.nn.Module], **kwargs):
-        super().__init__(**kwargs)
-        if isinstance(thought_embedding_head, torch.nn.Module):
-            self.thought_embedding_head = thought_embedding_head.to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
-        else:
-            self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
+    def __init__(self,*args, **kwargs):
+        super().__init__(*args, **kwargs)
+        thought_embedding_head = self.config.thought_embedding_head
+        self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
         self.thought_mode = kwargs.pop("thought_mode", "always")
 
     def forward(

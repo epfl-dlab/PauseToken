@@ -1,6 +1,7 @@
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
 from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer, LMContinousRolloutBuffer
+from lm_stable_baselines.policies.llm_thought_policy_value_model import LLMThoughtPolicyValueModel
 import warnings
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
@@ -203,7 +204,8 @@ class LMSBTrainer:
         if hasattr(val_samps, "next_observations"):
             next_obs = val_samps.next_observations
         else:
-            next_obs = self.rl_algorithm.policy.get_next_observation(val_samps.observations, val_samps.actions)
+            kwargs = {"compute_hidden_states": False, "device": "cpu"} if isinstance(self.rl_algorithm.policy ,LLMThoughtPolicyValueModel) else {}
+            next_obs = self.rl_algorithm.policy.get_next_observation(val_samps.observations, val_samps.actions, **kwargs)
         
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
             mean_reward = val_samps.rewards.mean().item()
@@ -406,7 +408,24 @@ class LMSBTrainer:
                 warnings.warn("Could not load adapter model, make sure to have `peft>=0.3.0` installed")
             
         else:
+            # breakpoint()
+            # names_policy_before = []
+            # for name, _ in self.rl_algorithm.policy.named_parameters():
+            #     names_policy_before.append(name)
             self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir, **kwargs)
+            
+            # names_policy_after = []
+            # for name, _ in self.rl_algorithm.policy.named_parameters():
+            #     names_policy_after.append(name)
+            # # look at the difference between the two lists
+
+            # diff2 = list(set(names_policy_after) - set(names_policy_before))
+            # op_diff2 = list(set(names_policy_before) - set(names_policy_after))
+       
+            # print("diff2: ", diff2)
+            # print("op_diff2: ", op_diff2)
+            # breakpoint()
+            
         
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
             

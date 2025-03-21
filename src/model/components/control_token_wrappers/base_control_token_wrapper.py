@@ -123,6 +123,17 @@ class BaseControlTokenWrapper(PreTrainedModel):
         self.set_lm_generation_config()
         self.set_ctrl_token_temperature(config.ctrl_token_head_temperature)
         
+        #Hacky possible fix for Qwen:
+        all_named_parameters = dict(self.named_parameters()).keys()
+        if hasattr(self.language_model, "lm_head") and hasattr(self.language_model.lm_head, "weight") and  not ("language_model.lm_head.weight" in all_named_parameters):
+            # Extract the existing weight
+            weight_param = self.language_model.lm_head.weight
+            # Remove existing weight to prevent conflicts
+            del self.language_model.lm_head.weight
+            # Re-register it properly
+            self.language_model.lm_head.register_parameter("weight", torch.nn.Parameter(weight_param.data))
+
+
     def _validate_ctrl_token_ids(self, embeddings_size: int):
         """ assert that all control tokens are either larger than the original vocab size or the last tokens of the vocab """
         ctr_token_ids = list(self.control_token_to_id.values())
@@ -227,9 +238,23 @@ class BaseControlTokenWrapper(PreTrainedModel):
         :param save_directory: The directory where to save the model
         :type save_directory: str
         """
+        def to_standard_dict(cfg):
+            """Recursively converts a DictConfig or ListConfig into a standard dictionary or list."""
+            from omegaconf import DictConfig, ListConfig
+            if isinstance(cfg, DictConfig):
+                return {k: to_standard_dict(v) for k, v in cfg.items()}
+            elif isinstance(cfg, ListConfig):
+                return [to_standard_dict(v) for v in cfg]
+            else:
+                return cfg 
+
+        
         #get absolute path
         self.name_or_path = os.path.abspath(save_directory) 
         self.config.name_or_path = os.path.abspath(save_directory)
+        
+        for key in self.config.__dict__.keys():
+            self.config.__dict__[key] = to_standard_dict(self.config.__dict__[key])
         super().save_pretrained(save_directory)
         
     
