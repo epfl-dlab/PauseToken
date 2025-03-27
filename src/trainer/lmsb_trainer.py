@@ -413,7 +413,6 @@ class LMSBTrainer:
             # for name, _ in self.rl_algorithm.policy.named_parameters():
             #     names_policy_before.append(name)
             self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir, **kwargs)
-            
             # names_policy_after = []
             # for name, _ in self.rl_algorithm.policy.named_parameters():
             #     names_policy_after.append(name)
@@ -426,8 +425,10 @@ class LMSBTrainer:
             # print("op_diff2: ", op_diff2)
             # breakpoint()
             
-        
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
+        
+        if hasattr(self.rl_algorithm.policy.lm, "thought_mode") and self.rl_algorithm.policy.lm.language_model.config.vocab_size != len(self.rl_algorithm.policy.tokenizer):
+            self.rl_algorithm.policy.tokenizer.set_length(self.rl_algorithm.policy.lm.language_model.config.vocab_size)
             
     def _remove_save(self, output_dir, is_directory = True):
         try:
@@ -708,6 +709,7 @@ class LMSBTrainer:
             # Learn
             self.on_learn_start()
             print("Running Learn Stage ... ")
+
             self.rl_algorithm.learn(**self.learn_kwargs)
             self.on_learn_end()
             

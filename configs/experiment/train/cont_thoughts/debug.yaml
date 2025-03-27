@@ -50,14 +50,14 @@ rl_algorithm:
   policy:
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k/dbfcef30870b83cb587cbdaea333790dfde30020a8a370ed1849b7d874824787/last_ckpt #Qwen/Qwen2.5-Math-1.5B
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k/dbfcef30870b83cb587cbdaea333790dfde30020a8a370ed1849b7d874824787/ckpt-12672-0.747 #Qwen/Qwen2.5-Math-1.5B
         # torch_dtype: 
         #   _target_: src.utils.hydra_custom_resolvers.get_module_attr
         #   module_and_attr: torch.bfloat16
         config:
           thought_embedding_head:
             hidden_dim: 1536
-            divide_by_sqrt_dim: true
+            divide_by_sqrt_dim: false
 
       value_head:
         hidden_dim: 1536

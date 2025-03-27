@@ -316,7 +316,9 @@ def test_model(
                 negative_prompt_ids= negative_prompt_ids,
                 **generation_kwargs
             )
-            
+        if generation_config.return_dict_in_generate:
+            output = output[0]
+
         clean_text = decode_and_strip_pad_tokens(output, tokenizer.pad_token_id, tokenizer)
         tmp_res = \
             [

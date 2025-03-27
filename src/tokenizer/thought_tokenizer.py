@@ -1,8 +1,9 @@
-from transformers.models.gpt2.tokenization_gpt2_fast import GPT2TokenizerFast
+from transformers import AutoTokenizer
 from typing import List, Union
 import numpy as np
 import torch
 import re
+
 
 def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = "</th>"):
     """Dynamically create a subclass of the tokenizer and return an instance."""
@@ -32,6 +33,23 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                 self.__dict__[name] = value
             else:
                 setattr(self.tokenizer, name, value)  # Forward to tokenizer
+                
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            class_args = {}
+            if "start_tag" in kwargs:
+                class_args["start_tag"] = kwargs.pop("start_tag")
+            if "end_tag" in kwargs:
+                class_args["end_tag"] = kwargs.pop("end_tag")
+            if "no_thought_tags" in kwargs:
+                class_args["no_thought_tags"] = kwargs.pop("no_thought_tags")
+            
+            if hasattr(cls, "tokenizer"):
+                tokenizer = cls.tokenizer.from_pretrained(*args, **kwargs)
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(*args, **kwargs)
+                
+            return cls(tokenizer, **class_args)
 
         def decode(self, token_ids, *args, **kwargs):
             """Override decode while calling the original method."""
