@@ -19,6 +19,7 @@ config:
   thought_embedding_head:
     _target_: src.model.components.thought_embeddings.torch_transformer.ThoughtTransformer
     hidden_dim: 2048
+    divisor_exponent: 0.65234375
     transformer_config: 
       _target_: transformers.LlamaModel
       config: 

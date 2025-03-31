@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - train/sft/default
+  - override /rl_algorithm/policy/model/peft_config: null
+
+
+run_name: "gpt2-xl.5B_sft"
+
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/resized_gpt2-xl
