@@ -70,8 +70,8 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
         Load additional modules (value head) from the load path.
         """
         filename = os.path.join(load_path, "value_head.pth")
-        self.value_head.load_state_dict(torch.load(filename)).to(next(self.lm.parameters()).dtype)
-    
+        self.value_head.load_state_dict(torch.load(filename))
+        self.value_head.to(next(self.lm.parameters()).dtype)
     
 
     # def predict_values(self, obs) -> torch.Tensor:

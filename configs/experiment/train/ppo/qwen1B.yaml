@@ -23,5 +23,3 @@ rl_algorithm:
         generation_config:
           pad_token_id: 151655
           bos_token_id: null
-
-  

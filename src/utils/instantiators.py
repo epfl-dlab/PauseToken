@@ -16,7 +16,11 @@ from peft import get_peft_model
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
-def instantiate_model(cfg, peft_config=None):
+def instantiate_model(cfg, peft_config=None, key=None, is_in_config=False):
+    
+    # If the config is a config file, we don't instantiate it's parameters since it needs to be serializable
+    is_config = True if key == "config" else False
+
     if not isinstance(cfg, dict):
         model_cfg = OmegaConf.to_container(cfg, resolve=True)
     else:
@@ -27,17 +31,17 @@ def instantiate_model(cfg, peft_config=None):
     
     for key in model_cfg.keys():
         if isinstance(model_cfg[key], dict):
-            model_cfg[key] = instantiate_model(model_cfg[key])
-    
-    if target_exists:     
-        model = hydra.utils.instantiate(model_cfg)
+            model_cfg[key] = instantiate_model(model_cfg[key], key = key, is_in_config=is_config or is_in_config)
+
+    if target_exists and not is_in_config:   
+        model = hydra.utils.instantiate(model_cfg , _recursive_= False)
         post_instantiation_method_calls(model, method_calls)
         if peft_config is not None:
             peft_config = OmegaConf.to_container(peft_config, resolve=True)
             peft_config = hydra.utils.instantiate(peft_config, _convert_="partial")
             model = get_peft_model(model, peft_config)
         return model
-    return cfg    
+    return model_cfg    
             
 def post_instantiation_method_calls(obj: Any, method_calls: List[Dict[str,Any]]):
     for method_call in method_calls:

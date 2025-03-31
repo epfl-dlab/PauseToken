@@ -1,6 +1,7 @@
 from stable_baselines3.common.type_aliases import MaybeCallback
 from stable_baselines3.common.base_class import BaseAlgorithm
-from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer
+from lm_stable_baselines.buffers import LMReplayBuffer, LMRolloutBuffer, LMContinousRolloutBuffer
+from lm_stable_baselines.policies.llm_thought_policy_value_model import LLMThoughtPolicyValueModel
 import warnings
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
@@ -148,10 +149,10 @@ class LMSBTrainer:
         buffer_class = getattr(self.rl_algorithm, buffer_name).__class__
         kwargs = deepcopy(getattr(self.rl_algorithm, buffer_name_kwargs))
         kwargs["advantage_threshold"] = None
-
-        if buffer_class == LMRolloutBuffer:
+        
+        if issubclass(buffer_class, LMRolloutBuffer):
             buffer_size = n_steps + 1
-        elif buffer_class == LMReplayBuffer:
+        elif issubclass(buffer_class, LMReplayBuffer):
             buffer_size = (n_steps + 1) * self.rl_algorithm.n_envs
         else:
             raise ValueError(f"Invalid buffer class: {buffer_class}, valid buffer classes are: {LMReplayBuffer}, {LMRolloutBuffer}")
@@ -204,11 +205,11 @@ class LMSBTrainer:
     
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
         # val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
-        
         if hasattr(val_samps, "next_observations"):
             next_obs = val_samps.next_observations
         else:
-            next_obs = self.rl_algorithm.get_next_observation(val_samps)
+            kwargs = {"compute_hidden_states": False, "device": "cpu"} if isinstance(self.rl_algorithm.policy ,LLMThoughtPolicyValueModel) else {}
+            next_obs = self.rl_algorithm.policy.get_next_observation(val_samps.observations, val_samps.actions, **kwargs)
         
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
             mean_reward = val_samps.rewards.mean().item()
@@ -230,8 +231,10 @@ class LMSBTrainer:
             self.rl_algorithm.policy.tokenizer
         )
         
+        actions = val_samps.actions["input_ids"] if isinstance(val_samps.actions, dict) else val_samps.actions
+        
         predicted_outputs = decode_and_strip_pad_tokens(
-            val_samps.actions,
+            actions,
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )
@@ -284,6 +287,7 @@ class LMSBTrainer:
         self.rl_algorithm.logger.record(f"{stage}/return", mean_return)
         #TODO: Save rollouts to file
         save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+
 
     def run_validation(self):    
         self.evaluation("val")
@@ -408,9 +412,27 @@ class LMSBTrainer:
                 warnings.warn("Could not load adapter model, make sure to have `peft>=0.3.0` installed")
             
         else:
+            # breakpoint()
+            # names_policy_before = []
+            # for name, _ in self.rl_algorithm.policy.named_parameters():
+            #     names_policy_before.append(name)
             self.rl_algorithm.policy.lm = class_lm.from_pretrained(output_dir, **kwargs)
-        
+            # names_policy_after = []
+            # for name, _ in self.rl_algorithm.policy.named_parameters():
+            #     names_policy_after.append(name)
+            # # look at the difference between the two lists
+
+            # diff2 = list(set(names_policy_after) - set(names_policy_before))
+            # op_diff2 = list(set(names_policy_before) - set(names_policy_after))
+       
+            # print("diff2: ", diff2)
+            # print("op_diff2: ", op_diff2)
+            # breakpoint()
+            
         self.rl_algorithm.policy.tokenizer = self.rl_algorithm.policy.tokenizer.from_pretrained(output_dir)
+        
+        if hasattr(self.rl_algorithm.policy.lm, "thought_mode") and self.rl_algorithm.policy.lm.language_model.config.vocab_size != len(self.rl_algorithm.policy.tokenizer):
+            self.rl_algorithm.policy.tokenizer.set_length(self.rl_algorithm.policy.lm.language_model.config.vocab_size)
             
     def _remove_save(self, output_dir, is_directory = True):
         try:
@@ -691,6 +713,7 @@ class LMSBTrainer:
             # Learn
             self.on_learn_start()
             print("Running Learn Stage ... ")
+
             self.rl_algorithm.learn(**self.learn_kwargs)
             self.on_learn_end()
             

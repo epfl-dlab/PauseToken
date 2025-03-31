@@ -19,8 +19,8 @@ class LMContinousRolloutBuffer(LMRolloutBuffer):
         self.above_threshold_indices = None
         self.data_size = 0
 
-    def remove_filler_tokens_and_pad(self, tensor, batch_inds,):
-        
+    def remove_filler_tokens_and_pad(self, tensor, batch_inds):
+           
         features = unhash_ids_and_hidden_states(tensor[batch_inds])
         
         obs_to_pass = features["input_ids"]
@@ -96,7 +96,11 @@ class LMContinousRolloutBuffer(LMRolloutBuffer):
         # for i, actions in enumerate(actions_list):
         #     actions_tensor[i, :len(actions)] = torch.tensor(actions)
         # actions = actions_tensor
-        actions = self.remove_filler_tokens_and_pad(self.actions.reshape(-1, self.action_space.shape[0], self.action_space.shape[1]), batch_inds)
+        
+        n_dim = len(self.actions.shape)
+        shape = self.actions.shape[:2] if n_dim == 3 else [-1]
+        
+        actions = self.remove_filler_tokens_and_pad(self.actions.reshape(*shape , self.action_space.shape[0], self.action_space.shape[1]), batch_inds)
         # if model dtype is bfloat16, convert values to bfloat16
         if self.model_dtype == 'torch.bfloat16':
             # make them bfloat16 tensort
@@ -113,7 +117,7 @@ class LMContinousRolloutBuffer(LMRolloutBuffer):
             log_probs = self.log_probs[batch_inds]
             advantages = self.advantages[batch_inds]
             returns = self.returns[batch_inds]
-            
+
         data = (
             obs,
             actions,

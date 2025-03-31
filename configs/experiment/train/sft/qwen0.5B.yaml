@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - train/sft/default
+  - override /rl_algorithm/policy/model/peft_config: null
+
+
+run_name: "qwen_0.5B_sft"
+
+trainer:
+  n_outer_loops: 1
+
+rl_algorithm:
+  policy:
+    model:
+      language_model:
+        pretrained_model_name_or_path: Qwen/Qwen2-0.5B
+    generation:
+      train:
+        generation_config:
+          eos_token_id: 151643
+          pad_token_id: 151645
+          bos_token_id: null
+
+      test:
+        generation_config:
+          eos_token_id: 151643
+          pad_token_id: 151645
+          bos_token_id: null

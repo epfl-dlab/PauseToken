@@ -10,11 +10,17 @@ from src.utils.instantiators import instantiate_rl_algorithm, post_instantiation
 from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
-from src.utils.trainer_utils import test_model
+from src.utils.utils import make_summary_table
+from src.utils.trainer_utils import test_model, save_json
 import os
 from copy import deepcopy
-import code
+import math
 
+PERFORMANCE_DECREASE_THRESHOLD_PCT = 0.5
+N_SAMPLES = 100
+ACCURACY_OF_LOWER_BOUND_IS_ZERO = True
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TOLERANCE = 1e-3
 
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -49,8 +55,126 @@ from src.utils import (
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-@task_wrapper
-def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def binary_search_hyperparam(lower_bound, upper_bound, hidden_dim ,cfg, language_model, tokenizer, dataset, generation):
+
+    key_format = "Thought Divisor Exponent = {value}"
+    
+    
+    
+    accuracy_table = {}
+    if not ACCURACY_OF_LOWER_BOUND_IS_ZERO:
+        perf_lower_bound = run_experiment(
+            cfg,
+            language_model,
+            tokenizer,
+            dataset,
+            generation,
+            hidden_dim=hidden_dim,
+            thought_head_divisor_exponent=lower_bound,
+            save_file_name=f"hyp_seach_{lower_bound}.json"
+        )
+    else:
+        perf_lower_bound = {
+            'test/accuracy_mean': 0.0,
+        }
+    
+    lower_performance = perf_lower_bound['test/accuracy_mean']
+    print(f"exponent: {lower_bound}, performance: {lower_performance}")
+    
+    accuracy_table[key_format.format(value=lower_bound)] = perf_lower_bound['test/accuracy_mean']
+    
+    perf_upper_bound = run_experiment(
+        cfg,
+        language_model,
+        tokenizer,
+        dataset,
+        generation,
+        hidden_dim=hidden_dim,
+        thought_head_divisor_exponent=upper_bound,
+        save_file_name=f"hyp_seach_{upper_bound}.json"
+    )
+    
+    reference_performance = perf_upper_bound['test/accuracy_mean']
+    target_performance = PERFORMANCE_DECREASE_THRESHOLD_PCT * reference_performance
+    upper_performance = reference_performance
+    print(f"exponent: {upper_bound}, performance: {upper_performance}")
+
+    accuracy_table[key_format.format(value=upper_bound)] = perf_upper_bound['test/accuracy_mean']
+    
+    while abs(upper_bound - lower_bound) > TOLERANCE:
+        mid = (lower_bound + upper_bound) / 2
+        
+        perf_mid = run_experiment(
+            cfg,
+            language_model,
+            tokenizer,
+            dataset,
+            generation,
+            hidden_dim=hidden_dim,
+            thought_head_divisor_exponent=mid,
+            save_file_name=f"hyp_seach_{mid}.json"
+        )
+        
+        mid_performance = perf_mid['test/accuracy_mean']
+        print(f"exponent: {mid}, performance: {mid_performance}")
+        
+        accuracy_table[key_format.format(value=mid)] = mid_performance
+        
+        if mid_performance < target_performance:
+            lower_bound = mid
+            lower_performance = mid_performance
+        else:
+            upper_bound = mid
+            upper_performance = mid_performance
+            
+        save_json(accuracy_table, output_folder=cfg.paths.output_dir, file_name="accuracy_table.json")
+            
+            
+    print("exponent search finished")
+    print("Summary:")
+    print(make_summary_table(accuracy_table))
+    
+    #save accuracy table in json
+    save_json(accuracy_table, output_folder==cfg.paths.output_dir, file_name="accuracy_table.json")
+    return accuracy_table
+
+def run_experiment(cfg, language_model, tokenizer, dataset, generation, hidden_dim, thought_head_divisor_exponent, save_file_name):
+    
+    language_model.thought_embedding_head.hidden_dim = torch.tensor(hidden_dim**thought_head_divisor_exponent, requires_grad=False, device=language_model.thought_embedding_head.hidden_dim.device)
+        
+    if cfg.get("test_formatting_func"):
+        dataset["train"] = dataset["train"].map(
+            hydra.utils.instantiate(cfg.test_formatting_func),
+            batched=True
+        )
+        #fetch only the first 1000 samples
+    dataset["train"] = dataset["train"].select(range(N_SAMPLES))            
+    
+    test_metric_fns = {
+        f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
+        for name in cfg.metrics["test"].keys()
+    }
+    
+    test_summary_metrics = test_model(
+        model=language_model,
+        tokenizer=tokenizer,
+        dataset=dataset["train"],
+        batch_size=cfg.test_batch_size,
+        output_dir=cfg.paths.output_dir,
+        prompt_field="input",
+        ground_truth_field="output",
+        evaluation_metrics=test_metric_fns,
+        save_file_name=save_file_name,
+        **generation["test"]
+    )
+    
+    log.info(f"Test metrics: {test_summary_metrics}")
+    test_metrics = test_summary_metrics
+        
+    return test_metrics
+
+
+def load_params(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
     training.
 
@@ -64,13 +188,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
         seed_everything(cfg.seed, workers=True)
-
-    if cfg.logger is not None:
-        log.info(f"Instantiating up logger <{cfg.logger._target_}>")
-        logger = hydra.utils.instantiate(cfg.logger)
-    else:
-        log.info("No logger found in config! Skipping... Will be using stable-baselines3 logger.")
-        logger = None
 
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
@@ -134,122 +251,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     language_model.train()
     log.info(f"Summary of model params: \n{make_trainable_params_summary(language_model)}")
 
-    log.info(f"Instantiating reward <{cfg.rl_algorithm.reward._target_}>")
-    reward = hydra.utils.instantiate(cfg.rl_algorithm.reward, tokenizer=tokenizer)
-    
-    set_model_method = getattr(reward, "set_model", None)
-    if callable(set_model_method):
-        set_model_method(language_model)
-
-    log.info(f"instantiating environment <{cfg.rl_algorithm.environment._target_}>")
-    env = LMDummyVecEnv(
-        [
-            lambda: hydra.utils.instantiate(
-                cfg.rl_algorithm.environment,
-                dataset=dataset,
-                tokenizer=tokenizer,
-                reward=reward,
-                termination_tokens=[tokenizer.eos_token_id],
-                n_envs = cfg.rl_algorithm.n_envs, 
-                env_idx = i
-            )
-        for i in range(cfg.rl_algorithm.n_envs)
-        ]
-    )
-    log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")
-
-    rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
- 
-    log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
-    
-    metrics = cfg.get("metrics", {"test": {}, "val": {}})
-    metrics_dict = {}
-    metrics_dict["test"] = {
-        f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
-        for name in metrics["test"].keys()
-    }
-    metrics_dict["val"] = {
-        f"val/{name}": hydra.utils.get_method(cfg.metrics["val"][name]["_target_"])
-        for name in metrics["val"].keys()
-    }
-    
-    cfg_cp = OmegaConf.to_container(deepcopy(cfg), resolve=False)
-
-    config_as_string = str(cfg_cp)
-    
-    
-    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
-    print("Setting config as string ...")
-    trainer.set_config_as_string(config_as_string = config_as_string, name=cfg.name ,run_name = cfg.run_name)
-    print("Loading checkpoint ...")
-    trainer.load_checkpoint()
-    object_dict = {
-        "cfg": cfg,
-        "dataset": dataset,
-        "tokenizer": tokenizer,
-        "language_model": language_model,
-        "reward": reward,
-        "env": env,
-        "policy": rl_alg.policy,
-        # "callbacks": callbacks,
-        "logger": logger,
-        "trainer": trainer,
-        "rl_algorithm": rl_alg,
-    }
-    
-    # TODO: How do we do this ? Sould we just create the wandb logger here?
-    if logger:
-        log.info("Logging hyperparameters!")
-        log_hyperparameters(object_dict)
-
-    if cfg.get("train"):
-        log.info("Starting training!")
-        trainer.rl_algorithm.setup()
-        trainer.fit()
-        log.info("Training finished! Loading best model...")
-        trainer.load_best_model()
-        path_to_save = os.path.join(cfg.paths.output_dir, "final")
-        trainer.save_model(path_to_save,use_save_top_k=False)
-        log.info(f"Saved final model to {cfg.paths.output_dir + '/final'}")
-        # trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
-        
-
-
-    test_metrics = {}
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        
-        if cfg.get("test_formatting_func"):
-            dataset["test"] = dataset["test"].map(
-                hydra.utils.instantiate(cfg.test_formatting_func),
-                batched=True
-            )            
-        
-        test_metric_fns = {
-            f"test/{name}": hydra.utils.get_method(cfg.metrics["test"][name]["_target_"])
-            for name in cfg.metrics["test"].keys()
-        }
-        
-        test_summary_metrics = test_model(
-            model=trainer.rl_algorithm.policy.lm,
-            tokenizer=trainer.rl_algorithm.policy.tokenizer,
-            dataset=dataset["test"],
-            batch_size=cfg.test_batch_size,
-            output_dir=cfg.paths.output_dir,
-            prompt_field="input",
-            ground_truth_field="output",
-            evaluation_metrics=test_metric_fns,
-            **generation["test"]
-        )
-        
-        log.info(f"Test metrics: {test_summary_metrics}")
-        test_metrics = test_summary_metrics
-        
-
-    # merge train and test metrics
-    metric_dict = { **test_metrics}
-
-    return metric_dict, object_dict
+    return language_model, tokenizer, dataset, generation
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
@@ -263,16 +265,26 @@ def main(cfg: DictConfig) -> Optional[float]:
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
 
-    # train the model
-    metric_dict, _ = train(cfg)
-
-    # safely retrieve metric value for hydra-based hyperparameter optimization
-    metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
+    # log all parameters
+    language_model, tokenizer, dataset, generation = load_params(cfg)
+    
+    language_model = language_model.to(DEVICE)
+    
+    hidden_dim = float(cfg.rl_algorithm.policy.model.language_model.config.thought_embedding_head.hidden_dim)
+    
+    accuracy_table = binary_search_hyperparam(
+        lower_bound = 0.5,
+        upper_bound =  1.0,
+        hidden_dim = hidden_dim,
+        cfg=cfg,
+        language_model=language_model,
+        tokenizer=tokenizer,
+        dataset=dataset,
+        generation=generation,
     )
 
     # return optimized metric
-    return metric_value
+    return accuracy_table
 
 
 if __name__ == "__main__":

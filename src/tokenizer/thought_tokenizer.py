@@ -1,8 +1,9 @@
-from transformers.models.gpt2.tokenization_gpt2_fast import GPT2TokenizerFast
+from transformers import AutoTokenizer
 from typing import List, Union
 import numpy as np
 import torch
 import re
+
 
 def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = "</th>"):
     """Dynamically create a subclass of the tokenizer and return an instance."""
@@ -14,9 +15,13 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
             self.start_tag = start_tag
             self.end_tag = end_tag
             self.no_thought_tags = no_thought_tags
+            self.set_length(len(tokenizer))
             
         def __len__(self):
-            return len(self.tokenizer)
+            return self.length
+
+        def set_length(self, value):
+            self.length = value
 
         def __getattr__(self, name):
             """Delegate all attribute and method access to the wrapped tokenizer, except overridden methods."""
@@ -28,6 +33,23 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                 self.__dict__[name] = value
             else:
                 setattr(self.tokenizer, name, value)  # Forward to tokenizer
+                
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            class_args = {}
+            if "start_tag" in kwargs:
+                class_args["start_tag"] = kwargs.pop("start_tag")
+            if "end_tag" in kwargs:
+                class_args["end_tag"] = kwargs.pop("end_tag")
+            if "no_thought_tags" in kwargs:
+                class_args["no_thought_tags"] = kwargs.pop("no_thought_tags")
+            
+            if hasattr(cls, "tokenizer"):
+                tokenizer = cls.tokenizer.from_pretrained(*args, **kwargs)
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(*args, **kwargs)
+                
+            return cls(tokenizer, **class_args)
 
         def decode(self, token_ids, *args, **kwargs):
             """Override decode while calling the original method."""
@@ -42,10 +64,10 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                 token_ids = np.array([token_ids])
 
             if self.no_thought_tags:
-                token_ids[token_ids >= len(self.tokenizer)] = token_ids[token_ids >= len(self.tokenizer)] - len(self.tokenizer)
+                token_ids[token_ids >= len(self)] = token_ids[token_ids >= len(self)] - len(self)
                 return self.tokenizer.decode(token_ids, *args, **kwargs)
 
-            thought_mask = (token_ids >= len(self.tokenizer))
+            thought_mask = (token_ids >= len(self))
             thought_indices = np.where(thought_mask)[0]
 
             if len(thought_indices) == 0:
@@ -62,10 +84,10 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
             for i, idx in enumerate(thought_indices):
                 if current_thought_start is None:
                     current_thought_start = idx
-                    current_thought_tokens = [token_ids[idx] - len(self.tokenizer)]
+                    current_thought_tokens = [token_ids[idx] - len(self)]
                 elif idx == thought_indices[i-1] + 1:
                     # Consecutive thought token
-                    current_thought_tokens.append(token_ids[idx] - len(self.tokenizer))
+                    current_thought_tokens.append(token_ids[idx] - len(self))
                 else:
                     # Gap in thought tokens, decode previous group
                     thought_text = self.tokenizer.decode(current_thought_tokens, *args, **kwargs)
@@ -80,7 +102,7 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                     
                     # Start new thought group
                     current_thought_start = idx
-                    current_thought_tokens = [token_ids[idx] - len(self.tokenizer)]
+                    current_thought_tokens = [token_ids[idx] - len(self)]
 
             # Handle final thought group
             thought_text = self.tokenizer.decode(current_thought_tokens, *args, **kwargs)
@@ -94,21 +116,26 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                     token_ids[thought_indices[-1]+1:], *args, **kwargs))
 
             return "".join(text_components)
-
+        
         def batch_decode(self, sequences, *args, **kwargs):
             """Override batch_decode while calling the original method."""
             if isinstance(sequences, torch.Tensor):
                 sequences = sequences.cpu().numpy()
-            elif isinstance(sequences, List):
+            
+            elif isinstance(sequences, List) and not (isinstance(sequences[0], list) and isinstance(sequences[0][0], torch.Tensor)):
                 sequences = np.array(sequences)
-            if len(sequences.shape) == 1:
+                                
+            if not isinstance(sequences, List) and len(sequences.shape) == 1:
                 sequences = sequences.reshape(-1, 1)
 
             if self.no_thought_tags:
-                sequences[sequences >= len(self.tokenizer)] = sequences[sequences >= len(self.tokenizer)] - len(self.tokenizer)
+                if isinstance(sequences[0], List):
+                    sequences = [[(t.cpu().item() - len(self) if t >=len(self) else t.cpu().item())  for t in sublist] for sublist in sequences]
+                else:
+                    sequences = [seq[seq >= len(self)] - len(self) for seq in sequences]
                 return self.tokenizer.batch_decode(sequences, *args, **kwargs)
-
             return [self.decode(sequence, *args, **kwargs) for sequence in sequences]
+
         
         def find_tag_positions(self, text: str) -> list:
             """Find all occurrences of text enclosed between start_tag and end_tag, including start & end indices."""
@@ -148,7 +175,7 @@ def create_thought_tokenizer(tokenizer, start_tag: str = "<th>", end_tag: str = 
                         ls_attention_mask.extend(tokenized_output["attention_mask"])
                     tokenized_word_output = self.tokenizer.__call__(word, padding=False)
                     assert len(tokenized_word_output["input_ids"]) == 1, f"A thought can only be associated to a single token"
-                    ls_tokenized_text.append(tokenized_word_output["input_ids"][0] + len(self.tokenizer))
+                    ls_tokenized_text.append(tokenized_word_output["input_ids"][0] + len(self))
                     ls_attention_mask.append(tokenized_word_output["attention_mask"][0])
                     last_end = end
                 if last_end < len(all_text):

@@ -150,15 +150,22 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
         return outputs
     
 
-    def get_next_observation(self, observations, actions):
+    def get_next_observation(self, observations, actions, compute_hidden_states = True, device = None):
+        
+        if device is not None:
+            for key in observations:
+                observations[key] = observations[key].to(device)
+                actions[key] = actions[key].to(device)
+        
         # get hidden states for observations only
-        input_ids = observations['input_ids']
-        input_attention_mask = observations['attention_mask']
-        with torch.no_grad():
-            hidden_states = self.lm.forward(input_ids, attention_mask=input_attention_mask).hidden_states[-1].detach()
-        # assert actions['last_hidden_states'][0][0] == hidden_states[0][max(torch.where(input_attention_mask[0])[0])]
-        hidden_states = torch.cat([torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), device=hidden_states.device, dtype=hidden_states.dtype), hidden_states[:, :-1, :]], dim=1)
-        observations['last_hidden_states'] = hidden_states
+        if compute_hidden_states:
+            input_ids = observations['input_ids']
+            input_attention_mask = observations['attention_mask']
+            with torch.no_grad():
+                hidden_states = self.lm.forward(input_ids, attention_mask=input_attention_mask).hidden_states[-1].detach()
+            # assert actions['last_hidden_states'][0][0] == hidden_states[0][max(torch.where(input_attention_mask[0])[0])]
+            hidden_states = torch.cat([torch.zeros((hidden_states.shape[0], 1, hidden_states.shape[2]), device=hidden_states.device, dtype=hidden_states.dtype), hidden_states[:, :-1, :]], dim=1)
+            observations['last_hidden_states'] = hidden_states
         
         next_obs_input_ids = []
         next_obs_hidden_states = []
@@ -261,7 +268,7 @@ class LLMThoughtPolicyValueModel(LLMBasePolicyValueModel):
                 obs_mask[i, action_start_indices[i]:] = 0
        
         values = self.value_forward_pass(raw_latent, obs_mask)
-        entropy = - (log_probs * log_probs.exp()).sum(dim=-1).mean()
+        entropy = - (log_probs * log_probs.exp()).mean()
         return values, log_probs, entropy
   
 

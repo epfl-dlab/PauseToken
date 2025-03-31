@@ -1,6 +1,8 @@
 # @package _global_
 
 defaults:
+  # - /rl_algorithm/policy/model/language_model@rl_algorithm.policy.model.language_model.language_model:  auto_peft_for_causal_lm
+  - override /rl_algorithm/policy/model/peft_config: mistral
   - override /data: gsm8k
   - override /rl_algorithm: ppo
   - override /rl_algorithm/policy: llm_thought_policy_value_model
@@ -15,6 +17,7 @@ defaults:
   - override /trainer/callbacks/portion_annealers: null
 
 
+
 name: "thought-ppo-on-gsm8k"
 task_name: "train"
 run_name: debug
@@ -22,7 +25,7 @@ run_name: debug
 
 trainer:
   n_steps_before_validation: 6336
-  n_outer_loops: 20
+  n_outer_loops: 10
   progress_bar: true
   # learn_callbacks:
   #   _target_: lm_stable_baselines.callbacks.lm_callback.StarProgressBarCallback
@@ -36,10 +39,10 @@ trainer:
 rl_algorithm:
       
   learning_rate: 1e-6
-  n_steps: 2 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
-  n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
-  batch_size: 2 # number of rollouts to be used in each training step
-  n_grad_accumulation_steps: 16
+  n_steps: 4 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
+  n_envs: 8 #  is the number of times rollout() is called in each outer loop, 
+  batch_size: 4 # number of rollouts to be used in each training step
+  n_grad_accumulation_steps: 8
   loss_computed_in_forward_pass: true
   use_base_model_for_learning: false
   ent_coef: 0
@@ -48,37 +51,25 @@ rl_algorithm:
     # model_dtype: torch.bfloat16   # Only if you want to use bfloat16 in model.
 
   policy:
-    max_output_generation_length: 900
-
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k/dbfcef30870b83cb587cbdaea333790dfde30020a8a370ed1849b7d874824787/ckpt-12672-0.747 #Qwen/Qwen2.5-Math-1.5B
-        # torch_dtype: 
-        #   _target_: src.utils.hydra_custom_resolvers.get_module_attr
-        #   module_and_attr: torch.bfloat16
-        config:
+        pretrained_model_name_or_path:  /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/mistral_sft_3epochs/46c676f406cb25ae87371f2ec501182d08c7799071ecbc82a1ff4edee925babe/ckpt-12672-0.472
+        config:  
           thought_embedding_head:
-            hidden_dim: 1536
+            hidden_dim: 4096
+            divide_by_sqrt_dim: true
 
       value_head:
-        hidden_dim: 1536
+        hidden_dim: 4096
       
     generation:
       train:
         generation_config:
-          pad_token_id: 151655
-          eos_token_id: 151643
-          bos_token_id: null
           return_dict_in_generate: True
-
-
       test:
         generation_config:
-          pad_token_id: 151655
-          eos_token_id: 151643
-          bos_token_id: null
           return_dict_in_generate: True
-
+         
     per_token_log_prob: true
       # value_head:
       #   value_head_path: /dlabscratch1/amani/PauseToken/data/value_heads/_dlabscratch1_baldwin_pause2_PauseToken_logs_sft_runs_2024-10-21_10-08-12_final.pth

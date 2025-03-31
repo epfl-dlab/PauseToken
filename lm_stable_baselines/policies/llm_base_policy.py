@@ -192,7 +192,7 @@ class LLMBasePolicy(BasePolicy):
                 obs_mask[i, action_start_indices[i]:] = 0
        
         values = self.value_forward_pass(raw_latent, obs_mask)
-        entropy = - (log_probs * log_probs.exp()).sum(dim=-1).mean()
+        entropy = - (log_probs * log_probs.exp()).mean()
         return values, log_probs, entropy
     
     def value_forward_pass(self, raw_latent, obs_mask):
@@ -329,7 +329,6 @@ class LLMBasePolicy(BasePolicy):
             self.lm.disable_adapter_layers()
 
         already_terminated_sequences = (inputs == self.tokenizer.eos_token_id).any(dim = 1)
-        
         if not already_terminated_sequences.all(): 
             with torch.no_grad():
                 inputs_to_generate = inputs[already_terminated_sequences == False]

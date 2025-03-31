@@ -38,14 +38,22 @@ def pad_hidden_states(last_hidden_states: torch.FloatTensor, attention_mask: tor
     :rtype: torch.FloatTensor
     """
     seq_len_per_batch = (attention_mask.bool()).sum(dim = -1)
+    # for some reason, if the seqence length is 1 then the shape of the last_hidden_states is (bs, hidden_dim) instead of (bs, 1, hidden_dim)
+    
     
     if isinstance(last_hidden_states, np.ndarray):
+        if len(last_hidden_states.shape) == 2:
+            #unsqueeze on dimension 1
+            last_hidden_states = last_hidden_states[:, np.newaxis, :]
         padded_last_hidden_states = np.full(
             (last_hidden_states.shape[0], attention_mask.shape[1], last_hidden_states.shape[2]),
             filler_token,
             dtype = last_hidden_states.dtype
         )
+
     elif isinstance(last_hidden_states, torch.Tensor):
+        if len(last_hidden_states.shape) == 2:
+            last_hidden_states = last_hidden_states.unsqueeze(1)
         padded_last_hidden_states = torch.full(
             (last_hidden_states.shape[0], attention_mask.shape[1], last_hidden_states.shape[2]),
             filler_token,
