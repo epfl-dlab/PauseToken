@@ -40,6 +40,16 @@ class LMRolloutBuffer(RolloutBuffer, IterableDataset):
     def set_tokenizer(self, tokenizer):
         self.tokenizer = tokenizer
         
+    def to_torch(self, array: Union[np.ndarray, torch.Tensor, transformers.BatchEncoding], copy: bool = True) -> Union[torch.Tensor, transformers.BatchEncoding]:
+        if isinstance(array, transformers.BatchEncoding):
+            return {k: v if not copy else v for k,v in array.items()}
+        elif isinstance(array, torch.Tensor):
+            return array
+        
+        if copy:
+            return torch.tensor(array)
+        return torch.as_tensor(array)
+        
     def add(
         self,
         obs: np.ndarray,
@@ -94,21 +104,75 @@ class LMRolloutBuffer(RolloutBuffer, IterableDataset):
         self.remaining_indices = None
         self.data_size = len(self.above_threshold_indices[0])
     
+    # def sample_batch(self, batch_size, env: Optional[VecNormalize] = None) -> RolloutBufferSamples:
+    #     # Initialize remaining indices if it's the first pass or if we've exhausted the dataset
+    #     allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
+    #     # Shuffle the allowed indices
+    #     shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
+        
+    #     for i in range(0, len(shuffled_indices), batch_size):
+    #         num_to_sample = min(batch_size, len(shuffled_indices) - i)
+    #         indices = shuffled_indices[i:i + num_to_sample]
+    #         idx = (allowed_indices[0][indices][0], allowed_indices[1][indices][0])
+    #         yield self._get_samples(idx, env)
+
     def sample_batch(self, batch_size, env: Optional[VecNormalize] = None) -> RolloutBufferSamples:
         # Initialize remaining indices if it's the first pass or if we've exhausted the dataset
+        if self.remaining_indices is None or len(self.remaining_indices[0]) == 0:
+            allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
+            # Shuffle the allowed indices
+            shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
+            # Store shuffled indices for further sampling
+            self.remaining_indices = (allowed_indices[0][shuffled_indices], allowed_indices[1][shuffled_indices])
+        
+        # Sample from the remaining indices without replacement
+        num_remaining = len(self.remaining_indices[0])
+        num_to_sample = min(batch_size, num_remaining)
+
+        idx = np.arange(num_remaining)[:num_to_sample]
+        sampled_positions = (self.remaining_indices[0][idx], self.remaining_indices[1][idx])
+
+        # Remove the sampled positions from remaining indices
+        self.remaining_indices = (
+            np.delete(self.remaining_indices[0], idx),
+            np.delete(self.remaining_indices[1], idx)
+        )
+        
+        batch = self._get_samples(sampled_positions, env)
+        
+        return batch
+        
+    def unpack_batch(self, batch):
+        observations = batch.observations
+        actions = batch.actions
+        values = batch.old_values
+        log_probs = batch.old_log_prob
+        advantages = batch.advantages
+        returns = batch.returns
+        
+        for i in range(len(returns)):
+            obs = {k: v[i] for k,v in observations.items()}
+            act = {k: v[i] for k,v in actions.items()}
+            val = values[i]
+            log_prob = log_probs[i]
+            adv = advantages[i]
+            ret = returns[i]
+            yield RolloutBufferSamples(obs, act, val, log_prob, adv, ret)
+
+    def __iter__(self) -> Iterator[Tuple]:
         allowed_indices = self.above_threshold_indices if self.above_threshold_indices is not None else np.arange(self.buffer_size)
         # Shuffle the allowed indices
         shuffled_indices = np.random.permutation(np.arange(len(allowed_indices[0])))
+        # Store shuffled indices for further sampling
+        self.remaining_indices = (allowed_indices[0][shuffled_indices], allowed_indices[1][shuffled_indices])
         
-        for i in range(0, len(shuffled_indices), batch_size):
-            num_to_sample = min(batch_size, len(shuffled_indices) - i)
-            indices = shuffled_indices[i:i + num_to_sample]
-            idx = (allowed_indices[0][indices][0], allowed_indices[1][indices][0])
-            yield self._get_samples(idx, env)
-
-    def __iter__(self) -> Iterator[Tuple]:
-        return self.sample_batch(1)
-    
+        while not (self.remaining_indices is None or len(self.remaining_indices[0]) == 0):
+            #Why? Cause elements in the batch must have same dimension but iter expects on sample at a time
+            batch = self.sample_batch(self.batch_size)
+            yield from self.unpack_batch(batch)
+            
+            
+        
     def compute_returns_and_advantage(self, last_values: torch.Tensor, dones: np.ndarray) -> None:
         if last_values.dtype == torch.bfloat16:
             last_values = last_values.float()

@@ -26,6 +26,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.fabric = L.Fabric()
         self.fabric.launch()
         self.policy, self.policy.optimizer = self.fabric.setup(self.policy, self.policy.optimizer)
+        self.rollout_buffer.batch_size = self.batch_size
         self.dataloader = dataloader_from_buffer(self.rollout_buffer, self.batch_size)
         self.dataloader = self.fabric.setup_dataloaders(self.dataloader)
 
@@ -144,7 +145,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                 if values_pred.dtype == torch.bfloat16:
                     value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns.to(torch.bfloat16))
                 else:
-                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns[:, 0])
+                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)
                                   
                 value_losses.append(value_loss.item())
 
@@ -173,7 +174,6 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
                     if self.verbose >= 1:
                         print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
                     break
-
                 self.fabric.backward(loss)
                 gradient_accumulation_counter += 1
                 if gradient_accumulation_counter == self.n_grad_accumulation_steps:
@@ -191,7 +191,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
             self.policy.optimizer.step()
             self.policy.optimizer.zero_grad()
             gradient_accumulation_counter = 0
-        
+
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
 
         # Logs

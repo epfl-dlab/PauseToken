@@ -354,11 +354,6 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
             this_peer_finished = unfinished_sequences.max() == 0
             cur_len += 1
 
-            # This is needed to properly delete outputs.logits which may be very large for first iteration
-            # Otherwise a reference to outputs is kept which keeps the logits alive in the next iteration
-            del outputs
-            gc.collect()  # Run garbage collection
-            torch.cuda.empty_cache()
 
         if streamer is not None:
             streamer.end()

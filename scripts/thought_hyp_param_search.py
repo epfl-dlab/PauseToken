@@ -135,12 +135,12 @@ def binary_search_hyperparam(lower_bound, upper_bound, hidden_dim ,cfg, language
     print(make_summary_table(accuracy_table))
     
     #save accuracy table in json
-    save_json(accuracy_table, output_folder==cfg.paths.output_dir, file_name="accuracy_table.json")
+    save_json(accuracy_table, output_folder=cfg.paths.output_dir, file_name="accuracy_table.json")
     return accuracy_table
 
 def run_experiment(cfg, language_model, tokenizer, dataset, generation, hidden_dim, thought_head_divisor_exponent, save_file_name):
     
-    language_model.thought_embedding_head.hidden_dim = torch.tensor(hidden_dim**thought_head_divisor_exponent, requires_grad=False, device=language_model.thought_embedding_head.hidden_dim.device)
+    language_model.thought_embedding_head.divisor_exponent = torch.tensor(thought_head_divisor_exponent, requires_grad=False, device=language_model.thought_embedding_head.hidden_dim.device)
         
     if cfg.get("test_formatting_func"):
         dataset["train"] = dataset["train"].map(
