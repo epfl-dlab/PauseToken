@@ -28,6 +28,7 @@ class LMSBTrainer:
         self,
         rl_algorithm: BaseAlgorithm,
         n_steps_before_validation: int,
+        save_every_n_steps: int,
         n_outer_loops: int,
         callbacks={},
         log_interval: int = 1,
@@ -54,18 +55,22 @@ class LMSBTrainer:
             learn_callbacks = callbacks
             
         self.learn_kwargs = {
-            "total_timesteps": n_steps_before_validation,
+            "total_timesteps": save_every_n_steps,
             "callback": learn_callbacks,
             "log_interval": log_interval,
             "tb_log_name": tb_log_name,
             "progress_bar": progress_bar
         }
+        
+        self.save_every_n_steps = save_every_n_steps
+        self.n_steps_before_validation = n_steps_before_validation
       
         self.rl_algorithm = rl_algorithm
         self.n_outer_loops = n_outer_loops
         self.num_val_samples = num_val_samples
         self.logger = self.rl_algorithm.logger
         self.current_outer_loop = 0
+        self.current_steps_taken_since_validation = 0
         self.metrics = metrics
         
         self.output_dir = output_dir
@@ -681,6 +686,8 @@ class LMSBTrainer:
         if hasattr(self.rl_algorithm.policy.lm, "enable_adapter_layers"):
             #just to be sure, enable adapter layers (I've had issues with this in the past)
             self.rl_algorithm.policy.lm.enable_adapter_layers()
+            
+        self.current_steps_taken_since_validation += self.learn_kwargs["total_timesteps"]
 
     def on_outer_loop_start(self):
         self.rl_algorithm.current_outer_loop = self.current_outer_loop
@@ -698,7 +705,10 @@ class LMSBTrainer:
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
         #save lm only
-        self.save_model()
+        if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
+            self.save_model()
+        else:
+            self.save_model(save_dir=os.path.join(self.checkpoint_dir, f"last_ckpt"), save_type = "lm", use_save_top_k = False)
         #save_checkpoint (opt, rl_alg)
         self.save_checkpoint()
         # trainer_callback_ratios = [self.rl_algorithm.env.envs[i].ground_truth_portions for i in range(self.rl_algorithm.n_envs)]
@@ -707,7 +717,7 @@ class LMSBTrainer:
         # self.rl_algorithm.logger.record("train/std_ground_truth_portions", np.std(trainer_callback_ratios))
      
     def fit(self):
-        self.current_outer_loop = 0
+        
         while self.current_outer_loop < self.n_outer_loops:
             self.on_outer_loop_start()
             # Learn
@@ -718,11 +728,18 @@ class LMSBTrainer:
             self.on_learn_end()
             
             # Run evaluation on validation set
-            self.on_validation_start()
-            print("Running Validation Stage ... ")
-            self.run_validation()
-            self.on_validation_end()
+            print("finfished run stage")
+            if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
+                self.on_validation_start()
+                print("Running Validation Stage ... ")
+                self.run_validation()
+                self.on_validation_end()
+                self.on_outer_loop_end()
+                self.current_steps_taken_since_validation = 0
+                self.current_outer_loop += 1
+            #need this if else because stuff depends on self.current_steps_taken_since_validation  and self.current_outer_loop in outer_loop end
+            else:
+                self.on_outer_loop_end()
             
-            self.current_outer_loop += 1
-            self.on_outer_loop_end()
+
            

@@ -49,6 +49,8 @@ task_name: "train"
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
 tags: ["dev"]
 
+save_every_n_steps: 1000
+
 # set False to skip model training
 train: True
 

@@ -22,6 +22,7 @@ run_name: debug
 
 trainer:
   n_steps_before_validation: 6336
+  save_every_n_steps: 1000
   n_outer_loops: 20
   progress_bar: true
   # learn_callbacks:
@@ -52,7 +53,7 @@ rl_algorithm:
 
     model:
       language_model:
-        pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k/dbfcef30870b83cb587cbdaea333790dfde30020a8a370ed1849b7d874824787/ckpt-12672-0.747 #Qwen/Qwen2.5-Math-1.5B
+        pretrained_model_name_or_path: /iopsstor/scratch/cscs/baldwin/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k_from_cscs/be7d622c1a42048df6f60d6a2ee6a0e58d907b1580b1609f70e329bd63fdfc01/ckpt-12672-0.761 #Qwen/Qwen2.5-Math-1.5B
         # torch_dtype: 
         #   _target_: src.utils.hydra_custom_resolvers.get_module_attr
         #   module_and_attr: torch.bfloat16
