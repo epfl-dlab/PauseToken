@@ -23,7 +23,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.base_kl_coef = kwargs.get("base_kl_coef", 0.05)
 
     def setup(self,):
-        self.fabric = L.Fabric()
+        self.fabric = L.Fabric(accelerator="cuda", devices=torch.cuda.device_count(), strategy="ddp")
         self.fabric.launch()
         self.policy, self.policy.optimizer = self.fabric.setup(self.policy, self.policy.optimizer)
         self.rollout_buffer.batch_size = self.batch_size

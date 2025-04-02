@@ -717,7 +717,7 @@ class LMSBTrainer:
         # self.rl_algorithm.logger.record("train/std_ground_truth_portions", np.std(trainer_callback_ratios))
      
     def fit(self):
-        
+        self.rl_algorithm.setup()
         while self.current_outer_loop < self.n_outer_loops:
             self.on_outer_loop_start()
             # Learn

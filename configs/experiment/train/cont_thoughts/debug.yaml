@@ -35,7 +35,7 @@ trainer:
   disable_peft_first_inference: false
 
 rl_algorithm:
-      
+  device: "cpu"
   learning_rate: 1e-6
   n_steps: 2 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
@@ -54,6 +54,7 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /iopsstor/scratch/cscs/baldwin/PauseToken/logs/checkpoints/SFT/warmup_qwen1B_gsm8k_from_cscs/be7d622c1a42048df6f60d6a2ee6a0e58d907b1580b1609f70e329bd63fdfc01/ckpt-12672-0.761 #Qwen/Qwen2.5-Math-1.5B
+        device_map: "cpu"
         # torch_dtype: 
         #   _target_: src.utils.hydra_custom_resolvers.get_module_attr
         #   module_and_attr: torch.bfloat16

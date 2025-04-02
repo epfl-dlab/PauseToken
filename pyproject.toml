@@ -36,7 +36,8 @@ dependencies = [
     "rich",
     "pytest",
     "einops",
-    "sh"
+    "sh",
+    "lightning==2.4.0",
 ]
 
 [project.urls]
