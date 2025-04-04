@@ -12,7 +12,7 @@ from stable_baselines3.common.logger import KVWriter
 from stable_baselines3.common.logger import make_output_format
 
 class WandbLogger(Logger):
-    def __init__(self, folder: Optional[str], output_formats: List[KVWriter], project: str, name: str, config: dict = {}, notes: str = None):
+    def __init__(self, folder: Optional[str], output_formats: List[KVWriter], project: str, name: str, config: dict = {}, notes: str = None, fabric: str = None):
         if folder is None:
             folder = os.path.join(tempfile.gettempdir(), datetime.datetime.now().strftime("SB3-%Y-%m-%d-%H-%M-%S-%f"))
         
@@ -26,8 +26,20 @@ class WandbLogger(Logger):
             output_formats = [make_output_format(f, folder, log_suffix) for f in format_strings]
         
         super().__init__(folder, output_formats)
+
+        info = (
+            f" || Distributed training info: "
+            f" global_rank={fabric.global_rank}, "
+            f" local_rank={fabric.local_rank}, "
+            f" node_rank={fabric.node_rank}, "
+            f" world_size={fabric.world_size}, "
+            f"||"
+        )
+        
+        notes = info if notes is None else notes + info
+
         wandb.init(project=project, name=name, config=config, notes=notes)
-    
+            
     def record(self, key: str, value: Any, exclude: Optional[Union[str, Tuple[str, ...]]] = None) -> None:
         """
         Log a value of some diagnostic

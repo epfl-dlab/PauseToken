@@ -4,10 +4,7 @@ from stable_baselines3.ppo.ppo import PPO
 import torch
 import numpy as np
 from stable_baselines3.common.utils import explained_variance
-
-import lightning as L
-from lm_stable_baselines.buffers.lm_rollout_buffer import dataloader_from_buffer
-
+from lm_stable_baselines.utils import sync_and_clear_cuda_cache
 
 class PPOOnPolicy(AbstractLMOnPolicy, PPO):
     def __init__(self, *args, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False, **kwargs):
@@ -22,13 +19,6 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         self.n_grad_accumulation_steps = kwargs.get("n_grad_accumulation_steps", 1)
         self.base_kl_coef = kwargs.get("base_kl_coef", 0.05)
 
-    def setup(self,):
-        self.fabric = L.Fabric(accelerator="cuda", devices=torch.cuda.device_count(), strategy="ddp")
-        self.fabric.launch()
-        self.policy, self.policy.optimizer = self.fabric.setup(self.policy, self.policy.optimizer)
-        self.rollout_buffer.batch_size = self.batch_size
-        self.dataloader = dataloader_from_buffer(self.rollout_buffer, self.batch_size)
-        self.dataloader = self.fabric.setup_dataloaders(self.dataloader)
 
     def collect_rollouts(self, *args, **kwargs):
         # Override if LM-specific logic is necessary
@@ -69,125 +59,141 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
             # Do a complete pass on the rollout buffer
             # for rollout_data in self.rollout_buffer.get(self.batch_size):
             for rollout_data in self.dataloader:
-                actions = rollout_data.actions
-                # for obs, act in zip(rollout_data.observations["input_ids"], actions):
-                #     print("obs: \n", self.policy.tokenizer.decode(obs, skip_special_tokens=True))
-                #     print("act: \n", self.policy.tokenizer.decode(act, skip_special_tokens=True))
-                #     print()
-                # breakpoint()
-                if isinstance(self.action_space, spaces.Discrete):
-                    # Convert discrete action from float to long
-                    actions = rollout_data.actions.long().flatten()
                 
-                observations = rollout_data.observations
-
-                 # log action supervision:
-                train_ratios = [self.env.envs[0].compute_portion_from_obs_actions(rollout_data) for i in range(len(actions))]
-                ls_ratios.append(np.mean(train_ratios))
-
-                # Re-sample the noise matrix because the log_std has changed
-                if self.use_sde:
-                    self.policy.reset_noise(self.batch_size)
-
-                with torch.no_grad():
-                    if self.policy.base_lm is not None:
-                        _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, self.policy.base_lm)
-                    else:
-                        # it's a peft model! simply remove the peft.
-                        self.policy.lm.disable_adapter_layers()
-                        _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, 
-                                                                        self.policy.lm)
-                        self.policy.lm.enable_adapter_layers()
-                # base_log_prob = torch.zeros_like(rollout_data.old_log_prob)
-                
-                values, log_prob, entropy = self.policy.evaluate_actions(observations, actions)
-
-                base_kl = torch.mean(torch.exp(base_log_prob) * (base_log_prob - log_prob))
-                base_kl_losses.append(base_kl.item())
-                
-                values = values.flatten()
-                # Normalize advantage
-                advantages = rollout_data.advantages
-
-                ls_advantages.append(advantages.mean().item())
-                ls_returns.append(rollout_data.returns.mean().item())
-
-                # Normalization does not make sense if mini batchsize == 1, see GH issue #325
-                if self.normalize_advantage and len(advantages) > 1:
-                    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-                # ratio between old and new policy, should be one at the first iteration
-                ratio = torch.exp(log_prob - rollout_data.old_log_prob)
-
-                # clipped surrogate loss
-                policy_loss_1 = advantages * ratio
-                policy_loss_2 = advantages * torch.clamp(ratio, 1 - clip_range, 1 + clip_range)
-                policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
-
-                # Logging
-                pg_losses.append(policy_loss.item())
-                clip_fraction = torch.mean((torch.abs(ratio - 1) > clip_range).float()).item()
-                clip_fractions.append(clip_fraction)
-
-                if self.clip_range_vf is None:
-                    # No clipping
-                    values_pred = values
-                else:
-                    # Clip the difference between old and new value
-                    # NOTE: this depends on the reward scaling
-                    values_pred = rollout_data.old_values + torch.clamp(
-                        values - rollout_data.old_values, -clip_range_vf, clip_range_vf
-                    )
-                # Value loss using the TD(gae_lambda) target
-                # value_loss = torch.nn.functional.mse_loss(rollout_data.returns, values_pred)
-                
-                # instead, cross entropy loss when returns are 0,1 
-                if values_pred.dtype == torch.bfloat16:
-                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns.to(torch.bfloat16))
-                else:
-                    value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)
-                                  
-                value_losses.append(value_loss.item())
-
-                # Entropy loss favor exploration
-                if entropy is None:
-                    # Approximate entropy when no analytical form
-                    entropy_loss = -torch.mean(-log_prob)
-                else:
-                    entropy_loss = -torch.mean(entropy)
-
-                entropy_losses.append(entropy_loss.item())
-
-                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss + self.base_kl_coef * base_kl
-                
-                # Calculate approximate form of reverse KL Divergence for early stopping
-                # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
-                # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
-                # and Schulman blog: http://joschu.net/blog/kl-approx.html
-                with torch.no_grad():
-                    log_ratio = log_prob - rollout_data.old_log_prob
-                    approx_kl_div = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
-                    approx_kl_divs.append(approx_kl_div)
-
-                if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
-                    continue_training = False
-                    if self.verbose >= 1:
-                        print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
-                    break
-                self.fabric.backward(loss)
                 gradient_accumulation_counter += 1
-                if gradient_accumulation_counter == self.n_grad_accumulation_steps:
-                    torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+
+                is_accumulating = gradient_accumulation_counter == self.n_grad_accumulation_steps
+
+                with self.fabric.no_backward_sync(self.policy, enabled=is_accumulating):
+                
+                    actions = rollout_data.actions
+
+                    if isinstance(self.action_space, spaces.Discrete):
+                        # Convert discrete action from float to long
+                        actions = rollout_data.actions.long().flatten()
+                            
+                    observations = rollout_data.observations
+
+                    # log action supervision:
+                    train_ratios = [self.env.envs[0].compute_portion_from_obs_actions(rollout_data) for i in range(len(actions))]
+                    ls_ratios.append(np.mean(train_ratios))
+
+                    # Re-sample the noise matrix because the log_std has changed
+                    if self.use_sde:
+                        self.policy.reset_noise(self.batch_size)
+
+                    with torch.no_grad():
+                        if self.policy.base_lm is not None:
+                            _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, self.policy.base_lm)
+                        else:
+                            # it's a peft model! simply remove the peft.
+                            self.policy.lm.disable_adapter_layers()
+                            _, base_log_prob, _ = self.policy.evaluate_actions(observations, actions, 
+                                                                            self.policy.lm)
+                            self.policy.lm.enable_adapter_layers()
+                    # base_log_prob = torch.zeros_like(rollout_data.old_log_prob)
+                    
+                    values, log_prob, entropy = self.policy.evaluate_actions(observations, actions)
+
+                    base_kl = torch.mean(torch.exp(base_log_prob) * (base_log_prob - log_prob))
+                    base_kl_losses.append(base_kl.item())
+                    
+                    values = values.flatten()
+                    # Normalize advantage
+                    advantages = rollout_data.advantages
+
+                    ls_advantages.append(advantages.mean().item())
+                    ls_returns.append(rollout_data.returns.mean().item())
+
+                    # Normalization does not make sense if mini batchsize == 1, see GH issue #325
+                    if self.normalize_advantage and len(advantages) > 1:
+                        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+                    # ratio between old and new policy, should be one at the first iteration
+                    ratio = torch.exp(log_prob - rollout_data.old_log_prob)
+
+                    # clipped surrogate loss
+                    policy_loss_1 = advantages * ratio
+                    policy_loss_2 = advantages * torch.clamp(ratio, 1 - clip_range, 1 + clip_range)
+                    policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
+
+                    # Logging
+                    pg_losses.append(policy_loss.item())
+                    clip_fraction = torch.mean((torch.abs(ratio - 1) > clip_range).float()).item()
+                    clip_fractions.append(clip_fraction)
+
+                    if self.clip_range_vf is None:
+                        # No clipping
+                        values_pred = values
+                    else:
+                        # Clip the difference between old and new value
+                        # NOTE: this depends on the reward scaling
+                        values_pred = rollout_data.old_values + torch.clamp(
+                            values - rollout_data.old_values, -clip_range_vf, clip_range_vf
+                        )
+                    # Value loss using the TD(gae_lambda) target
+                    # value_loss = torch.nn.functional.mse_loss(rollout_data.returns, values_pred)
+                    
+                    # instead, cross entropy loss when returns are 0,1 
+                    if values_pred.dtype == torch.bfloat16:
+                        value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns.to(torch.bfloat16))
+                    else:
+                        value_loss = torch.nn.functional.binary_cross_entropy(values_pred, rollout_data.returns)
+                                    
+                    value_losses.append(value_loss.item())
+
+                    # Entropy loss favor exploration
+                    if entropy is None:
+                        # Approximate entropy when no analytical form
+                        entropy_loss = -torch.mean(-log_prob)
+                    else:
+                        entropy_loss = -torch.mean(entropy)
+
+                    entropy_losses.append(entropy_loss.item())
+
+                    loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss + self.base_kl_coef * base_kl
+                    
+                    # Calculate approximate form of reverse KL Divergence for early stopping
+                    # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
+                    # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
+                    # and Schulman blog: http://joschu.net/blog/kl-approx.html
+                    with torch.no_grad():
+                        log_ratio = log_prob - rollout_data.old_log_prob
+                        approx_kl_div = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                        approx_kl_divs.append(approx_kl_div)
+
+                    if self.target_kl is not None and approx_kl_div > 1.5 * self.target_kl:
+                        continue_training = False
+                        if self.verbose >= 1:
+                            print(f"Early stopping at step {epoch} due to reaching max kl: {approx_kl_div:.2f}")
+                        break
+                    
+                    device = actions["input_ids"].device
+                    
+                    self.fabric.backward(loss)
+                    
+                    sync_and_clear_cuda_cache(device)
+                    
+
+                if is_accumulating:
+                    self.fabric.clip_gradients(self.policy, self.policy.optimizer, max_norm=self.max_grad_norm, norm_type=2)               
                     self.policy.optimizer.step()
+
+                    # empty cuda cache
+                    sync_and_clear_cuda_cache(device)
+                
                     self.policy.optimizer.zero_grad()
                     gradient_accumulation_counter = 0
-
+                    
+                    # empty cuda cache
+                    sync_and_clear_cuda_cache(device)
+                    
             self._n_updates += 1
             if not continue_training:
                 break
 
         if gradient_accumulation_counter != 0:
-            torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            self.fabric.clip_gradients(self.policy, self.policy.optimizer, max_norm=self.max_grad_norm, norm_type=2)
             self.policy.optimizer.step()
             self.policy.optimizer.zero_grad()
             gradient_accumulation_counter = 0

@@ -10,6 +10,8 @@ import numpy as np
 import os
 import json
 import contextlib
+from accelerate.hooks import AlignDevicesHook
+
 
 from src.utils import (
     RankedLogger,
@@ -347,4 +349,24 @@ def test_model(
     tokenizer.padding_side = og_padding_side
     
     return get_aggregated_metrics(res, list(evaluation_metrics.keys()))
+
+
+
+def remove_hook_from_module(module, recurse=False, hook_cls=AlignDevicesHook):
+
+    if hasattr(module, "_hf_hook") and isinstance(module._hf_hook, hook_cls):
+        module._hf_hook.detach_hook(module)
+        delattr(module, "_hf_hook")
+
+        if hasattr(module, "_old_forward"):
+            module.forward = module._old_forward
+            delattr(module, "_old_forward")
+
+    if recurse:
+        for child in module.children():
+            remove_hook_from_module(child, recurse)
+
+    return module
+
+
 

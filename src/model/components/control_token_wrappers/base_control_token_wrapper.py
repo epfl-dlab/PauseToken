@@ -125,6 +125,10 @@ class BaseControlTokenWrapper(PreTrainedModel):
         
         #Hacky possible fix for Qwen:
         all_named_parameters = dict(self.named_parameters()).keys()
+        
+        #by default, the control token classifier is attached to the language model
+        self.enable_grad_ctrl_token_clf()
+        
         if hasattr(self.language_model, "lm_head") and hasattr(self.language_model.lm_head, "weight") and  not ("language_model.lm_head.weight" in all_named_parameters):
             # Extract the existing weight
             weight_param = self.language_model.lm_head.weight
@@ -154,7 +158,16 @@ class BaseControlTokenWrapper(PreTrainedModel):
     def detach_ctrl_token_clf(self):
         print("Detaching control token classifier from the language model")
         self.config.detach_ctrl_tok_clf = True
-            
+        
+    # Useful for distributed training and you're not backpropagating through the control token classifier. If you don't disable grad, it will give you an error
+    def disable_grad_ctrl_token_clf(self):
+        for param in self.ctrl_tok_clf.parameters():
+            param.requires_grad = False
+        
+    def enable_grad_ctrl_token_clf(self):
+        for param in self.ctrl_tok_clf.parameters():
+            param.requires_grad = True                
+    
     def _resize_input_embeds(self):
         """ Resize the input embeddings of the language model to account for the new control tokens """
         og_embeddings =  self.language_model.get_input_embeddings()
@@ -616,11 +629,11 @@ class BaseControlTokenWrapper(PreTrainedModel):
         )
         
         kwargs["labels"] = labels
-                
+        
         ctrl_tok_hidden_state = \
             outputs.hidden_states[-1].clone().detach() \
                 if self.config.detach_ctrl_tok_clf else outputs.hidden_states[-1]
-    
+
         ctrl_tok_logits = self.ctrl_tok_clf(ctrl_tok_hidden_state)
         
         lm_logits = outputs.logits

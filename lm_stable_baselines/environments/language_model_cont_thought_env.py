@@ -1,7 +1,6 @@
 from typing import Tuple, Any, Dict, List, Union
 from gymnasium import Env, spaces
 from transformers import PreTrainedTokenizer
-from datasets import Dataset
 from lm_stable_baselines.rewards import AbstractReward
 import numpy as np
 from lm_stable_baselines.utils import remove_filler_tokens
@@ -10,6 +9,9 @@ import torch
 from torch import LongTensor, FloatTensor, Tensor
 from src.utils.constants import ANSWER_TEMPLATE
 from lm_stable_baselines.utils import hash_ids_and_hidden_states, unhash_ids_and_hidden_states
+from torch.utils.data import DataLoader
+import warnings
+from collections.abc import Iterator
 
 class LanguageModelContThoughtEnv(Env):
     """Environment for language models with continuous hidden state outputs.
@@ -22,18 +24,18 @@ class LanguageModelContThoughtEnv(Env):
         termination_tokens (List[int]): Tokens that terminate sequences
         max_tokens (int): Maximum tokens in observation
         hidden_size (int): Size of hidden state vectors
-        dataset (Dataset, optional): Dataset to sample from
+        dataloaders ( Dict[str,DataLoader], optional): Dataloaders to sample from
         filler_token (int, optional): Token used for padding. Defaults to -100
         hidden_dtype (torch.dtype, optional): Data type for hidden states. Defaults to torch.float32
     """
     
-    dataset: Dataset = None
+    dataloaders: Dict[str,DataLoader] = None
     stage: str = "train"
-    next_idx: int = 0
-    read_sequentially: bool = False
     gt_array: np.ndarray = None
     last_gt_pos: int = 0
-    n_rollouts_per_sample = 1
+    train_iterator = None
+    val_iterator = None
+    test_iterator = None
     
     def __init__(
         self,
@@ -42,15 +44,14 @@ class LanguageModelContThoughtEnv(Env):
         termination_tokens: List[int],
         max_tokens: int,
         hidden_size: int,
-        dataset: Dataset = None,
-        require_dataset: bool = False,
+        dataloaders: Dict[str,DataLoader] = None,
+        require_dataloader: bool = True,
         filler_token: int = -100,
         n_envs = -1,
         env_idx = -1,
         enable_delta_reward = False,
         max_actions = 1,
         hidden_dtype = torch.float32,
-        n_rollouts_per_sample = 1,
         reasoning_step_splitter = ' ', # could be '\n' for example
         ground_truth_portion_dist = 0, 
         ft_on_action_only = False,
@@ -65,7 +66,7 @@ class LanguageModelContThoughtEnv(Env):
         self.hidden_size = hidden_size
         self.tokenizer = tokenizer
         self.filler_token = filler_token
-        self.require_dataset = require_dataset
+        self.require_dataloader = require_dataloader
         self.max_actions = max_actions
         self.hidden_dtype = hidden_dtype
         self.reasoning_step_splitter = reasoning_step_splitter
@@ -85,11 +86,10 @@ class LanguageModelContThoughtEnv(Env):
             LanguageModelContThoughtEnv.gt_array = np.full((n_envs, max_tokens), -100)
 
         # If a dataset is required and not already set, initialize it
-        if require_dataset and not LanguageModelContThoughtEnv.dataset:
-            if dataset is None:
-                raise ValueError("dataset must be provided")
-            LanguageModelContThoughtEnv.dataset = dataset
-            LanguageModelContThoughtEnv.reprermute_dataset_id_list()
+        if require_dataloader and not LanguageModelContThoughtEnv.dataloaders:
+            if require_dataloader is None:
+                raise ValueError("require_dataloader must be provided")
+            LanguageModelContThoughtEnv.dataloaders = dataloaders
 
         # Define observation and action spaces for both discrete tokens and continuous hidden states
         self.observation_space = spaces.Box(
@@ -113,24 +113,6 @@ class LanguageModelContThoughtEnv(Env):
         # Set delta reward flag and initialize action counter
         self.enable_delta_reward = enable_delta_reward
         self.n_actions_taken = 0
-        LanguageModelContThoughtEnv.n_rollouts_per_sample = n_rollouts_per_sample
-
-    @classmethod
-    def reprermute_dataset_id_list(cls):
-        """Re-permute the dataset ID list based on the current stage and reading mode."""
-        if cls.read_sequentially:
-            cls.dataset_id_list = list(range(len(cls.dataset[cls.stage])))
-        else:
-            cls.dataset_id_list = np.random.permutation(len(cls.dataset[cls.stage]))
-        cls.next_idx = 0
-        
-        # If in training stage, adjust the dataset ID list for rollouts
-        if cls.stage == "train":
-            new_dataset_id_list = []
-            for item in cls.dataset_id_list:
-                for _ in range(cls.n_rollouts_per_sample):
-                    new_dataset_id_list.append(item)
-            cls.dataset_id_list = new_dataset_id_list
 
     @classmethod
     def get_ground_truths(cls, stage: str, idxs: List[int]):
@@ -143,8 +125,16 @@ class LanguageModelContThoughtEnv(Env):
         :return: Ground truths
         :rtype: List[str]
         """
-        return [cls.dataset[stage]["output"][idx] for idx in idxs]
-
+        if stage == "train":
+            warnings.warn("Careful, this might ruin the shuffling of the dataset if you are using it. I haven't looked into it really since I don't use it.")
+        #Highly inefficient, but not sure how to do it at the moment TODO: Make it more efficient
+        samples = []
+        for sample in cls.dataloaders[stage]:
+            if sample["id"] == idxs:
+                samples.append(sample["output"])
+        return samples
+    
+    
     def _step(self, curr_obs: Dict[str, Union[List, torch.Tensor]], action: Dict[str, torch.Tensor]) -> Dict[str, Union[List, torch.Tensor]]:
         """Update current observation with new action."""
         if isinstance(curr_obs['input_ids'], list):
@@ -197,36 +187,83 @@ class LanguageModelContThoughtEnv(Env):
         return False
 
     @classmethod
-    def set_stage(cls, stage: str, read_sequentially: bool = False):
+    def set_stage(cls, stage: str):
         """Set the current stage of the environment and re-permute the dataset ID list."""
         valid_stages = ["train", "val", "test"]
         assert stage in valid_stages, f"stage must be one of {valid_stages}"
-        assert stage in cls.dataset, f"stage {stage} not found in dataset"
+        assert stage in cls.dataloaders, f"stage {stage} not found in dataset"
         cls.stage = stage
-        cls.next_idx = 0
-        cls.read_sequentially = read_sequentially
-        cls.reprermute_dataset_id_list()
+    
+    #### CODE FOR SAMPLING FROM THE DATALOADER . THIS IS DEFINETLY NOT THE CLEANEST WAY TO DO IT, BUT I'M TRYING TO PUSH TO GET THE WHOLE PIPELINE WORKING ####
+    #### I WILL REFACTOR THIS LATER. TODO: REFACTOR THIS LATER. JUST NOTE THAT THESE MUST BE COORDINATED ACROSS ENVIRONMENTS and PROCESSES ####
+    
+    def sample_train(self):
+        if isinstance(LanguageModelContThoughtEnv.train_iterator, Iterator):
+            try:
+                sample = next(LanguageModelContThoughtEnv.train_iterator)
+            except StopIteration:
+                LanguageModelContThoughtEnv.train_iterator = iter(LanguageModelContThoughtEnv.dataloaders["train"])
+                sample = self.sample_train()
+        else:
+            LanguageModelContThoughtEnv.train_iterator = iter(LanguageModelContThoughtEnv.dataloaders["train"])
+            sample = self.sample_train()
+        return sample
+        
+            
+    def sample_val(self):
+        if isinstance(LanguageModelContThoughtEnv.val_iterator, Iterator):
+            try:
+                sample = next(LanguageModelContThoughtEnv.val_iterator)
+            except StopIteration:
+                LanguageModelContThoughtEnv.val_iterator = iter(LanguageModelContThoughtEnv.dataloaders["val"])
+                sample = self.sample_val()
+        else:
+            LanguageModelContThoughtEnv.val_iterator = iter(LanguageModelContThoughtEnv.dataloaders["val"])
+            sample = self.sample_val()
+        return sample
+    
+    def sample_test(self):
+        if isinstance(LanguageModelContThoughtEnv.test_iterator, Iterator):
+            try:
+                sample = next(LanguageModelContThoughtEnv.test_iterator)
+            except StopIteration:
+                LanguageModelContThoughtEnv.test_iterator = iter(LanguageModelContThoughtEnv.dataloaders["test"])
+                sample = self.sample_test()
+        else:
+            LanguageModelContThoughtEnv.test_iterator = iter(LanguageModelContThoughtEnv.dataloaders["test"])
+            sample = self.sample_test()
+        return sample
+            
+    def sample(self):
+        if LanguageModelContThoughtEnv.stage == "train":
+            sample = self.sample_train()
+        elif LanguageModelContThoughtEnv.stage == "val":
+            sample = self.sample_val()
+        elif LanguageModelContThoughtEnv.stage == "test":
+            sample = self.sample_test()
 
+        #I can safely assume that the environment samples only one sample so I can return a Dict[str, Any] rather than Dict[str, List[Any]]
+        for sample_key in sample.keys():
+            if isinstance(sample[sample_key], list):
+                sample[sample_key] = sample[sample_key][0] 
+        return sample
+    #### END OF CODE FOR SAMPLING FROM THE DATALOADER ####
+    
     def reset(self, seed=None, options=None) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
         """Reset environment and return initial observation."""
         super().reset(seed=seed)
         
-        if not self.require_dataset:
-            raise ValueError("Dataset required for this environment")
-            
-        if LanguageModelContThoughtEnv.next_idx >= len(self.dataset_id_list):
-            LanguageModelContThoughtEnv.reprermute_dataset_id_list()
-            
-        idx = LanguageModelContThoughtEnv.next_idx
-        id = int(self.dataset_id_list[idx])
-        LanguageModelContThoughtEnv.next_idx = idx + 1
-
-        input_sample = self.dataset[self.stage][id]
+        if not self.require_dataloader:
+            raise ValueError("Dataloader required for this environment")
+         
+        input_sample = self.sample()
+   
         input_text = input_sample["input"]
 
         # Cut at portions based on ground truth portion
         ground_truth_portion = self.sample_portion()
-        if LanguageModelContThoughtEnv.stage == "train" and (idx % LanguageModelContThoughtEnv.n_rollouts_per_sample != 0  or LanguageModelContThoughtEnv.n_rollouts_per_sample == 1):
+        
+        if LanguageModelContThoughtEnv.stage == "train":
             if ANSWER_TEMPLATE in input_sample["output"]:
                 # Keep only the reasoning steps after ANSWER_TEMPLATE
                 reasoning_steps = input_sample["output"].split(ANSWER_TEMPLATE)[1]

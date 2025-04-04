@@ -19,9 +19,13 @@ from peft import PeftModelForCausalLM
 import hashlib
 import json
 from typing import List
+from torch.distributed import is_initialized, get_rank
+from torch.cuda import device_count
 import omegaconf
-
 import code
+import lightning as L
+from lm_stable_baselines.buffers.lm_rollout_buffer import dataloader_from_buffer
+
 
 class LMSBTrainer:
     def __init__(
@@ -30,6 +34,7 @@ class LMSBTrainer:
         n_steps_before_validation: int,
         save_every_n_steps: int,
         n_outer_loops: int,
+        fabric,
         callbacks={},
         log_interval: int = 1,
         tb_log_name: str = "run",
@@ -106,6 +111,8 @@ class LMSBTrainer:
             "idx_of_last_in_context_gt_reasoning_step_distributions",
         ]
         
+        self.set_fabric(fabric)
+        
     def set_config_as_string(self, config_as_string: str, name: str, run_name: str):
         self.config_as_string = config_as_string
         
@@ -120,8 +127,9 @@ class LMSBTrainer:
         #get aboslute path of checkpoint_dir
         checkpoint_dir_abs = os.path.abspath(self.checkpoint_dir)
         # code.interact(local=locals())   
-        print(100)
-        os.symlink(os.path.abspath(self.output_dir), os.path.join(checkpoint_dir_abs, "previous_runs", output_dir_last_folder_name), target_is_directory=True)
+
+        if self.rl_algorithm.fabric.global_rank == 0:
+            os.symlink(os.path.abspath(self.output_dir), os.path.join(checkpoint_dir_abs, "previous_runs", output_dir_last_folder_name), target_is_directory=True)
 
     def hash_config(self):
         return hashlib.sha256(self.config_as_string.encode()).hexdigest()
@@ -132,13 +140,11 @@ class LMSBTrainer:
         self.stage = stage        
         
         if stage == "train":
-            read_sequentially = False
             self.rl_algorithm.policy.train()
         else:
-            read_sequentially = True
             self.rl_algorithm.policy.eval()
         
-        self.rl_algorithm.env.set_stage(stage, read_sequentially = read_sequentially)
+        self.rl_algorithm.env.set_stage(stage)
         
         # Retrieve unnormalized observation for saving into the buffer
         if self.rl_algorithm._vec_normalize_env is not None:
@@ -716,8 +722,23 @@ class LMSBTrainer:
         # self.rl_algorithm.logger.record("train/mean_ground_truth_portions", np.mean(trainer_callback_ratios))
         # self.rl_algorithm.logger.record("train/std_ground_truth_portions", np.std(trainer_callback_ratios))
      
+    def set_fabric(self,fabric):
+        self.rl_algorithm.fabric = fabric
+        
+    def setup_fabric(self):
+        # if self.rl_algorithm.fabric.global_rank == 0:
+        self.rl_algorithm.policy, self.rl_algorithm.policy.optimizer = self.rl_algorithm.fabric.setup(self.rl_algorithm.policy, self.rl_algorithm.policy.optimizer)
+        #check if policy has evaluate actions method 
+        if hasattr(self.rl_algorithm.policy, "evaluate_actions"):
+            self.rl_algorithm.policy.mark_forward_method("evaluate_actions")
+        self.rl_algorithm.rollout_buffer.batch_size = self.rl_algorithm.batch_size
+        self.rl_algorithm.dataloader = dataloader_from_buffer(self.rl_algorithm.rollout_buffer, self.rl_algorithm.batch_size)
+        self.rl_algorithm.dataloader = self.rl_algorithm.fabric.setup_dataloaders(self.rl_algorithm.dataloader)
+        self.rl_algorithm.device = self.rl_algorithm.fabric.device
+     
     def fit(self):
-        self.rl_algorithm.setup()
+
+        self.setup_fabric()
         while self.current_outer_loop < self.n_outer_loops:
             self.on_outer_loop_start()
             # Learn

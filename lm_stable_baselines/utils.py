@@ -5,6 +5,7 @@ from typing import Union, List, Dict
 from transformers import PreTrainedTokenizer
 from functools import partial
 import warnings
+import gc
 
 
 def remove_filler_tokens_from_hashed_array(combined_tensor: torch.FloatTensor, filler_token: int) -> Dict[str, torch.Tensor]:
@@ -157,5 +158,10 @@ def add_filler_tokens(array: Union[np.ndarray, torch.Tensor], max_tokens: int, f
         array = cat_method([array, filler_tensor])
 
     return array
+
+def sync_and_clear_cuda_cache(device):
+    torch.cuda.synchronize(device)  
+    gc.collect()
+    torch.cuda.empty_cache()
         
 

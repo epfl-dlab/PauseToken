@@ -2,19 +2,18 @@ from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-import torch
+from torch.cuda import device_count
 from omegaconf import DictConfig,OmegaConf
-from pytorch_lightning import seed_everything
 from datasets import Dataset
+from torch.utils.data import DataLoader
 from src.utils.instantiators import instantiate_rl_algorithm, post_instantiation_method_calls, instantiate_model,instantiate_generation_params
 from src.model.components.control_token_wrappers import BaseControlTokenWrapper
 from tokenizers import AddedToken
 from lm_stable_baselines.environments.vectorized_environments import LMDummyVecEnv
-from src.utils.trainer_utils import test_model
+from src.utils.trainer_utils import test_model, remove_hook_from_module
 import os
 from copy import deepcopy
-import code
-
+import lightning as L
 
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -48,7 +47,7 @@ from src.utils import (
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
-
+            
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -60,14 +59,21 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
+    
+    #launch fabric
+    log.info(f"Launching fabric")
+    
+    fabric = L.Fabric(accelerator="cuda", devices=device_count(), strategy="ddp")
+    fabric.launch()
+        
     # torch.autograd.set_detect_anomaly(True)
     # set seed for random number generators in pytorch, numpy and python.random
     if cfg.get("seed"):
-        seed_everything(cfg.seed, workers=True)
+        fabric.seed_everything(cfg.seed)
 
     if cfg.logger is not None:
         log.info(f"Instantiating up logger <{cfg.logger._target_}>")
-        logger = hydra.utils.instantiate(cfg.logger)
+        logger = hydra.utils.instantiate(cfg.logger, fabric=fabric)
     else:
         log.info("No logger found in config! Skipping... Will be using stable-baselines3 logger.")
         logger = None
@@ -75,6 +81,28 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating dataset <{cfg.data._target_}>")
     dataset: Dataset = hydra.utils.instantiate(cfg.data, _recursive_=False)
     
+    log.info(f"Instantiating fabric dataloaders <{cfg.data._target_}>")
+    # Build fabric Dataloaders put them in a dict
+    dataloaders = []
+    missing_splits = []
+    for split in ["train", "val", "test"]:
+        if split in dataset:
+            dataloaders.append(
+                DataLoader(
+                    dataset[split],
+                    batch_size=1, #alway 1 cause LMSB takes care of batching
+                    shuffle= True if split == "train" else False,
+                )
+            )
+        else:
+            missing_splits.append(split)
+    
+    fabric_dataloaders = fabric.setup_dataloaders(*dataloaders)
+    fabric_dataloader_dict = {}
+    splits = list(filter(lambda x: x not in missing_splits, dataset.keys()))
+    for split, dataloader in zip(splits, fabric_dataloaders):
+        fabric_dataloader_dict[split] = dataloader
+        
     log.info(f"Instantiating tokenizer <{cfg.rl_algorithm.policy.model.tokenizer._target_}>")
     tokenizer = hydra.utils.instantiate(cfg.rl_algorithm.policy.model.tokenizer)
 
@@ -87,13 +115,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             pad_token_id = cfg.rl_algorithm.policy.generation.train.generation_config.pad_token_id
             pad_token = tokenizer.decode(pad_token_id)
             tokenizer.pad_token = pad_token
-            tokenizer.pad_token_id = pad_token_id     
+            tokenizer.pad_token_id = pad_token_id   
+              
+    with fabric.init_module(empty_init=(device_count() > 1)):
+        log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
+        language_model = instantiate_model(
+            cfg.rl_algorithm.policy.model.language_model,
+            cfg.rl_algorithm.policy.model.get("peft_config")
+        )
+        remove_hook_from_module(language_model, recurse=True)
 
-    log.info(f"Instantiating language model <{cfg.rl_algorithm.policy.model.language_model._target_}>")
-    language_model = instantiate_model(
-        cfg.rl_algorithm.policy.model.language_model,
-        cfg.rl_algorithm.policy.model.get("peft_config")
-    )
     # if cfg.rl_algorithm.policy.get("copy_lm_as_base_model", False):
         # freeze the model and load it
         # base_language_model = deepcopy(language_model)
@@ -146,7 +177,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         [
             lambda: hydra.utils.instantiate(
                 cfg.rl_algorithm.environment,
-                dataset=dataset,
+                dataloaders=fabric_dataloader_dict,
                 tokenizer=tokenizer,
                 reward=reward,
                 termination_tokens=[tokenizer.eos_token_id],
@@ -157,8 +188,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         ]
     )
     log.info(f"Instantiating RL algorithm <{cfg.rl_algorithm._target_}>")
-
-    rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
+    with fabric.init_module(empty_init=(device_count() > 1)):
+        rl_alg = instantiate_rl_algorithm(cfg.rl_algorithm, lm=language_model, tokenizer=tokenizer, environment=env, logger=logger)
  
     log.info(f"Instantiating Trainer <{cfg.trainer._target_}>")
     
@@ -178,7 +209,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     config_as_string = str(cfg_cp)
     
     
-    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict)
+    trainer = hydra.utils.instantiate(cfg.trainer, rl_algorithm=rl_alg, metrics=metrics_dict, fabric=fabric)
     print("Setting config as string ...")
     trainer.set_config_as_string(config_as_string = config_as_string, name=cfg.name ,run_name = cfg.run_name)
     print("Loading checkpoint ...")
@@ -201,10 +232,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if logger:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
-
+    
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.rl_algorithm.setup()
         trainer.fit()
         log.info("Training finished! Loading best model...")
         trainer.load_best_model()

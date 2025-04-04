@@ -13,7 +13,15 @@ class TransformerValueHead(torch.nn.Module):
         if value_head_path is not None:
             self.model.load_state_dict(torch.load(value_head_path))
         
-
+        
+        #get the input embeddings of the model
+        input_embeddings = self.model.get_input_embeddings() 
+        # WHY? Because in distributed training if this will yield an error. Something like this:
+        # "Expected to have finished reduction in the prior iteration before starting a new one. This error indicates that your module has parameters that were not used in producing loss."
+        if input_embeddings.weight.shape[0] == 0:
+            for param in self.model.parameters():
+                param.requires_grad = False
+        
     def forward(self, all_hidden_embeds, attention_mask=None):
         last_layer_hidden_embeds = all_hidden_embeds[-1]
         if attention_mask is None:

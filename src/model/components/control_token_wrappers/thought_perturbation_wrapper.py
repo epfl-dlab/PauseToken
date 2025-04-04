@@ -65,6 +65,8 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         thought_embedding_head = self.config.thought_embedding_head
         self.thought_embedding_head = hydra.utils.instantiate(thought_embedding_head, _recursive_=False).to(next(self.language_model.parameters()).dtype).to(next(self.language_model.parameters()).device)
         self.thought_mode = kwargs.pop("thought_mode", "always")
+        if self.thought_mode in ["always", "never"]:
+            self.disable_grad_ctrl_token_clf()
 
     def forward(
             self,
@@ -137,6 +139,7 @@ class ThoughtPerturbator(BaseControlTokenWrapper):
         
         # self.eval()
         # breakpoint()
+        
         lm_logits, ctrl_tok_logits, past_key_values, hidden_states, attentions  = \
             self.forward_(input_ids=None, inputs_embeds=inputs_embeds, attention_mask=attention_mask, *args, **kwargs)
         
