@@ -794,7 +794,6 @@ class LMSBTrainer:
             self.on_learn_end()
             
             # Run evaluation on validation set
-            print("finfished run stage")
             if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
                 self.on_validation_start()
                 print("Running Validation Stage ... ")
