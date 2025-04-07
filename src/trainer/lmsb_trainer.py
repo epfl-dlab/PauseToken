@@ -8,7 +8,7 @@ from stable_baselines3.common.type_aliases import TrainFreq, TrainFrequencyUnit
 from copy import deepcopy
 import numpy as np
 from typing import Dict
-from src.utils.trainer_utils import decode_and_strip_special_tokens, get_aggregated_metrics, decode_and_strip_pad_tokens, save_json, strip_pad_tokens
+from src.utils.trainer_utils import decode_and_strip_special_tokens, get_aggregated_metrics, decode_and_strip_pad_tokens, save_json, strip_pad_tokens,to_torch, distributed_mean
 import shutil
 import os
 import math
@@ -25,7 +25,7 @@ import omegaconf
 import code
 import lightning as L
 from lm_stable_baselines.buffers.lm_rollout_buffer import dataloader_from_buffer
-
+import torch
 
 class LMSBTrainer:
     def __init__(
@@ -153,8 +153,14 @@ class LMSBTrainer:
     def evaluation(self, stage: str):
         # Run evaluation on validation set 
         self.rl_algorithm.policy.set_generation_cfg("test")
-        ################# PART 1: set arguments necessary for performing rollout ################# 
-        n_steps = int(math.ceil(self.num_val_samples/self.rl_algorithm.n_envs))
+        ################# PART 1: set arguments necessary for performing rollout #################
+        rest = self.num_val_samples % self.rl_algorithm.fabric.world_size
+        if rest != 0:
+            n_samples_per_process = self.num_val_samples // self.rl_algorithm.fabric.world_size if self.rl_algorithm.fabric.global_rank < rest else (self.num_val_samples // self.rl_algorithm.fabric.world_size) + 1
+        else:
+            n_samples_per_process = self.num_val_samples // self.rl_algorithm.fabric.world_size
+            
+        n_steps = int(math.ceil(n_samples_per_process/self.rl_algorithm.n_envs))
         buffer_name = self.rl_algorithm.buffer_class_keyword
         buffer_name_kwargs = buffer_name + "_kwargs"
         buffer_class = getattr(self.rl_algorithm, buffer_name).__class__
@@ -212,55 +218,61 @@ class LMSBTrainer:
             
         ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
-        samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:self.num_val_samples])
+        samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:n_samples_per_process])
     
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
+        observations = to_torch(val_samps.observations)
+        actions = to_torch(val_samps.actions)
+                
         # val_samps = self.rl_algorithm.process_sampled_rollouts(val_samps) # remove -100 tokens, add 'input_ids' and 'attention_mask'.
         if hasattr(val_samps, "next_observations"):
-            next_obs = val_samps.next_observations
+            next_obs = to_torch(val_samps.next_observations)
         else:
-            kwargs = {"compute_hidden_states": False, "device": "cpu"} if isinstance(self.rl_algorithm.policy ,LLMThoughtPolicyValueModel) else {}
-            next_obs = self.rl_algorithm.policy.get_next_observation(val_samps.observations, val_samps.actions, **kwargs)
+            kwargs = {"compute_hidden_states": False, "device": "cpu"} if isinstance(self.rl_algorithm.policy.module ,LLMThoughtPolicyValueModel) else {} 
+            next_obs = self.rl_algorithm.policy.get_next_observation(observations, actions, **kwargs)
         
+
         if isinstance(self.rl_algorithm, OffPolicyAlgorithm):
-            mean_reward = val_samps.rewards.mean().item()
-            mean_return = val_samps.returns.mean().item()
+            mean_reward = distributed_mean(to_torch(val_samps.rewards), self.rl_algorithm.fabric)
+            mean_return = distributed_mean(to_torch(val_samps.returns), self.rl_algorithm.fabric)
         else:
-            mean_reward = val_samps.advantages.mean().item()
-            mean_return = val_samps.returns.mean().item()
+            mean_reward = distributed_mean(to_torch(val_samps.advantages), self.rl_algorithm.fabric)
+            mean_return = distributed_mean(to_torch(val_samps.returns), self.rl_algorithm.fabric)
         
+        gts = self.rl_algorithm.env.envs[0].get_ground_truths(stage=stage, idxs = list(range(n_samples_per_process)))
         
+        collection = {
+            "next_observations": next_obs["input_ids"],
+            "observations": observations["input_ids"] if isinstance(observations, dict) else observations,
+            "actions": actions["input_ids"] if isinstance(actions, dict) else actions,
+        }
+
         texts = decode_and_strip_pad_tokens(
-            next_obs["input_ids"],
+            collection["next_observations"],
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )
 
         input_texts = decode_and_strip_pad_tokens(
-            val_samps.observations,
+            collection["observations"],
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )
         
-        actions = val_samps.actions["input_ids"] if isinstance(val_samps.actions, dict) else val_samps.actions
         
         predicted_outputs = decode_and_strip_pad_tokens(
-            actions,
+            collection["actions"],
             self.rl_algorithm.policy.tokenizer.pad_token_id,
             self.rl_algorithm.policy.tokenizer
         )
 
-        gts = self.rl_algorithm.env.envs[0].get_ground_truths(
-            stage=stage,
-            idxs = list(range(self.num_val_samples))
-        )
-        
         reses = []
                 
         ################# PART 4: Compute metrics #################
         
         #TODO: Compute or extract metrics (e.g. reward)
-        for i,val_samp in enumerate(next_obs["input_ids"]):
+        total_seen_samples = 0
+        for i,val_samp in enumerate(collection["next_observations"]):
             
             text = texts[i]
             input_text = input_texts[i]
@@ -269,7 +281,6 @@ class LMSBTrainer:
             gt = gts[i]
             tmp_reses = {
                 "generated_text": text,
-                # "tokenized_text": strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0],
                 "tokenized_text": ', '.join(map(str, strip_pad_tokens([val_samp.cpu().numpy().tolist()], self.rl_algorithm.policy.tokenizer)[0])),
                 "input": input_text,
                 "predicted_output": predicted_output,
@@ -279,29 +290,63 @@ class LMSBTrainer:
             for metric_name, metric_fn in self.metrics[stage].items():
                 str_input = decode_and_strip_special_tokens(val_samp, self.rl_algorithm.policy.tokenizer)        
                 tmp_reses[metric_name] = metric_fn(str_input, gt)
-                
+            
+            total_seen_samples += 1
             reses.append(tmp_reses)
 
         aggregated_metrics = get_aggregated_metrics(reses, list(self.metrics[stage].keys()))
-        print(f"Summary Statistics of val:\n {make_summary_table(aggregated_metrics)}")
+        print(f"Summary Statistics of val on rank {self.rl_algorithm.fabric.global_rank}:\n {make_summary_table(aggregated_metrics)}")
         if self.metric_for_best_model is not None:
-            self.metric_for_best_model_curr_val = aggregated_metrics[f"{self.metric_for_best_model}_mean"]
+            total_seen_samples_tensor = torch.tensor(total_seen_samples)
+            agg_total_seen_samples = self.rl_algorithm.fabric.all_reduce(total_seen_samples_tensor, reduce_op="sum")
+            metric_for_best_model = torch.tensor(aggregated_metrics[f"{self.metric_for_best_model}_mean"])
+            metric_best_model_sum_value = self.rl_algorithm.fabric.all_reduce(metric_for_best_model, reduce_op="sum")
+            agg_metric_best_model = metric_best_model_sum_value / agg_total_seen_samples
+            self.metric_for_best_model_curr_val = agg_metric_best_model.item()
                         
         ################# PART 5: Save results #################
         
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             if metric_name.endswith("mean"):
-                self.rl_algorithm.logger.record(f"{metric_name}", metric_value)
+                total_seen_samples_tensor = torch.tensor(total_seen_samples)
+                agg_total_seen_samples = self.rl_algorithm.fabric.all_reduce(total_seen_samples_tensor, reduce_op="sum")
+                metric = torch.tensor(metric_value)
+                metric_sum_value = self.rl_algorithm.fabric.all_reduce(metric, reduce_op="sum")
+                agg_metric = metric_sum_value / agg_total_seen_samples
+                self.rl_algorithm.logger.record(f"{metric_name}", agg_metric.item())
+                
             # self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
         self.rl_algorithm.logger.record(f"{stage}/advantage", mean_reward)
         self.rl_algorithm.logger.record(f"{stage}/return", mean_return)
         #TODO: Save rollouts to file
-        save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+        save_json(reses, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}_rank_{self.rl_algorithm.fabric.global_rank}.json")
 
+        self.rl_algorithm.fabric.barrier()
+        
+        list_of_jsons = []
+        if self.rl_algorithm.fabric.global_rank == 0:
+            #find all files in self.checkpoint_dir that have th following prefix: f"{stage}_results_outer_loop_{self.current_outer_loop}_rank_
+            prefix = f"{stage}_results_outer_loop_{self.current_outer_loop}_rank_"  
+            matching_files = [ os.path.join(self.checkpoint_dir, f) for f in os.listdir(self.checkpoint_dir) if f.startswith(prefix) and f.endswith(".json")]
+            merged = []
+            for file_path in matching_files:
+                with open(file_path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        merged.extend(data)  # merge lists
+                    elif isinstance(data, dict):
+                        merged.append(data)  # collect dicts into a list
+                    else:
+                        raise ValueError(f"Unexpected JSON type in file: {file_path}")
+
+            save_json(merged, self.checkpoint_dir, f"{stage}_results_outer_loop_{self.current_outer_loop}.json")
+
+        self.rl_algorithm.fabric.barrier()
 
     def run_validation(self):    
         self.evaluation("val")
+        self.rl_algorithm.fabric.barrier()
     
     def run_test(self):
         # Run evaluation on test set
@@ -322,8 +367,8 @@ class LMSBTrainer:
         
         
         self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")        
-        self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs"])
-        self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy)
+        self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs","fabric"])
+        self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy, fabric = self.rl_algorithm.fabric)
         #remove old files
         for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
             if os.path.exists(path):
@@ -361,7 +406,7 @@ class LMSBTrainer:
             
             self.load_trainer(path_to_ckpt_trainer)
 
-            self.rl_algorithm.policy.load_additional_modules(path_to_add_mods_policy)
+            self.rl_algorithm.policy.load_additional_modules(path_to_add_mods_policy, fabric = self.rl_algorithm.fabric)
             self.rl_algorithm.policy.to(self.rl_algorithm.device)
             self.load_opt(self.checkpoint_dir, "last_policy_ckpt.zip")
         else:
@@ -711,12 +756,13 @@ class LMSBTrainer:
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
         #save lm only
-        if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
-            self.save_model()
-        else:
-            self.save_model(save_dir=os.path.join(self.checkpoint_dir, f"last_ckpt"), save_type = "lm", use_save_top_k = False)
-        #save_checkpoint (opt, rl_alg)
-        self.save_checkpoint()
+        if self.rl_algorithm.fabric.global_rank == 0:
+            if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
+                self.save_model()
+            else:
+                self.save_model(save_dir=os.path.join(self.checkpoint_dir, f"last_ckpt"), save_type = "lm", use_save_top_k = False)
+            #save_checkpoint (opt, rl_alg)
+            self.save_checkpoint()
         # trainer_callback_ratios = [self.rl_algorithm.env.envs[i].ground_truth_portions for i in range(self.rl_algorithm.n_envs)]
         # log the ratios of the ground truth portions
         # self.rl_algorithm.logger.record("train/mean_ground_truth_portions", np.mean(trainer_callback_ratios))
@@ -744,7 +790,6 @@ class LMSBTrainer:
             # Learn
             self.on_learn_start()
             print("Running Learn Stage ... ")
-
             self.rl_algorithm.learn(**self.learn_kwargs)
             self.on_learn_end()
             

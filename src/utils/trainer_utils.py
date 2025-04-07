@@ -368,5 +368,27 @@ def remove_hook_from_module(module, recurse=False, hook_cls=AlignDevicesHook):
 
     return module
 
+def to_torch(object):
+    #object is either a dictionary of numpy tensors or numpy tensors.
+    
+    if isinstance(object, dict):
+        for key, value in object.items():
+            if isinstance(value, np.ndarray):
+                object[key] = torch.from_numpy(value)
+            elif isinstance(value, dict):
+                object[key] = to_torch(value)
+
+    elif isinstance(object, np.ndarray):
+        object = torch.from_numpy(object)
+    elif isinstance(object, torch.Tensor):
+        return object
+    else:
+        raise ValueError(f"Unsupported type: {type(object)}. Expected dict or numpy array.")
+        
+    return object
 
 
+def distributed_mean(tensor, fabric):
+    sum_value = fabric.all_reduce(tensor.sum(), reduce_op = "sum")
+    sum_samples = fabric.all_reduce(tensor.numel(), reduce_op = "sum")
+    return (sum_value/sum_samples).item()

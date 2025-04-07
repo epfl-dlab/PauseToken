@@ -57,21 +57,22 @@ class LLMBasePolicyValueModel(LLMBasePolicy):
 
         self._build(lr_schedule=lr_schedule)
 
-    def save_additional_modules(self, save_path):
+    def save_additional_modules(self, save_path, fabric = None):
         """
         Save additional modules (value head) to the save path.
         """
         os.makedirs(save_path, exist_ok=True)
         filename = os.path.join(save_path, "value_head.pth")
-        torch.save(self.value_head.state_dict(), filename)
+        fabric.save(filename,self.value_head.state_dict())
 
-    def load_additional_modules(self, load_path):
+    def load_additional_modules(self, load_path, fabric = None):
         """
         Load additional modules (value head) from the load path.
         """
         filename = os.path.join(load_path, "value_head.pth")
-        self.value_head.load_state_dict(torch.load(filename))
-        self.value_head.to(next(self.lm.parameters()).dtype)
+        checkpoint = fabric.load(filename)
+        self.value_head.load_state_dict(checkpoint)
+        self.value_head.to(fabric.device)
     
 
     # def predict_values(self, obs) -> torch.Tensor:

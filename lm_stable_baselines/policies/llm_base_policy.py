@@ -473,7 +473,7 @@ class LLMBasePolicy(BasePolicy):
         return obs_tensor, True
     
 
-    def save_additional_modules(self, save_path):
+    def save_additional_modules(self, save_path, fabric = None):
         """
         Save additional modules (value head) to the save path.
         """

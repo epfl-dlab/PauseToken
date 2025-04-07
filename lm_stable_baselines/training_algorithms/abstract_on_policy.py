@@ -23,6 +23,20 @@ from stable_baselines3.common.utils import get_system_info,check_for_correct_spa
 from stable_baselines3.common.vec_env.patch_gym import _convert_space
 import copy
 
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        # Not sure there are any global tensors in the state dict
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
+
 class AbstractLMOnPolicy:
     
     def __init__(self, loss_computed_in_forward_pass, batch_size, use_base_model_for_learning=False):
@@ -126,7 +140,7 @@ class AbstractLMOnPolicy:
         
         policy_path = os.path.join(path, policy_name)
         state_dict = self.policy.optimizer.state_dict()
-        torch.save(state_dict, policy_path)
+        self.fabric.save(policy_path, state_dict)
 
     def load(  # noqa: C901
         self,
@@ -167,7 +181,9 @@ class AbstractLMOnPolicy:
     def load_optimizer_state_dict(self, path: str, policy_name: str):
         self.policy._build(lr_schedule=self.lr_schedule)
         path_to_policy = os.path.join(path, policy_name)
-        self.policy.optimizer.load_state_dict(torch.load(path_to_policy))
+        checkpoint = self.fabric.load(path_to_policy)
+        self.policy.optimizer.load_state_dict(checkpoint)
+        optimizer_to(self.policy.optimizer, self.fabric.device)
 
 
     ####################################################################################################################

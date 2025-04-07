@@ -129,9 +129,10 @@ class LanguageModelContThoughtEnv(Env):
             warnings.warn("Careful, this might ruin the shuffling of the dataset if you are using it. I haven't looked into it really since I don't use it.")
         #Highly inefficient, but not sure how to do it at the moment TODO: Make it more efficient
         samples = []
-        for sample in cls.dataloaders[stage]:
-            if sample["id"] == idxs:
-                samples.append(sample["output"])
+        for i,sample in enumerate(cls.dataloaders[stage]):
+            if i in idxs:
+                #I can safely assume that the environment samples only one sample so I can return a Dict[str, Any] rather than Dict[str, List[Any]]
+                samples.append(sample["output"][0])
         return samples
     
     
