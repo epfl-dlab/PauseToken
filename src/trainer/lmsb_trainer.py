@@ -365,9 +365,10 @@ class LMSBTrainer:
         new_path_to_policy = os.path.join(self.checkpoint_dir, f"last_policy_ckpt_2.zip")
         new_path_to_add_mods_policy = os.path.join(self.checkpoint_dir, "last_policy_ckpt_2")
         
-        
-        self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")        
+        if self.rl_algorithm.fabric.global_rank == 0:
+            self.save_trainer(self.checkpoint_dir, "last_trainer_ckpt_2.zip")       
         self._save_model(self.checkpoint_dir, save_type="rl_alg", zip_name="last_rl_alg_ckpt_2.zip", policy_name = "last_policy_ckpt_2.zip", exclude=["policy_kwargs","fabric"])
+
         self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy, fabric = self.rl_algorithm.fabric)
         #remove old files
         for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
@@ -376,14 +377,13 @@ class LMSBTrainer:
 
         if os.path.exists(path_to_add_mods_policy):
             self._remove_save(path_to_add_mods_policy, is_directory = True)
-
         #rename new files
-        os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
-        os.rename(new_path_go_save_trainer, path_to_save_trainer)
-        os.rename(new_path_to_policy, path_to_policy)
-        if os.path.exists(new_path_to_add_mods_policy):
-            os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
-    
+        if self.rl_algorithm.fabric.global_rank == 0:
+            os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
+            os.rename(new_path_go_save_trainer, path_to_save_trainer)
+            os.rename(new_path_to_policy, path_to_policy)
+            if os.path.exists(new_path_to_add_mods_policy):
+                os.rename(new_path_to_add_mods_policy, path_to_add_mods_policy)
     def load_checkpoint(self):
         path_to_ckpt_rl_alg = os.path.join(self.checkpoint_dir, "last_rl_alg_ckpt.zip")
         path_to_ckpt_trainer = os.path.join(self.checkpoint_dir, "last_trainer_ckpt.zip")
@@ -756,18 +756,17 @@ class LMSBTrainer:
     def on_outer_loop_end(self):  
         print("Saving model and checkpoint ...")  
         #save lm only
-        if self.rl_algorithm.fabric.global_rank == 0:
-            if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
-                self.save_model()
-            else:
-                self.save_model(save_dir=os.path.join(self.checkpoint_dir, f"last_ckpt"), save_type = "lm", use_save_top_k = False)
-            #save_checkpoint (opt, rl_alg)
-            self.save_checkpoint()
+        if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
+            self.save_model()
+        else:
+            self.save_model(save_dir=os.path.join(self.checkpoint_dir, f"last_ckpt"), save_type = "lm", use_save_top_k = False)
+        #save_checkpoint (opt, rl_alg)
+        self.save_checkpoint()
         # trainer_callback_ratios = [self.rl_algorithm.env.envs[i].ground_truth_portions for i in range(self.rl_algorithm.n_envs)]
         # log the ratios of the ground truth portions
         # self.rl_algorithm.logger.record("train/mean_ground_truth_portions", np.mean(trainer_callback_ratios))
         # self.rl_algorithm.logger.record("train/std_ground_truth_portions", np.std(trainer_callback_ratios))
-     
+        
     def set_fabric(self,fabric):
         self.rl_algorithm.fabric = fabric
         
@@ -806,5 +805,7 @@ class LMSBTrainer:
             else:
                 self.on_outer_loop_end()
             
+            
+            self.rl_algorithm.fabric.barrier()
 
            

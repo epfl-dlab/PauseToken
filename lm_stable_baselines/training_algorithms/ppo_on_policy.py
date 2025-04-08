@@ -30,6 +30,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         """
         Update policy using the currently gathered rollout buffer.
         """
+        self.fabric.barrier()
         self.policy.train()
         if self.use_base_model_for_learning:
             self.policy.lm.set_adapter(self.name_to_adapter["peft_to_train"])
@@ -219,6 +220,7 @@ class PPOOnPolicy(AbstractLMOnPolicy, PPO):
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.fabric.barrier()
 
 
 

@@ -136,7 +136,8 @@ class AbstractLMOnPolicy:
             
         zip_path = os.path.join(path, zip_name)
 
-        save_to_zip_file(zip_path, data=data, params=None, pytorch_variables=None)
+        if self.fabric.global_rank == 0:
+            save_to_zip_file(zip_path, data=data, params=None, pytorch_variables=None)
         
         policy_path = os.path.join(path, policy_name)
         state_dict = self.policy.optimizer.state_dict()
