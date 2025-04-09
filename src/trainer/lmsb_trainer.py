@@ -364,13 +364,14 @@ class LMSBTrainer:
 
         self.rl_algorithm.policy.save_additional_modules(new_path_to_add_mods_policy, fabric = self.rl_algorithm.fabric)
         #remove old files
-        for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
-            if os.path.exists(path):
-                self._remove_save(path, is_directory = False)
+        if self.rl_algorithm.fabric.global_rank == 0:
+            for path in [path_to_save_rl_alg, path_to_save_trainer, path_to_policy]:
+                if os.path.exists(path):
+                    self._remove_save(path, is_directory = False)
 
-        if os.path.exists(path_to_add_mods_policy):
-            self._remove_save(path_to_add_mods_policy, is_directory = True)
-        #rename new files
+            if os.path.exists(path_to_add_mods_policy):
+                self._remove_save(path_to_add_mods_policy, is_directory = True)
+            #rename new files
         if self.rl_algorithm.fabric.global_rank == 0:
             os.rename(new_path_to_save_rl_alg, path_to_save_rl_alg)
             os.rename(new_path_go_save_trainer, path_to_save_trainer)
