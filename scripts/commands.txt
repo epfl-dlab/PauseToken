@@ -1,35 +1,10 @@
-EXPERIMENT_PATH=train/ppo/mistral
-DATA=math
-REWARD=math
-METRIC=math
-NUM_VAL_SAMPLES=750
-EXPERIMENT_NAME=ppo-on-math
-NOTE="uniform annealer"
-
-# global options
-FT_ON_ACTION_ONLY=true
-N_OUTER_LOOPS=20
-ENT_COEF=0.009
-VF_COEF=0.01
-BASE_KL_COEF=0.01
-BATCH_SIZE=4
-N_GRADIENT_ACCUMULATION=1
-N_ENVIRONMENTS=4
-# curriculum options, take from readme!
 
 
+python src/train.py experiment=train/cont_thoughts/gpt2_xl name=gpt2_xl-distributed-thoughts run_name=gpt2_xl_exp_0.50 rl_algorithm.policy.model.language_model.config.thought_embedding_head.divisor_exponent=0.50 rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 rl_algorithm.batch_size=4 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.n_steps=2 rl_algorithm.policy.ft_on_action_only=true rl_algorithm.n_envs=16 rl_algorithm.policy.max_output_generation_length=500
 
-python src/train.py experiment=${EXPERIMENT_PATH} \
-name=${EXPERIMENT_NAME} data=${DATA} metrics=${METRIC} rl_algorithm/reward=${REWARD} \
-rl_algorithm.ent_coef=${ENT_COEF} rl_algorithm.vf_coef=${VF_COEF} rl_algorithm.base_kl_coef=${BASE_KL_COEF} \
-trainer.n_outer_loops=${N_OUTER_LOOPS} trainer.num_val_samples=${NUM_VAL_SAMPLES} logger.notes="${NOTE}" \
-rl_algorithm.batch_size=${BATCH_SIZE} rl_algorithm.n_grad_accumulation_steps=${N_GRADIENT_ACCUMULATION} \
-rl_algorithm.policy.ft_on_action_only=${FT_ON_ACTION_ONLY} rl_algorithm.n_envs=${N_ENVIRONMENTS} \
-trainer/callbacks/portion_annealers=linear \
-trainer.callbacks.portion_annealers.warmup_timesteps=0 trainer.callbacks.portion_annealers.total_timesteps=10 \
-trainer.callbacks.portion_annealers.lower_bound_init_portion=0.0 \
-trainer.callbacks.portion_annealers.lower_bound_final_portion=0.0 \
-trainer.callbacks.portion_annealers.upper_bound_init_portion=1.0 \
-trainer.callbacks.portion_annealers.upper_bound_final_portion=1.0
+### END OF COMMAND ###
+
+
+python src/train.py experiment=train/cont_thoughts/gpt2_xl name=gpt2_xl-distributed-thoughts run_name=gpt2_xl_exp_0.25 rl_algorithm.policy.model.language_model.config.thought_embedding_head.divisor_exponent=0.25 rl_algorithm.ent_coef=0.009 rl_algorithm.vf_coef=0.01 rl_algorithm.base_kl_coef=0.01 rl_algorithm.batch_size=4 rl_algorithm.n_grad_accumulation_steps=16 rl_algorithm.n_steps=2 rl_algorithm.policy.ft_on_action_only=true rl_algorithm.n_envs=16 rl_algorithm.policy.max_output_generation_length=500
 
 ### END OF COMMAND ###
