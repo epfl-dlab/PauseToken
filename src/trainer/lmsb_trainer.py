@@ -154,11 +154,7 @@ class LMSBTrainer:
         # Run evaluation on validation set 
         self.rl_algorithm.policy.set_generation_cfg("test")
         ################# PART 1: set arguments necessary for performing rollout #################
-        rest = self.num_val_samples % self.rl_algorithm.fabric.world_size
-        if rest != 0:
-            n_samples_per_process = self.num_val_samples // self.rl_algorithm.fabric.world_size if self.rl_algorithm.fabric.global_rank < rest else (self.num_val_samples // self.rl_algorithm.fabric.world_size) + 1
-        else:
-            n_samples_per_process = self.num_val_samples // self.rl_algorithm.fabric.world_size
+        n_samples_per_process = self.num_val_samples // self.rl_algorithm.fabric.world_size
             
         n_steps = int(math.ceil(n_samples_per_process/self.rl_algorithm.n_envs))
         buffer_name = self.rl_algorithm.buffer_class_keyword
@@ -218,8 +214,7 @@ class LMSBTrainer:
             
         ################# PART 3: Collect rollouts from Buffers #################
         samps_ids =  np.where(np.ones((n_steps,self.rl_algorithm.n_envs)) == 1)
-        samps_ids = (samps_ids[0][:self.num_val_samples], samps_ids[1][:n_samples_per_process])
-    
+        samps_ids = (samps_ids[0][:n_samples_per_process], samps_ids[1][:n_samples_per_process])
         val_samps = validation_buffer._get_samples(samps_ids, env = self.rl_algorithm._vec_normalize_env)
         observations = to_torch(val_samps.observations)
         actions = to_torch(val_samps.actions)
@@ -753,7 +748,7 @@ class LMSBTrainer:
             env.ground_truth_portion_dist = init_sup_portion_dist
 
         
-    def on_outer_loop_end(self):  
+    def on_outer_loop_end(self): 
         print("Saving model and checkpoint ...")  
         #save lm only
         if self.current_steps_taken_since_validation >= self.n_steps_before_validation:
