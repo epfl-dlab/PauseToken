@@ -21,8 +21,8 @@ run_name: gpt2-xl
   
 
 trainer:
-  n_steps_before_validation: 6336
-  save_every_n_steps: 1000
+  n_steps_before_validation: 2112
+  save_every_n_steps: 500
 
   n_outer_loops: 20
   progress_bar: true
@@ -36,7 +36,7 @@ trainer:
   disable_peft_first_inference: false
 
 rl_algorithm:
-      
+  device: "cpu"
   learning_rate: 1e-6
   n_steps: 2 # used only in collect rollouts. the size of rollouts is n_envs * n_steps which should equal dataset size
   n_envs: 16 #  is the number of times rollout() is called in each outer loop, 
@@ -55,7 +55,7 @@ rl_algorithm:
     model:
       language_model:
         pretrained_model_name_or_path: /dlabscratch1/baldwin/pause2/PauseToken/logs/checkpoints/SFT/gpt2-xl.5B_sft/8e704fb0e8c62fa45cbaf609a04cd970d046bf558bcaf8842b16bdd560d1f202/ckpt-38016-0.094
-
+        device_map: "cpu"
         # torch_dtype: 
         #   _target_: src.utils.hydra_custom_resolvers.get_module_attr
         #   module_and_attr: torch.bfloat16
