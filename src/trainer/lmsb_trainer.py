@@ -292,11 +292,10 @@ class LMSBTrainer:
         aggregated_metrics = get_aggregated_metrics(reses, list(self.metrics[stage].keys()))
         print(f"Summary Statistics of val on rank {self.rl_algorithm.fabric.global_rank}:\n {make_summary_table(aggregated_metrics)}")
         if self.metric_for_best_model is not None:
-            total_seen_samples_tensor = torch.tensor(total_seen_samples)
-            agg_total_seen_samples = self.rl_algorithm.fabric.all_reduce(total_seen_samples_tensor, reduce_op="sum")
+            total_processes = float(self.rl_algorithm.fabric.world_size) 
             metric_for_best_model = torch.tensor(aggregated_metrics[f"{self.metric_for_best_model}_mean"])
             metric_best_model_sum_value = self.rl_algorithm.fabric.all_reduce(metric_for_best_model, reduce_op="sum")
-            agg_metric_best_model = metric_best_model_sum_value / agg_total_seen_samples
+            agg_metric_best_model = metric_best_model_sum_value / total_processes
             self.metric_for_best_model_curr_val = agg_metric_best_model.item()
                         
         ################# PART 5: Save results #################
@@ -304,11 +303,10 @@ class LMSBTrainer:
         #TODO: Save validation metrics
         for metric_name, metric_value in aggregated_metrics.items():
             if metric_name.endswith("mean"):
-                total_seen_samples_tensor = torch.tensor(total_seen_samples)
-                agg_total_seen_samples = self.rl_algorithm.fabric.all_reduce(total_seen_samples_tensor, reduce_op="sum")
+                total_processes = float(self.rl_algorithm.fabric.world_size) 
                 metric = torch.tensor(metric_value)
                 metric_sum_value = self.rl_algorithm.fabric.all_reduce(metric, reduce_op="sum")
-                agg_metric = metric_sum_value / agg_total_seen_samples
+                agg_metric = metric_sum_value / total_processes
                 self.rl_algorithm.logger.record(f"{metric_name}", agg_metric.item())
                 
             # self.rl_algorithm.logger.record(f"{stage}/{metric_name}", metric_value)
